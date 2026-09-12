@@ -1,0 +1,28 @@
+{
+  "name": "browsermarket",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A browser-based stock exchange trading game: stocks, ETFs, futures, IPOs, algo bots, leverage, shorting, rebirths.",
+  "scripts": {
+    "start": "node scripts/serve.js",
+    "dev": "node scripts/serve.js",
+    "test": "node --test tests/*.test.js",
+    "test:ui": "node tests/smoke.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.1"
+  },
+  "keywords": [
+    "game",
+    "trading",
+    "simulator",
+    "stock-market",
+    "browser-game",
+    "idle-game"
+  ],
+  "license": "MIT"
+}
