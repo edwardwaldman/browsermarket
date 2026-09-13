@@ -818,3 +818,106 @@ test('alerts and the calendar survive a save round trip', () => {
   assert.equal(restored.calendar.events.length, g.calendar.events.length);
   assert.equal(restored.timeMachine.simsUsed, g.timeMachine.simsUsed);
 });
+
+// ── rate limits ──────────────────────────────────────────────────────────
+import { RateLimiter, LIMITS } from '../src/engine/ratelimit.js';
+
+test('the limiter allows a burst up to the cap, then refuses', () => {
+  let now = 0;
+  const rl = new RateLimiter(() => now);
+  const { max } = LIMITS.order;
+  for (let i = 0; i < max; i++) assert.equal(rl.take('order').ok, true, `attempt ${i}`);
+  const blocked = rl.take('order');
+  assert.equal(blocked.ok, false);
+  assert.match(blocked.reason, /Too fast/);
+  assert.ok(blocked.retryMs > 0);
+});
+
+test('the window slides, so the allowance comes back', () => {
+  let now = 0;
+  const rl = new RateLimiter(() => now);
+  for (let i = 0; i < LIMITS.code.max; i++) rl.take('code');
+  assert.equal(rl.check('code').ok, false);
+  now += LIMITS.code.windowMs + 1;
+  assert.equal(rl.check('code').ok, true, 'the window should have rolled off');
+});
+
+test('check does not consume an attempt but take does', () => {
+  let now = 0;
+  const rl = new RateLimiter(() => now);
+  const before = rl.remaining('alert');
+  rl.check('alert');
+  rl.check('alert');
+  assert.equal(rl.remaining('alert'), before, 'check is side-effect free');
+  rl.take('alert');
+  assert.equal(rl.remaining('alert'), before - 1);
+});
+
+test('limits are tracked per action, not globally', () => {
+  let now = 0;
+  const rl = new RateLimiter(() => now);
+  for (let i = 0; i < LIMITS.order.max; i++) rl.take('order');
+  assert.equal(rl.check('order').ok, false);
+  assert.equal(rl.check('close').ok, true, 'closes keep their own budget');
+});
+
+test('the game refuses order spam but keeps the account intact', () => {
+  const g = new Game({ seed: 301, warmUpDays: 1 });
+  g.account.cash = 1e7;
+  let accepted = 0;
+  let reason = null;
+  for (let i = 0; i < 40; i++) {
+    const r = g.openPosition({ sym: 'OBBY', side: 'LONG', margin: 100, leverage: 1 });
+    if (r.ok) accepted += 1;
+    else { reason = r.reason; break; }
+  }
+  assert.equal(accepted, LIMITS.order.max);
+  assert.match(reason, /Too fast/);
+  // A refused order must not have moved any money.
+  assert.equal(g.account.positions.length, 1, 'repeat buys merge into one position');
+  assert.ok(g.account.cash > 0);
+});
+
+test('a refused action changes nothing', () => {
+  const g = new Game({ seed: 302, warmUpDays: 0 });
+  for (let i = 0; i < LIMITS.code.max; i++) g.redeemCode('NOPE');
+  const cashBefore = g.account.cash;
+  const codesBefore = g.flags.codes.length;
+  const res = g.redeemCode('WELCOME');
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /Too fast/);
+  assert.equal(g.account.cash, cashBefore, 'no cash granted');
+  assert.equal(g.flags.codes.length, codesBefore, 'the code stays unredeemed');
+});
+
+test('every limit is sane and self-describing', () => {
+  for (const [id, cfg] of Object.entries(LIMITS)) {
+    assert.ok(cfg.max > 0 && cfg.max <= 100, `${id} max`);
+    assert.ok(cfg.windowMs >= 1000, `${id} window`);
+    assert.ok(cfg.label && typeof cfg.label === 'string', `${id} label`);
+  }
+});
+
+// ── appearance ───────────────────────────────────────────────────────────
+import { ACCENTS, CANDLE_PALETTES, GRID_DENSITY, THEMES } from '../src/engine/settings.js';
+
+test('candle palettes define both a dark and a light ink', () => {
+  for (const [id, p] of Object.entries(CANDLE_PALETTES)) {
+    assert.ok(p.up && p.down, `${id} missing a pair`);
+    assert.ok(p.upLight && p.downLight, `${id} missing a light pair`);
+    assert.notEqual(p.up, p.down, `${id} gains and losses must differ`);
+    assert.notEqual(p.upLight, p.downLight, `${id} light pair must differ`);
+  }
+  assert.ok('blueOrange' in CANDLE_PALETTES, 'the colourblind-safe pair must exist');
+});
+
+test('accents define both themes and the grid densities ascend', () => {
+  for (const [id, a] of Object.entries(ACCENTS)) {
+    for (const key of ['accent', 'ink', 'lightAccent', 'lightInk', 'label']) {
+      assert.ok(a[key], `${id}.${key} missing`);
+    }
+  }
+  assert.ok(GRID_DENSITY.low < GRID_DENSITY.normal);
+  assert.ok(GRID_DENSITY.normal < GRID_DENSITY.high);
+  assert.deepEqual(THEMES, ['dark', 'light', 'system']);
+});

@@ -10,7 +10,6 @@ import { BottomDock } from './ui/panels.js';
 import { Modals } from './ui/modals.js';
 import { ResearchPage, EmpirePage } from './ui/pages.js';
 import { Toasts, Celebration, floatXp } from './ui/toast.js';
-import { Assistant } from './ui/assistant.js';
 import { settings } from './engine/settings.js';
 import { $, el, clear, cls, esc, on } from './util/dom.js';
 import {
@@ -83,7 +82,8 @@ function startGame(g, resumed = false) {
 
 function onSettingChange(id) {
   settings.apply();
-  if (id === 'colorblind' || id === '*') ui.chart?.render();
+  if (['candlePalette', 'theme', 'accent', 'chartGrid', '*'].includes(id)) ui.chart?.render();
+  if (id === 'dockHeight') return; // dragging repaints already
   if (id === 'buyNearTop') ui.ticket?.applyLayout();
   render(true);
 }
@@ -136,24 +136,13 @@ function buildUi() {
 
   ui.chart.onArmAlert = (price) => {
     const ins = game.market.get(symbol);
-    const res = game.alerts.add(symbol, price, ins.price);
+    const res = game.addAlert(symbol, price, ins.price);
     ui.alertBtn.className = 'ctool';
     if (!res.ok) { ui.toasts.push({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
     ui.toasts.push({ tone: 'info', icon: '🔔', text: `Alert set @ ${fmtPrice(price)}` });
     renderChart(true);
     ui.explorer.renderList(true);
   };
-
-  ui.assistant = new Assistant({
-    bar: $('#assistant'),
-    input: $('#assistant-input'),
-    log: $('#assistant-log'),
-    sendBtn: $('#assistant-send'),
-    orb: $('#assistant-orb'),
-    game,
-    getSymbol: () => symbol,
-    onSelect: selectSymbol,
-  });
 
   ui.liveBtn = el('button', { class: 'livebtn', text: '⊕ LIVE', onclick: () => ui.chart.goLive() });
   ui.liveBtn.hidden = true;
@@ -162,6 +151,13 @@ function buildUi() {
   ui.modals.onReplayTutorial = () => { game.flags.tutorialDone = false; showPromo(); };
 
   buildChartTools();
+
+  $('#btn-theme').addEventListener('click', () => {
+    const next = settings.cycleTheme();
+    ui.toasts.push({ tone: 'info', icon: '◐', text: `Theme: ${next}` });
+  });
+
+  wireDockResize();
 
   on(document, 'click', '[data-modal]', (e, node) => ui.modals.open(node.dataset.modal));
   on($('#viewnav'), 'click', '.viewtab', (e, node) => setView(node.dataset.view));
@@ -189,8 +185,8 @@ function buildChartTools() {
 
   const indicatorMenu = el('div', {
     style: {
-      position: 'absolute', zIndex: '40', background: '#0c121d', border: '1px solid #22304a',
-      borderRadius: '7px', padding: '6px', display: 'none', minWidth: '150px',
+      position: 'absolute', zIndex: '40', background: 'var(--panel-2)',
+      border: '1px solid var(--line-2)', padding: '6px', display: 'none', minWidth: '150px',
       boxShadow: '0 14px 40px rgba(0,0,0,.6)',
     },
   });
@@ -258,46 +254,68 @@ function armAlert() {
   });
 }
 
+/** Drag the dock's top edge to make the tape and the book taller. */
+function wireDockResize() {
+  const grip = $('#dock-grip');
+  const panel = $('#bottompanel');
+  if (!grip || !panel) return;
+  const MIN = 120;
+  let startY = 0;
+  let startH = 0;
+  let dragging = false;
+
+  const maxHeight = () => Math.max(MIN, window.innerHeight - 260);
+
+  const move = (y) => {
+    if (!dragging) return;
+    const next = Math.round(Math.min(maxHeight(), Math.max(MIN, startH + (startY - y))));
+    settings.set('dockHeight', next);
+    settings.apply();
+    ui.chart.render();
+  };
+
+  const stop = () => {
+    if (!dragging) return;
+    dragging = false;
+    grip.classList.remove('dragging');
+    document.body.style.userSelect = '';
+  };
+
+  const start = (y) => {
+    dragging = true;
+    startY = y;
+    startH = panel.getBoundingClientRect().height;
+    grip.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+  };
+
+  grip.addEventListener('mousedown', (e) => { e.preventDefault(); start(e.clientY); });
+  window.addEventListener('mousemove', (e) => move(e.clientY));
+  window.addEventListener('mouseup', stop);
+  grip.addEventListener('touchstart', (e) => start(e.touches[0].clientY), { passive: true });
+  window.addEventListener('touchmove', (e) => { if (dragging) move(e.touches[0].clientY); }, { passive: true });
+  window.addEventListener('touchend', stop);
+  // Double-click snaps between the compact and tall presets.
+  grip.addEventListener('dblclick', () => {
+    const tall = Math.round(maxHeight() * 0.66);
+    settings.set('dockHeight', settings.get('dockHeight') > 260 ? 188 : tall);
+    settings.apply();
+    ui.chart.render();
+  });
+}
+
 function onKey(e) {
   if (e.target.matches('input, textarea')) return;
   const map = { b: 'LONG', s: 'SHORT' };
   const tfKeys = TF_ORDER;
   if (/^[1-6]$/.test(e.key)) {
     timeframe = tfKeys[Number(e.key) - 1];
-    ui.chart.onArmAlert = (price) => {
-    const ins = game.market.get(symbol);
-    const res = game.alerts.add(symbol, price, ins.price);
-    ui.alertBtn.className = 'ctool';
-    if (!res.ok) { ui.toasts.push({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
-    ui.toasts.push({ tone: 'info', icon: '🔔', text: `Alert set @ ${fmtPrice(price)}` });
-    renderChart(true);
-    ui.explorer.renderList(true);
-  };
-
-  ui.assistant = new Assistant({
-    bar: $('#assistant'),
-    input: $('#assistant-input'),
-    log: $('#assistant-log'),
-    sendBtn: $('#assistant-send'),
-    orb: $('#assistant-orb'),
-    game,
-    getSymbol: () => symbol,
-    onSelect: selectSymbol,
-  });
-
-  ui.liveBtn = el('button', { class: 'livebtn', text: '⊕ LIVE', onclick: () => ui.chart.goLive() });
-  ui.liveBtn.hidden = true;
-  $('.chartwrap').append(ui.liveBtn);
-
-  ui.modals.onReplayTutorial = () => { game.flags.tutorialDone = false; showPromo(); };
-
-  buildChartTools();
+    buildChartTools();
     renderChart(true);
     return;
   }
   if (e.key.toLowerCase() === 'a') { armAlert(); return; }
   if (e.key.toLowerCase() === 't') { ui.modals.open('timemachine'); return; }
-  if (e.key === '/') { e.preventDefault(); $('#assistant-input').focus(); return; }
   if (map[e.key.toLowerCase()]) {
     ui.ticket.setSide(map[e.key.toLowerCase()]);
   } else if (e.key === 'Enter') {

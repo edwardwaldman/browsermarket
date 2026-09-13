@@ -8,7 +8,7 @@ import { LEVELS, RARITIES, COLLECTIBLES, BADGES, totalXpForLevel, xpForLevel } f
 import { BOT_TYPES } from '../engine/bots.js';
 import { SHOP, CODES } from '../engine/game.js';
 import { SECTORS } from '../data/instruments.js';
-import { settings, TOGGLES, UI_SCALES, SHORTCUTS } from '../engine/settings.js';
+import { settings, TOGGLES, UI_SCALES, SHORTCUTS, THEMES, ACCENTS, CANDLE_PALETTES, GRID_DENSITY } from '../engine/settings.js';
 import { sparkline } from './explorer.js';
 
 export class Modals {
@@ -79,7 +79,7 @@ export class Modals {
       <h4>EQUITY CURVE · LAST ${account.equityCurve.length} DAYS</h4>
     `));
     const curve = account.equityCurve.length > 1 ? account.equityCurve : [account.startingCash, nw];
-    const wrap = el('div', { style: { background: '#0c121d', border: '1px solid #18222f', borderRadius: '7px', padding: '10px' } });
+    const wrap = el('div', { style: { background: 'var(--panel-2)', border: '1px solid var(--line)', padding: '10px' } });
     const svg = sparkline(curve, curve.at(-1) >= curve[0] ? 'up' : 'down', 700, 120);
     svg.setAttribute('style', 'width:100%;height:120px');
     svg.setAttribute('preserveAspectRatio', 'none');
@@ -215,6 +215,27 @@ export class Modals {
 
   view_settings(body) {
     const rows = el('div');
+
+    const themeRow = el('div', { class: 'scalerow' });
+    const paintThemes = () => {
+      clear(themeRow);
+      for (const t of THEMES) {
+        themeRow.append(el('button', {
+          class: cls('scalebtn', settings.get('theme') === t && 'is-active'),
+          text: t.toUpperCase(),
+          onclick: () => { settings.set('theme', t); settings.apply(); paintThemes(); },
+        }));
+      }
+    };
+    paintThemes();
+    rows.append(el('div', { class: 'setrow' }, [
+      el('div', { class: 'setrow-body' }, [
+        el('div', { class: 'setrow-title', text: 'APPEARANCE' }),
+        el('div', { class: 'setrow-desc', text: 'Dark, light, or follow the operating system.' }),
+      ]),
+      themeRow,
+    ]));
+
     for (const t of TOGGLES) {
       const sw = el('button', {
         class: cls('switch', settings.get(t.id) && 'on'),
@@ -256,6 +277,10 @@ export class Modals {
     ]));
     body.append(rows);
 
+    body.append(el('button', {
+      class: 'bigrow', text: '✦ CUSTOMIZE TERMINAL',
+      onclick: () => this.open('customize'),
+    }));
     body.append(el('button', {
       class: 'bigrow', text: '⌨ VIEW KEYBOARD SHORTCUTS',
       onclick: () => this.open('shortcuts'),
@@ -305,9 +330,72 @@ export class Modals {
       },
     }));
     body.append(html(`<h4>ABOUT</h4><div class="ccard-sub">
-      Browser Stock Exchange — a trading simulator. Every market, company and currency here is
+      Browser Stock Exchange — a lightweight market simulation. Every market, company and currency here is
       invented. Nothing on this screen is financial advice and no real money is involved.
     </div>`));
+  }
+
+  view_customize(body) {
+    const group = (title, desc, options, key, swatch) => {
+      const row = el('div', { class: 'scalerow' });
+      const paint = () => {
+        clear(row);
+        for (const [id, label] of options) {
+          row.append(el('button', {
+            class: cls('scalebtn', settings.get(key) === id && 'is-active'),
+            html: swatch ? `${swatch(id)}<span>${label}</span>` : label,
+            onclick: () => {
+              settings.set(key, id);
+              settings.apply();
+              paint();
+              this.refresh?.();
+            },
+          }));
+        }
+      };
+      paint();
+      body.append(el('div', { class: 'setrow' }, [
+        el('div', { class: 'setrow-body' }, [
+          el('div', { class: 'setrow-title', text: title }),
+          desc ? el('div', { class: 'setrow-desc', text: desc }) : null,
+        ]),
+        row,
+      ]));
+    };
+
+    group('TERMINAL ACCENT', 'Highlights, active tabs and the primary action.',
+      Object.entries(ACCENTS).map(([id, a]) => [id, a.label]), 'accent',
+      (id) => `<i class="swatch" style="background:${ACCENTS[id].accent}"></i>`);
+
+    group('CANDLE PALETTE', 'Blue / orange stays readable with any colour vision deficiency.',
+      Object.entries(CANDLE_PALETTES).map(([id, p]) => [id, p.label]), 'candlePalette',
+      (id) => `<i class="swatch" style="background:linear-gradient(90deg,${CANDLE_PALETTES[id].up} 50%,${CANDLE_PALETTES[id].down} 50%)"></i>`);
+
+    group('CHART GRID', 'How many horizontal guides the chart draws.',
+      Object.keys(GRID_DENSITY).map((id) => [id, id.toUpperCase()]), 'chartGrid');
+
+    const motion = el('button', {
+      class: cls('switch', settings.get('reducedMotion') && 'on'),
+      text: settings.get('reducedMotion') ? 'ON' : 'OFF',
+    });
+    motion.onclick = () => {
+      const on = settings.toggle('reducedMotion');
+      settings.apply();
+      motion.className = cls('switch', on && 'on');
+      motion.textContent = on ? 'ON' : 'OFF';
+    };
+    body.append(el('div', { class: 'setrow' }, [
+      el('div', { class: 'setrow-body' }, [
+        el('div', { class: 'setrow-title', text: 'REDUCED MOTION' }),
+        el('div', { class: 'setrow-desc', text: 'Minimises flashes, banners and non-essential effects.' }),
+      ]),
+      motion,
+    ]));
+
+    body.append(el('button', {
+      class: 'bigrow plain', text: '← BACK TO SETTINGS',
+      onclick: () => this.open('settings'),
+    }));
   }
 
   view_shortcuts(body) {
@@ -390,7 +478,7 @@ export class Modals {
     body.append(html('<h4>PROMO CODE</h4>'));
     const input = el('input', {
       placeholder: 'ENTER CODE', maxlength: 24,
-      style: { flex: '1', padding: '10px 12px', background: '#070c14', border: '1px solid #18222f', borderRadius: '6px', letterSpacing: '1px' },
+      style: { flex: '1', padding: '10px 12px', background: 'var(--sunken)', border: '1px solid var(--line)', letterSpacing: '1px' },
     });
     const result = el('div', { class: 'ccard-sub', style: { marginTop: '8px' } });
     const submit = () => {
@@ -460,7 +548,7 @@ export class Modals {
       const names = market.stocks().filter((s) => s.sector === k);
       const avg = names.reduce((s, i) => s + i.changePct, 0) / names.length;
       return `<div class="ccard">
-        <div class="ccard-title"><span style="width:9px;height:9px;border-radius:50%;background:${SECTORS[k].color};display:inline-block"></span> ${esc(SECTORS[k].label)}</div>
+        <div class="ccard-title"><span style="width:9px;height:9px;background:${SECTORS[k].color};display:inline-block"></span> ${esc(SECTORS[k].label)}</div>
         <div class="ccard-sub">${names.length} listed names</div>
         <div class="ccard-foot"><b class="${avg >= 0 ? 'up' : 'down'}">${pct(avg)}</b><span class="muted">today</span></div>
       </div>`;
@@ -511,7 +599,7 @@ export class Modals {
     if (ipo) {
       const input = el('input', {
         placeholder: 'subscription amount', inputmode: 'decimal',
-        style: { flex: '1', padding: '9px 11px', background: '#070c14', border: '1px solid #18222f', borderRadius: '6px' },
+        style: { flex: '1', padding: '9px 11px', background: 'var(--sunken)', border: '1px solid var(--line)' },
       });
       const msg = el('div', { class: 'ccard-sub' });
       body.append(html(`<div class="ccard">
@@ -579,6 +667,7 @@ const TITLES = {
   missions: 'MISSIONS', collection: 'COLLECTION INDEX', badges: 'BADGES',
   rewards: 'FREE REWARDS', leaderboard: 'GLOBAL NET WORTH', shop: 'SHOP',
   timemachine: 'TIME MACHINE', shortcuts: 'KEYBOARD SHORTCUTS',
+  customize: 'TERMINAL CUSTOMIZATION',
   settings: 'SETTINGS', alerts: 'ALERTS', scanner: 'MARKET SCANNER',
   sectors: 'SECTORS', fundhq: 'FUND HQ', index: 'INDEX DESK', launchpad: 'IPO LAUNCHPAD',
 };

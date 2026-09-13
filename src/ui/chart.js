@@ -5,6 +5,20 @@ import { sma, ema, rsi, macd, bollinger, vwap, crossSignal } from '../engine/ind
 import { price as fmtPrice, compact, clockTime } from '../util/format.js';
 import { settings } from '../engine/settings.js';
 
+/** Chart chrome follows the theme; read it from CSS so there is one source. */
+function chrome() {
+  const cs = getComputedStyle(document.documentElement);
+  const v = (name, fallback) => (cs.getPropertyValue(name) || '').trim() || fallback;
+  return {
+    grid: v('--grid', '#0f1724'),
+    axis: v('--axis', '#5a6b81'),
+    text: v('--dim', '#8fa3bd'),
+    panel: v('--panel', '#0a0f18'),
+    entry: v('--text', '#c3d2e6'),
+    cross: v('--line-2', '#3b4b63'),
+  };
+}
+
 const COL = {
   grid: '#0f1724',
   axis: '#5a6b81',
@@ -209,9 +223,9 @@ export class Chart {
 
   drawGrid(ctx, geo, hi, lo, yOf) {
     const { width, padL, padR, padT, mainH } = geo;
-    ctx.strokeStyle = COL.grid;
+    ctx.strokeStyle = chrome().grid;
     ctx.lineWidth = 1;
-    const steps = 5;
+    const steps = settings.gridLines;
     for (let i = 0; i <= steps; i++) {
       const p = lo + ((hi - lo) * i) / steps;
       const y = Math.round(yOf(p)) + 0.5;
@@ -233,7 +247,7 @@ export class Chart {
       ctx.fillStyle = withAlpha(c.c >= c.o ? pal.up : pal.down, 0.3);
       ctx.fillRect(padL + i * step + (step - bw) / 2, top + volH - h - 2, bw, h);
     }
-    ctx.fillStyle = '#3b4a61';
+    ctx.fillStyle = chrome().axis;
     ctx.font = '8px ui-monospace, monospace';
     ctx.textAlign = 'left';
     ctx.fillText(`VOL  max ${compact(max)}`, padL + 2, top + 9);
@@ -260,7 +274,7 @@ export class Chart {
       const b = bollinger(closes, 20, 2);
       line(b.upper, COL.bb, 1);
       line(b.lower, COL.bb, 1);
-      line(b.mid, 'rgba(168,85,247,.25)', 1, [3, 3]);
+      line(b.mid, withAlpha('#a855f7', 0.28), 1, [3, 3]);
     }
     if (this.active.has('sma20')) line(sma(closes, 20), COL.sma, 1.5);
     if (this.active.has('sma50')) line(sma(closes, 50), '#8b5cf6', 1.3);
@@ -295,7 +309,7 @@ export class Chart {
       const y = Math.round(yOf(l.price)) + 0.5;
       if (!Number.isFinite(y)) continue;
       ctx.save();
-      ctx.strokeStyle = l.color || COL.entry;
+      ctx.strokeStyle = l.color || chrome().entry;
       ctx.setLineDash(l.dash || [5, 4]);
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -306,11 +320,11 @@ export class Chart {
       if (l.label) {
         ctx.font = '8.5px ui-monospace, monospace';
         const w = ctx.measureText(l.label).width + 10;
-        ctx.fillStyle = 'rgba(14,21,33,.92)';
+        ctx.fillStyle = chrome().panel;
         ctx.fillRect(width - padR - w - 6, y - 8, w, 15);
-        ctx.strokeStyle = l.color || COL.entry;
+        ctx.strokeStyle = l.color || chrome().entry;
         ctx.strokeRect(width - padR - w - 6, y - 8, w, 15);
-        ctx.fillStyle = l.color || COL.entry;
+        ctx.fillStyle = l.color || chrome().entry;
         ctx.textAlign = 'left';
         ctx.fillText(l.label, width - padR - w - 1, y + 3);
       }
@@ -334,7 +348,7 @@ export class Chart {
       const label = `🔔 ${fmtPrice(a.price)}`;
       ctx.font = '8.5px ui-monospace, monospace';
       const w = ctx.measureText(label).width + 12;
-      ctx.fillStyle = 'rgba(13,28,38,.95)';
+      ctx.fillStyle = chrome().panel;
       ctx.fillRect(width - padR - w - 6, y - 8, w, 15);
       ctx.strokeStyle = COL.alert;
       ctx.strokeRect(width - padR - w - 6, y - 8, w, 15);
@@ -368,7 +382,7 @@ export class Chart {
   drawSubPane(ctx, geo, closes) {
     const { width, padL, padR, padT, mainH, volH, subH } = geo;
     const top = padT + mainH + volH;
-    ctx.strokeStyle = COL.grid;
+    ctx.strokeStyle = chrome().grid;
     ctx.beginPath();
     ctx.moveTo(padL, top + 0.5);
     ctx.lineTo(width - padR, top + 0.5);
@@ -429,7 +443,7 @@ export class Chart {
   drawAxes(ctx, geo, hi, lo, yOf, xOf, bars) {
     const { width, height, padR, padB } = geo;
     ctx.font = '9px ui-monospace, monospace';
-    ctx.fillStyle = COL.axis;
+    ctx.fillStyle = chrome().axis;
     ctx.textAlign = 'left';
     for (let i = 0; i <= 5; i++) {
       const p = lo + ((hi - lo) * i) / 5;
@@ -459,7 +473,7 @@ export class Chart {
     ctx.restore();
     ctx.fillStyle = up ? pal.up : pal.down;
     ctx.fillRect(width - padR + 2, y - 8, padR - 4, 16);
-    ctx.fillStyle = '#040a12';
+    ctx.fillStyle = chrome().panel;
     ctx.font = 'bold 9.5px ui-monospace, monospace';
     ctx.textAlign = 'center';
     ctx.fillText(fmtPrice(last.c), width - padR + (padR - 2) / 2, y + 3.5);
@@ -471,7 +485,7 @@ export class Chart {
     if (!c) return;
     const x = xOf(this.hover);
     ctx.save();
-    ctx.strokeStyle = COL.cross;
+    ctx.strokeStyle = chrome().cross;
     ctx.setLineDash([3, 3]);
     ctx.beginPath();
     ctx.moveTo(Math.round(x) + 0.5, padT - 8);
