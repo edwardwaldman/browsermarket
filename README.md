@@ -1,4 +1,4 @@
-# Browser Stock Exchange 2
+# Browser Stock Exchange
 
 A trading-simulator game that runs entirely in the browser. You start with a
 small account and work toward becoming a market legend: read price action, find

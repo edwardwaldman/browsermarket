@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "A browser-based stock exchange trading game: stocks, ETFs, futures, IPOs, algo bots, leverage, shorting, rebirths.",
+  "description": "Browser Stock Exchange: a browser trading game with stocks, ETFs, futures, options, IPOs, algo desks, leverage, shorting and rebirths.",
   "scripts": {
     "start": "node scripts/serve.js",
     "dev": "node scripts/serve.js",

@@ -305,7 +305,7 @@ export class Modals {
       },
     }));
     body.append(html(`<h4>ABOUT</h4><div class="ccard-sub">
-      Browser Stock Exchange 2 — a trading simulator. Every market, company and currency here is
+      Browser Stock Exchange — a trading simulator. Every market, company and currency here is
       invented. Nothing on this screen is financial advice and no real money is involved.
     </div>`));
   }
