@@ -1057,6 +1057,36 @@ table.grid tr:hover td { background: var(--panel-2); }
 /* ── phone layout ─────────────────────────────────────────────────────────
    Below 760px the terminal reduces to a price, a chart and two full-width
    buttons. Everything else moves into sheets that slide over the top. */
+/* Turned on only inside the phone query, where the strip it replaces is off. */
+.mobile-menu {
+  display: none; align-items: center; justify-content: center;
+  padding: 6px 10px; font-size: 11.5px; letter-spacing: 1.2px; font-weight: 600;
+  color: var(--dim); background: var(--panel-2);
+  border: 1px solid var(--line-2); border-radius: 0; margin-left: auto;
+}
+
+/* The phone menu sheet. See openMobileMenu. */
+.mmenu-scrim { position: absolute; inset: 0; background: rgba(0,0,0,.6); }
+.mmenu {
+  position: absolute; left: 0; right: 0; bottom: 0; max-height: 76dvh;
+  display: flex; flex-direction: column;
+  background: var(--panel); border-top: 1px solid var(--line-2);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.mmenu-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid var(--line);
+  font-size: 12px; letter-spacing: 1.4px; color: var(--dim-2);
+}
+.mmenu-list { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.mmenu-row {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 14px; border: 0; border-bottom: 1px solid var(--line);
+  background: transparent; color: var(--text);
+  font-size: 13.5px; letter-spacing: .8px; text-align: left;
+}
+.mmenu-ico { width: 22px; font-size: 16px; text-align: center; flex: none; }
+
 .mbar { display: none; }
 .msheet-root { display: none; }
 
@@ -1089,8 +1119,13 @@ table.grid tr:hover td { background: var(--panel-2); }
     opacity: 0; transition: opacity .18s ease;
   }
   .msheet-root.is-open .msheet-scrim { opacity: 1; }
+  /* HALF THE SCREEN, NOT ALL OF IT.
+     At 92dvh the sheet covered the thing being bought, so somebody sized a
+     position against a price they could no longer see. 52dvh leaves the chart
+     behind it visible and still fits the form; the body scrolls if the
+     brackets and positions need more than that. */
   .msheet {
-    position: absolute; left: 0; right: 0; bottom: 0; max-height: 92dvh;
+    position: absolute; left: 0; right: 0; bottom: 0; max-height: 52dvh;
     display: flex; flex-direction: column;
     background: var(--panel); border-top: 1px solid var(--line-2);
     box-shadow: 0 -20px 60px var(--shadow);
@@ -1103,6 +1138,23 @@ table.grid tr:hover td { background: var(--panel-2); }
     display: flex; align-items: center; gap: 8px; padding: 10px 12px;
     border-bottom: 1px solid var(--line); flex: none;
   }
+
+  /* The chart above the order form. `flex: none` so it keeps its height while
+     the body below it scrolls, and a fixed height so the canvas has something
+     to measure itself against. */
+  .mspark-wrap {
+    position: relative; flex: none; height: 84px;
+    border-bottom: 1px solid var(--line); background: var(--sunken);
+  }
+  .mspark { display: block; width: 100%; height: 100%; }
+  .mspark-read {
+    position: absolute; top: 6px; left: 10px; right: 10px;
+    display: flex; align-items: baseline; gap: 8px;
+    pointer-events: none; font-variant-numeric: tabular-nums;
+  }
+  .mspark-sym { font-size: 12px; letter-spacing: 1px; color: var(--dim-2); }
+  .mspark-last { font-size: 17px; color: var(--text); }
+  .mspark-chg { font-size: 12.5px; margin-left: auto; }
   .msheet-collapse {
     width: 34px; height: 34px; border: 1px solid var(--line-2); border-radius: 0;
     color: var(--dim); font-size: 17px; line-height: 1; flex: none;
@@ -1254,13 +1306,31 @@ table.grid tr:hover td { background: var(--panel-2); }
   .chartpanel { min-height: 0; }
   .bottompanel { display: none; }
   .ticket { display: none; }   /* still reachable from the toolbar */
-  .asset-head { padding: 9px 11px; }
-  .ah-stats, .ah-right, .ah-tag { display: none; }
-  .ah-top { flex-wrap: nowrap; align-items: center; }
-  .ah-sym { font-size: 27px; }
-  .ah-last { font-size: 27px; }
-  .ah-chg { font-size: 14px; }
-  .ah-name { font-size: 12.5px; }
+  /* THE PRICE IS A LABEL, THE CHART IS THE PRODUCT.
+     The header was two 27px numbers and a name stacked above the chart, which
+     on a phone is most of the first screen spent on a figure that is also
+     printed on both buttons at the bottom. Shrunk to a single line so the
+     chart gets the room. */
+  .asset-head { padding: 5px 10px; }
+  .ah-stats, .ah-right, .ah-tag, .ah-name { display: none; }
+  .ah-top { flex-wrap: nowrap; align-items: baseline; gap: 8px; }
+  .ah-sym { font-size: 15px; letter-spacing: .6px; }
+  .ah-last { font-size: 17px; }
+  .ah-chg { font-size: 12px; padding: 1px 5px; }
+  /* ONE LINE, NOT TWO. .ah-price stacks the price over the change, which on a
+     phone put the percentage on a row of its own and spent another twenty
+     pixels of chart on it. Side by side, and pushed to the right edge so the
+     symbol and the price are not crowded together. */
+  .ah-price { display: flex; align-items: baseline; gap: 8px; margin-left: auto; }
+  .kindbadge { display: none; }
+
+  /* WHAT THE ICON ROW AND THE VIEW TABS COST: two full rows of chrome above
+     the chart, on the one screen size with none to spare. Both are gone, and
+     everything they reached is behind the single MENU button that replaces
+     them, so nothing is stranded. */
+  .toolstrip { display: none; }
+  .viewnav { display: none; }
+  .mobile-menu { display: inline-flex; }
   .statusbar { padding-bottom: calc(78px + env(safe-area-inset-bottom)); }
   .toasts { bottom: calc(86px + env(safe-area-inset-bottom)); }
   .promo { bottom: calc(84px + env(safe-area-inset-bottom)); }

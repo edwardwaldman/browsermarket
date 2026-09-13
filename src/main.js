@@ -74,7 +74,11 @@ function startGame(g, resumed = false) {
       icon: '🌙',
     });
   }
-  if (!game.flags.tutorialDone && game.account.stats.trades === 0) showPromo();
+  // NO ONBOARDING. A first-time player used to meet a card explaining the three
+  // things the screen already shows: the side is set, the size buttons are
+  // under the amount, and BUY is the big green one. Reading that is slower than
+  // pressing it, and it stood between somebody who came to trade and the trade.
+  // The card is still reachable from Settings for anyone who wants the tour.
 
   setInterval(() => game.save(), 10000);
   window.addEventListener('beforeunload', () => game.save());
@@ -157,6 +161,9 @@ function buildUi() {
     sheet: $('#mobile-sheet'),
     game,
     getSymbol: () => symbol,
+    // The chart's own candles, not a second source: a mini chart that disagreed
+    // with the one behind it would be worse than no mini chart.
+    getCandles: () => ui.chart?.candles || [],
     onTrade: (e) => ui.ticket.onTrade?.(e),
     onSymbolPick: () => {
       ui.mobile.collapse();
@@ -184,6 +191,17 @@ function buildUi() {
     $('#explorer').classList.remove('mobile-open');
     $('#ticket').classList.remove('mobile-open');
     window.scrollTo(0, 0);
+  });
+
+  /**
+   * THE PHONE MENU. Everything the hidden icon strip reached, in one sheet.
+   *
+   * Built from the strip itself rather than from a second hand-written list:
+   * a copy would drift the first time a tool was added, and the version that
+   * goes stale is always the one on the smaller screen nobody tests.
+   */
+  $('#btn-mobile-menu')?.addEventListener('click', () => {
+    openMobileMenu();
   });
 
   $('#btn-theme').addEventListener('click', () => {
@@ -722,6 +740,57 @@ function renderLegend() {
 }
 
 // ── promo card ───────────────────────────────────────────────────────────
+/**
+ * The phone menu sheet.
+ *
+ * PLAIN DOM AND NO MODAL REGISTRY. This is a list of buttons that open modals
+ * which already exist; routing it through the modal system would mean
+ * registering a modal whose only job is to open other modals.
+ *
+ * THE ITEMS ARE READ OFF THE HIDDEN STRIP, not written out again here. A
+ * second list would drift the first time a tool was added, and the copy that
+ * goes stale is always the one on the screen nobody tests.
+ */
+function openMobileMenu() {
+  const root = $('#modal-root');
+  const tools = [...document.querySelectorAll('.toolstrip [data-modal]')].map((b) => ({
+    id: b.dataset.modal,
+    // The title attribute is the human name; the button's text is an emoji.
+    label: (b.getAttribute('title') || b.textContent || b.dataset.modal).trim().toUpperCase(),
+    icon: (b.textContent || '').trim().split(/\s+/)[0] || '•',
+  }));
+
+  const close = () => { root.hidden = true; root.innerHTML = ''; };
+  const go = (fn) => { close(); fn(); };
+
+  const rows = tools.map((t) => `
+    <button class="mmenu-row" data-go="${t.id}">
+      <span class="mmenu-ico">${t.icon}</span><span>${t.label}</span>
+    </button>`).join('');
+
+  root.hidden = false;
+  root.innerHTML = `
+    <div class="mmenu-scrim" data-close="1"></div>
+    <div class="mmenu">
+      <div class="mmenu-head">
+        <span>MENU</span>
+        <button class="modal-close" data-close="1">✕</button>
+      </div>
+      <div class="mmenu-list">
+        <button class="mmenu-row" data-view="research">
+          <span class="mmenu-ico">◈</span><span>RESEARCH</span>
+        </button>
+        ${rows}
+      </div>
+    </div>`;
+
+  root.querySelectorAll('[data-close]').forEach((n) => { n.onclick = close; });
+  root.querySelector('[data-view]').onclick = () => go(() => setView('research'));
+  root.querySelectorAll('[data-go]').forEach((n) => {
+    n.onclick = () => go(() => ui.modals.open(n.dataset.go));
+  });
+}
+
 function showPromo() {
   const node = $('#promo');
   node.hidden = false;

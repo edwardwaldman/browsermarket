@@ -13,11 +13,13 @@ import { LEVERAGE_TIERS } from '../engine/progression.js';
 const STEPS = [0, 25, 50, 75, 100];
 
 export class MobileTrade {
-  constructor({ bar, sheet, game, getSymbol, onTrade, onSymbolPick, toast, openModal }) {
+  constructor({ bar, sheet, game, getSymbol, getCandles, onTrade, onSymbolPick, toast, openModal }) {
     this.bar = bar;
     this.sheet = sheet;
     this.game = game;
     this.getSymbol = getSymbol;
+    /** The same candles the big chart is drawing, so the two never disagree. */
+    this.getCandles = getCandles;
     this.onTrade = onTrade;
     this.onSymbolPick = onSymbolPick;
     this.toast = toast;
@@ -153,8 +155,33 @@ export class MobileTrade {
     r.preview = el('div', { class: 'mpreview' });
     r.positions = el('div', { class: 'mpositions' });
 
+    /**
+     * A MINI CHART ON TOP OF THE ORDER FORM.
+     *
+     * The sheet used to cover the screen, so the moment somebody pressed BUY
+     * the thing they were buying disappeared. That is the one piece of
+     * information a trade is actually made from: they are sizing a position
+     * against a price they can no longer see, and the only way back to it was
+     * to close the form and start again.
+     *
+     * The sheet is half the screen now and this sits at the top of it, so the
+     * chart is above the form and the live price is above the button.
+     */
+    r.spark = el('canvas', { class: 'mspark' });
+    r.sparkLast = el('span', { class: 'mspark-last' });
+    r.sparkChg = el('span', { class: 'mspark-chg' });
+    r.sparkWrap = el('div', { class: 'mspark-wrap' }, [
+      r.spark,
+      el('div', { class: 'mspark-read' }, [
+        el('span', { class: 'mspark-sym' }),
+        r.sparkLast, r.sparkChg,
+      ]),
+    ]);
+    r.sparkSym = r.sparkWrap.querySelector('.mspark-sym');
+
     r.panel = el('div', { class: 'msheet' }, [
       head,
+      r.sparkWrap,
       el('div', { class: 'msheet-body' }, [
         seg, amountRow, r.slider, ticks, r.levRow,
         balanceRow, metaRow, r.limitField, r.brackets,
@@ -178,6 +205,82 @@ export class MobileTrade {
     requestAnimationFrame(() => this.sheet.classList.add('is-open'));
     document.body.classList.add('sheet-open');
     this.update();
+  }
+
+  /**
+   * THE LAST HOUR OR SO OF CLOSES, AS A LINE. Not a second candlestick chart.
+   *
+   * A sparkline is the right amount of chart for a strip this size: at ninety
+   * pixels tall, candles are indistinguishable smudges and the wicks are a lie
+   * about precision. A line answers the only question being asked here, which
+   * is which way this has been going while I decide.
+   *
+   * Coloured against the first close on screen rather than against the day's
+   * open, because the window IS what is on screen. Green for up over the
+   * stretch drawn, red for down, and it agrees with the number beside it
+   * because both are computed from the same two values.
+   */
+  drawSpark(sym, quote) {
+    const r = this.refs;
+    const cv = r.spark;
+    if (!cv || !cv.isConnected) return;
+    const candles = this.getCandles?.() || [];
+    const closes = candles.slice(-80).map((c) => c.c).filter((n) => Number.isFinite(n));
+
+    const cssW = cv.clientWidth || 300;
+    const cssH = cv.clientHeight || 90;
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    // Only resize when it actually changed: assigning width clears the canvas,
+    // so doing it every tick would make the line flicker.
+    if (cv.width !== Math.round(cssW * dpr) || cv.height !== Math.round(cssH * dpr)) {
+      cv.width = Math.round(cssW * dpr);
+      cv.height = Math.round(cssH * dpr);
+    }
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    const last = quote?.last ?? closes[closes.length - 1];
+    r.sparkSym.textContent = sym;
+    r.sparkLast.textContent = fmtPrice(last);
+
+    if (closes.length < 2) { r.sparkChg.textContent = ''; return; }
+
+    const first = closes[0];
+    const up = closes[closes.length - 1] >= first;
+    const css = getComputedStyle(document.documentElement);
+    const line = (css.getPropertyValue(up ? '--up' : '--down') || '').trim() || (up ? '#3fb950' : '#f85149');
+
+    const delta = first ? ((closes[closes.length - 1] - first) / first) * 100 : 0;
+    r.sparkChg.textContent = `${delta >= 0 ? '+' : ''}${delta.toFixed(2)}%`;
+    r.sparkChg.style.color = line;
+
+    let hi = -Infinity, lo = Infinity;
+    for (const c of closes) { if (c > hi) hi = c; if (c < lo) lo = c; }
+    // A flat stretch has no range to scale against and would divide by zero.
+    const pad = (hi - lo) || Math.max(0.01, hi * 0.001);
+    hi += pad * 0.12; lo -= pad * 0.12;
+
+    const xOf = (i) => (i / (closes.length - 1)) * cssW;
+    const yOf = (v) => cssH - ((v - lo) / (hi - lo)) * cssH;
+
+    ctx.beginPath();
+    closes.forEach((c, i) => (i ? ctx.lineTo(xOf(i), yOf(c)) : ctx.moveTo(xOf(i), yOf(c))));
+    ctx.strokeStyle = line;
+    ctx.lineWidth = 1.6;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    // A wash under the line, so the strip reads as a chart at a glance rather
+    // than as a stray rule across the sheet.
+    ctx.lineTo(cssW, cssH);
+    ctx.lineTo(0, cssH);
+    ctx.closePath();
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = line;
+    ctx.fill();
+    ctx.globalAlpha = 1;
   }
 
   collapse() {
@@ -255,6 +358,10 @@ export class MobileTrade {
     r.barSell.classList.toggle('is-locked', !shorts);
 
     if (!this.open) return;
+
+    // The chart above the form, redrawn with the rest of the sheet so it moves
+    // with the market rather than freezing at the moment the sheet opened.
+    this.drawSpark(sym, quote);
 
     const gate = this.game.canTrade(sym);
     const maxLev = this.game.prog.maxLeverage?.() ?? 100;
