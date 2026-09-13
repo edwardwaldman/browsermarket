@@ -61,6 +61,13 @@ keep it in a library of up to 24. See `src/engine/custom.js`.
 **Order flow.** A synthetic depth ladder, live time-and-sales, spread and
 buy-pressure imbalance for every name.
 
+**On a phone** the terminal reduces to a price, a chart and two full-width BUY
+and SELL buttons carrying the live bid and ask. Pressing either expands a trade
+sheet with the whole order form: market or limit, side, amount, a percentage
+slider, leverage, take-profit and stop-loss, and the positions you already hold
+with close buttons. The market explorer and the desk ticket still open as sheets
+from the chart toolbar when you want them. See `src/ui/mobile.js`.
+
 **Progression.** 30 levels, each paying cash or opening a desk: shorts at 3,
 coins at 4, limits at 5, the launchpad at 9, algo slots at 10, funds at 13, the
 scanner at 15, futures at 16, the news wire at 20, options at 23, rebirth at 30.
@@ -187,6 +194,7 @@ src/
     modals.js           every overlay
     pages.js            the research desk
     adgate.js           the rewarded-placement overlay
+    mobile.js           the phone trade bar and order sheet
     toast.js            toasts and celebration banners
   main.js               wiring and the render loop
 tests/engine.test.js    engine tests

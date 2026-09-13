@@ -8,6 +8,7 @@ import { Explorer } from './ui/explorer.js';
 import { Ticket } from './ui/ticket.js';
 import { BottomDock } from './ui/panels.js';
 import { Modals } from './ui/modals.js';
+import { MobileTrade } from './ui/mobile.js';
 import { ResearchPage } from './ui/pages.js';
 import { Toasts, Celebration, floatXp } from './ui/toast.js';
 import { settings } from './engine/settings.js';
@@ -151,6 +152,20 @@ function buildUi() {
   ui.liveBtn.hidden = true;
   $('.chartwrap').append(ui.liveBtn);
 
+  ui.mobile = new MobileTrade({
+    bar: $('#mobile-bar'),
+    sheet: $('#mobile-sheet'),
+    game,
+    getSymbol: () => symbol,
+    onTrade: (e) => ui.ticket.onTrade?.(e),
+    onSymbolPick: () => {
+      ui.mobile.collapse();
+      $('#explorer').classList.add('mobile-open');
+    },
+    toast: (t) => ui.toasts.push(t),
+    openModal: (id) => { ui.mobile.collapse(); ui.modals.open(id); },
+  });
+
   ui.modals.symbol = symbol;
   ui.modals.previewCandles = () => game.market.get(symbol)?.candles(timeframe) ?? [];
 
@@ -165,6 +180,7 @@ function buildUi() {
     ui.modals.close();
     setView('trade');
     ui.chart.goLive();
+    ui.mobile.collapse();
     $('#explorer').classList.remove('mobile-open');
     $('#ticket').classList.remove('mobile-open');
     window.scrollTo(0, 0);
@@ -436,6 +452,7 @@ function onKey(e) {
   } else if (e.key === 'Enter') {
     ui.ticket.submit();
   } else if (e.key === 'Escape') {
+    ui.mobile.collapse();
     $('#explorer').classList.remove('mobile-open');
     $('#ticket').classList.remove('mobile-open');
   } else if (e.key === ' ') {
@@ -448,10 +465,13 @@ function onKey(e) {
 function selectSymbol(sym) {
   if (!game.market.get(sym)) return;
   symbol = sym;
+  // On a phone the explorer is a full-screen sheet; picking a name dismisses it.
+  $('#explorer').classList.remove('mobile-open');
   if (ui.modals) ui.modals.symbol = sym;
   ui.explorer.selected = sym;
   ui.explorer.renderList(true);
   ui.ticket.update();
+  ui.mobile.update();
   renderChart(true);
   renderAssetHead();
   ui.dock.render(true);
@@ -543,6 +563,7 @@ function render(full = false) {
   renderStatus();
   updateAlertCount();
   if (view === 'trade') {
+    ui.mobile.update();
     renderAssetHead();
     renderChart(full);
     ui.ticket.update();
@@ -561,7 +582,10 @@ function renderHeader() {
   const deltaPct = (delta / account.startingCash) * 100;
   $('#nw-value').textContent = settings.get('fullNumbers') ? money(nw, 0) : moneyShort(nw);
   const d = $('#nw-delta');
-  d.textContent = `${signed(delta).replace(/\.\d+$/, '')} (${pct(deltaPct)})`;
+  // The phone card has room for one of the two, so it shows the percentage.
+  d.textContent = window.innerWidth <= 760
+    ? pct(deltaPct)
+    : `${signed(delta).replace(/\.\d+$/, '')} (${pct(deltaPct)})`;
   d.className = `statcard-delta ${delta >= 0 ? 'up' : 'down'}`;
   $('#cash-value').textContent = settings.get('fullNumbers') ? money(account.cash, 0) : moneyShort(account.cash);
   $('#speed-tag').textContent = `${game.speed}x`;
