@@ -9,6 +9,7 @@ import { Leaderboard } from './leaderboard.js';
 import { Rng, clamp } from '../util/rng.js';
 import { Alerts } from './alerts.js';
 import { EventCalendar } from './calendar.js';
+import { RateLimiter } from './ratelimit.js';
 import { buildChain, markOption, CONTRACT_SIZE } from './options.js';
 
 export const SAVE_KEY = 'browsermarket.save.v1';
@@ -74,6 +75,7 @@ export class Game {
     this.rng = new Rng(seed ^ 0x7f4a);
     this.alerts = new Alerts();
     this.calendar = new EventCalendar(new Rng(seed ^ 0x1d3b));
+    this.limiter = new RateLimiter();
 
     this.trader = opts.trader || 'you';
     this.speed = 1;
@@ -290,6 +292,8 @@ export class Game {
   }
 
   runTimeMachine(id) {
+    const limit = this.limiter.check('timeskip');
+    if (!limit.ok) return { ok: false, reason: limit.reason };
     const option = this.timeMachineOptions().find((o) => o.id === id);
     if (!option) return { ok: false, reason: 'Unknown skip' };
     if (option.disabled) return { ok: false, reason: option.limit };
@@ -301,6 +305,7 @@ export class Game {
     this.advance(minutes, true);
     const after = this.account.equity(this.market);
 
+    this.limiter.take('timeskip');
     if (id === 'OPEN') this.timeMachine.skipsUsed += 1;
     if (id === 'DAY') this.timeMachine.simsUsed += 1;
 
@@ -321,6 +326,15 @@ export class Game {
   }
 
   // --- gating -------------------------------------------------------------
+
+  /** Arm a price alert, subject to the alert rate limit. */
+  addAlert(sym, price, reference) {
+    const limit = this.limiter.check('alert');
+    if (!limit.ok) return { ok: false, reason: limit.reason };
+    const res = this.alerts.add(sym, price, reference);
+    if (res.ok) this.limiter.take('alert');
+    return res;
+  }
 
   canTrade(sym) {
     const ins = this.market.get(sym);
@@ -352,6 +366,8 @@ export class Game {
   // --- player actions -----------------------------------------------------
 
   openPosition({ sym, side, margin, leverage = 1, tp = null, sl = null, trail = null }) {
+    const limit = this.limiter.check('order');
+    if (!limit.ok) return { ok: false, reason: limit.reason };
     const gate = this.canTrade(sym);
     if (!gate.ok) return { ok: false, reason: gate.reason };
     if (side === 'SHORT' && !this.prog.has('SHORTS')) {
@@ -365,18 +381,23 @@ export class Game {
     }
     this.account.perks.feeDiscount = Math.max(this.account.perks.feeDiscount, this.prog.perks.feeDiscount);
     const res = this.account.open(this.market, { sym, side, margin, leverage, tp, sl, trail });
+    if (res.ok) this.limiter.take('order');
     if (res.ok && leverage >= 10) this.prog.award('LEVERED', this.market.day);
     return res;
   }
 
   placeOrder(args) {
+    const limit = this.limiter.check('order');
+    if (!limit.ok) return { ok: false, reason: limit.reason };
     if (!this.prog.has('LIMIT')) return { ok: false, reason: 'Limit orders unlock at level 5' };
     const gate = this.canTrade(args.sym);
     if (!gate.ok) return { ok: false, reason: gate.reason };
     if (args.side === 'SHORT' && !this.prog.has('SHORTS')) {
       return { ok: false, reason: 'Shorts unlock at level 3' };
     }
-    return this.account.placeOrder(this.market, args);
+    const res = this.account.placeOrder(this.market, args);
+    if (res.ok) this.limiter.take('order');
+    return res;
   }
 
   /** Visible options chain for a symbol, widened by the current regime. */
@@ -385,17 +406,25 @@ export class Game {
   }
 
   buyOption(args) {
+    const limit = this.limiter.check('option');
+    if (!limit.ok) return { ok: false, reason: limit.reason };
     if (!this.prog.has('OPTIONS')) return { ok: false, reason: 'Options desk unlocks at level 23' };
     const gate = this.canTrade(args.sym);
     if (!gate.ok) return { ok: false, reason: gate.reason };
-    return this.account.buyOption(this.market, args);
+    const res = this.account.buyOption(this.market, args);
+    if (res.ok) this.limiter.take('option');
+    return res;
   }
 
   closeOption(id, fraction = 1) {
+    const limit = this.limiter.take('close');
+    if (!limit.ok) return { ok: false, reason: limit.reason };
     return this.account.closeOption(this.market, id, fraction, 'MANUAL');
   }
 
   closePosition(id, fraction = 1) {
+    const limit = this.limiter.take('close');
+    if (!limit.ok) return { ok: false, reason: limit.reason };
     return this.account.close(this.market, id, fraction, 'MANUAL');
   }
 
@@ -540,6 +569,8 @@ export class Game {
   // --- IPO ----------------------------------------------------------------
 
   subscribeIpo(amount) {
+    const limit = this.limiter.take('order');
+    if (!limit.ok) return { ok: false, reason: limit.reason };
     const ipo = this.market.ipo;
     if (!ipo) return { ok: false, reason: 'No book is open' };
     if (!this.prog.has('IPO')) return { ok: false, reason: 'Launchpad unlocks at level 9' };
@@ -581,11 +612,14 @@ export class Game {
   // --- empire -------------------------------------------------------------
 
   buyBot(type) {
+    const limit = this.limiter.check('bot');
+    if (!limit.ok) return { ok: false, reason: limit.reason };
     const def = BOT_TYPES[type];
     if (!def) return { ok: false, reason: 'Unknown desk' };
     if (this.account.cash < def.cost) return { ok: false, reason: 'Insufficient cash' };
     const res = this.bots.buy(type, this.botSlots());
     if (!res.ok) return res;
+    this.limiter.take('bot');
     this.account.cash -= def.cost;
     this.prog.award('BOT_OWNER', this.market.day);
     this.emit({ type: 'toast', tone: 'good', icon: def.icon, text: `${def.name} deployed` });
@@ -593,6 +627,8 @@ export class Game {
   }
 
   upgradeBot(id) {
+    const limit = this.limiter.take('bot');
+    if (!limit.ok) return { ok: false, reason: limit.reason };
     const bot = this.bots.get(id);
     if (!bot) return { ok: false, reason: 'No such desk' };
     const cost = upgradeCost(bot.type, bot.level);
@@ -604,6 +640,8 @@ export class Game {
   }
 
   fundBot(id, amount) {
+    const limit = this.limiter.take('bot');
+    if (!limit.ok) return { ok: false, reason: limit.reason };
     const bot = this.bots.get(id);
     if (!bot) return { ok: false, reason: 'No such desk' };
     if (amount > 0 && this.account.cash < amount) return { ok: false, reason: 'Insufficient cash' };
@@ -616,11 +654,14 @@ export class Game {
   // --- shop, codes, rebirth ----------------------------------------------
 
   buyShopItem(id) {
+    const limit = this.limiter.check('shop');
+    if (!limit.ok) return { ok: false, reason: limit.reason };
     const item = SHOP.find((s) => s.id === id);
     if (!item) return { ok: false, reason: 'Unknown item' };
     if (item.once && this.flags.purchased.includes(id)) return { ok: false, reason: 'Already owned' };
     if (this.account.cash < item.price) return { ok: false, reason: 'Insufficient cash' };
     this.account.cash -= item.price;
+    this.limiter.take('shop');
     this.flags.purchased.push(id);
     item.apply(this);
     this.emit({ type: 'toast', tone: 'good', icon: '✨', text: `${item.name} unlocked` });
@@ -629,6 +670,8 @@ export class Game {
 
   /** One-time bonuses claimed from the rewards panel. */
   claimReward(id) {
+    const limit = this.limiter.check('reward');
+    if (!limit.ok) return { ok: false, reason: limit.reason };
     this.flags.rewards ||= [];
     if (this.flags.rewards.includes(id)) return { ok: false, reason: 'Already claimed' };
     const amounts = {
@@ -637,6 +680,7 @@ export class Game {
     };
     const cash = amounts[id];
     if (!cash) return { ok: false, reason: 'Unknown reward' };
+    this.limiter.take('reward');
     this.flags.rewards.push(id);
     this.account.cash += cash;
     this.account.ledgerPush(this.market, `REWARD ${id.replace(/_/g, ' ')}`, cash);
@@ -645,6 +689,8 @@ export class Game {
   }
 
   redeemCode(raw) {
+    const limit = this.limiter.take('code');
+    if (!limit.ok) return { ok: false, reason: limit.reason };
     const code = String(raw || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
     const reward = CODES[code];
     if (!reward) return { ok: false, reason: 'Invalid code' };

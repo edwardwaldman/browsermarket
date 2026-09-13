@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>BSE — Browser Stock Exchange</title>
-<meta name="description" content="A browser trading simulator: stocks, funds, futures, IPOs, algo desks, leverage, shorting and rebirths." />
-<meta name="color-scheme" content="dark" />
+<title>Browser Stock Exchange — Lightweight market simulation</title>
+<meta name="description" content="Browser Stock Exchange — a lightweight market simulation. Stocks, funds, futures, options, IPOs, algo desks, leverage and shorting, all in the browser." />
+<meta name="color-scheme" content="dark light" />
 <link rel="stylesheet" href="styles/main.css" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0f18'/%3E%3Cpath d='M5 22l6-7 5 4 4-6 7 8' stroke='%2316d97d' stroke-width='2.5' fill='none' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E" />
 </head>
@@ -15,8 +15,8 @@
   <!-- ── top bar ─────────────────────────────────────────────── -->
   <header class="topbar">
     <div class="brand">
-      <div class="brand-mark">BSE</div>
-      <div class="brand-sub">BROWSER STOCK EXCHANGE</div>
+      <div class="brand-mark">BROWSER STOCK EXCHANGE</div>
+      <div class="brand-sub">LIGHTWEIGHT MARKET SIMULATION</div>
     </div>
 
     <nav class="viewnav" id="viewnav">
@@ -50,6 +50,7 @@
       <button class="tool" data-modal="badges" title="Badges">✨</button>
       <button class="shopbtn" data-modal="shop">▣ SHOP</button>
       <button class="tool" data-modal="alerts" title="Alerts">🔔<i class="badge-count" id="alert-count">0</i></button>
+      <button class="tool" id="btn-theme" title="Light / dark mode">◐</button>
       <button class="tool" data-modal="settings" title="Settings">⚙</button>
     </div>
   </header>
@@ -89,7 +90,8 @@
         </div>
       </section>
 
-      <section class="panel bottompanel">
+      <section class="panel bottompanel" id="bottompanel">
+        <div class="dock-grip" id="dock-grip" title="Drag to resize"><i></i></div>
         <div class="tabrow" id="bottomtabs"></div>
         <div class="tabbody" id="bottombody"></div>
       </section>
@@ -110,14 +112,6 @@
     <span class="status-spacer"></span>
     <span class="status-tip" id="status-tip"></span>
   </footer>
-
-  <div class="assistant" id="assistant">
-    <button class="assistant-orb" id="assistant-orb" aria-label="Open the assistant"></button>
-    <input id="assistant-input" placeholder="Ask the desk anything" autocomplete="off" />
-    <span class="assistant-hint">ENTER</span>
-    <button class="assistant-send" id="assistant-send" aria-label="Send">▸</button>
-  </div>
-  <div class="assistant-log" id="assistant-log" hidden></div>
 
   <div class="toasts" id="toasts"></div>
   <div class="celebration" id="celebration" hidden></div>

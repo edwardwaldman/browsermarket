@@ -1,5 +1,7 @@
 # Browser Stock Exchange
 
+**Lightweight market simulation.**
+
 A trading-simulator game that runs entirely in the browser. You start with a
 small account and work toward becoming a market legend: read price action, find
 the leading names, manage risk, and compound — the tape keeps running while
@@ -19,8 +21,8 @@ npm start          # serves on http://localhost:8080
 Or just open `index.html` directly — it's plain ES modules and static assets.
 
 ```bash
-npm test           # 65 engine tests, zero dependencies
-npm run test:ui    # browser smoke test (needs Playwright, see tests/smoke.mjs)
+npm test           # 74 engine tests, zero dependencies
+npm run test:ui    # 53-check browser smoke test (needs Playwright, see tests/smoke.mjs)
 ```
 
 ## What's in it
@@ -76,15 +78,25 @@ sector performance and a movers board.
 your realised profit for the week, with tabs for desks, career, collection and
 rebirth.
 
-**A desk assistant.** Ask it about your account, a ticker, the movers, the
-calendar, your risk or what to do next. It has no model behind it and makes no
-network calls — every number it quotes is read straight out of the running
-simulation, so it can't tell you anything the terminal isn't already showing.
+**Light and dark.** A full light theme alongside the dark one, or follow the
+operating system. Every element is squared off — no rounded corners anywhere.
 
-**Accessibility and comfort.** A colourblind chart palette that swaps red/green
-for blue/orange everywhere, UI scaling from 80% to 120%, optional trade
-confirmations, a buy-button-near-top layout for short screens, full-number
-formatting, and independent toggles for sound, notifications and market alerts.
+**Terminal customization.** Four accent colours, three candle palettes
+(classic, blue/orange, mono), three chart-grid densities and a reduced-motion
+mode. Blue/orange is the colourblind-safe pair: it stays distinguishable under
+every common deficiency, where red/green does not. Every sampled element clears
+5:1 contrast in both themes.
+
+**Comfort.** UI scaling from 80% to 120%, a dock you can drag taller to see
+more of the book and the tape, optional trade confirmations, a
+buy-button-near-top layout for short screens, full-number formatting, and
+independent toggles for sound, notifications and market alerts.
+
+**Rate limits.** Player actions are throttled on a sliding window — orders,
+closes, alerts, codes, shop purchases, desk changes and time skips each get
+their own budget. The game is entirely client-side, so these are not a security
+boundary; they keep a held-down key from queueing hundreds of fills and stop a
+burst from starving the tape and the render loop.
 
 **Plus:** a P&L calendar heatmap, dividends paid daily with optional
 reinvestment, financing charges on leverage and borrow, a global net-worth
@@ -136,7 +148,8 @@ src/
     account.js          positions, margin, brackets, liquidation, settlement
     alerts.js           price alerts armed from the chart
     calendar.js         scheduled events that resolve into news
-    settings.js         preferences, palettes and the colourblind mode
+    settings.js         preferences, themes, palettes and accents
+    ratelimit.js        sliding-window limits on player actions
     options.js          Black-Scholes, the chain, expiry settlement
     indicators.js       SMA, EMA, RSI, MACD, Bollinger, VWAP, crossovers
     progression.js      levels, unlocks, missions, collectibles, rebirth
@@ -150,7 +163,6 @@ src/
     panels.js           positions, orders, flow, P&L, feed, history, news
     modals.js           every overlay
     pages.js            research and empire views
-    assistant.js        the desk assistant, answering from live state
     toast.js            toasts and celebration banners
   main.js               wiring and the render loop
 tests/engine.test.js    engine tests
@@ -170,7 +182,6 @@ Node, which is what the test suite exercises.
 | `1`–`6` | jump between chart timeframes |
 | `A` | arm a price alert |
 | `T` | open the time machine |
-| `/` | focus the assistant |
 | `Esc` | close overlays |
 
 There is no login and no account step — the terminal opens straight onto the

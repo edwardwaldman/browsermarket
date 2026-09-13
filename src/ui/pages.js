@@ -344,7 +344,7 @@ export class EmpirePage {
       }
       const amount = el('input', {
         placeholder: 'amount', inputmode: 'decimal',
-        style: { flex: '1', padding: '7px 9px', background: '#070c14', border: '1px solid #18222f', borderRadius: '5px' },
+        style: { flex: '1', padding: '7px 9px', background: 'var(--sunken)', border: '1px solid var(--line)' },
       });
       card.append(el('div', { style: { display: 'flex', gap: '5px' } }, [
         amount,
