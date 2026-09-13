@@ -1012,8 +1012,123 @@ test('ad state survives a save round trip', async () => {
 test('every placement is coherent', () => {
   for (const [id, p] of Object.entries(PLACEMENTS)) {
     assert.equal(p.id, id);
-    assert.ok(p.seconds >= 5 && p.seconds <= 60, `${id} duration`);
+    assert.ok(p.seconds >= 5 && p.seconds <= 180, `${id} duration`);
     assert.ok(p.dailyCap >= 1 && p.dailyCap <= 20, `${id} cap`);
     assert.ok(p.label, `${id} label`);
   }
+});
+
+// ── max sizing ───────────────────────────────────────────────────────────
+test('max sizing fills at every leverage tier', () => {
+  const m = new Market(501).warmUp(1);
+  for (const cash of [3836, 250, 12_000, 1_000_000]) {
+    for (const leverage of [1, 5, 10, 20, 50, 100]) {
+      const a = new Account(cash);
+      const margin = a.maxMargin(leverage);
+      assert.ok(margin > 0, `cash ${cash} at ${leverage}x produced no size`);
+      const res = a.open(m, { sym: 'OBBY', side: 'LONG', margin, leverage });
+      assert.ok(res.ok, `cash ${cash} at ${leverage}x was refused: ${res.reason}`);
+      assert.ok(a.cash >= -1e-9, `cash went negative: ${a.cash}`);
+    }
+  }
+});
+
+test('max sizing leaves almost nothing on the table', () => {
+  const a = new Account(3836);
+  for (const leverage of [1, 10, 50, 100]) {
+    const margin = a.maxMargin(leverage);
+    const spend = margin + margin * leverage * a.feeRate();
+    assert.ok(spend <= a.cash + 1e-9, `${leverage}x overspends`);
+    assert.ok(spend > a.cash - 0.05, `${leverage}x leaves ${(a.cash - spend).toFixed(2)} unused`);
+  }
+});
+
+test('a flat haircut would have failed above 5x', () => {
+  // Guards the actual bug: 0.5% off the top ignores the leverage-scaled fee.
+  const a = new Account(3836);
+  const flat = Math.floor(a.cash * 0.995);
+  const feeAt50 = flat * 50 * a.feeRate();
+  assert.ok(flat + feeAt50 > a.cash, 'the old sizing should overspend at 50x');
+  assert.ok(a.maxMargin(50) < flat, 'the fix must size smaller');
+});
+
+test('partial sizes stay a share of cash, and clamp when the fee bites', () => {
+  const a = new Account(1000);
+  assert.equal(a.maxMargin(1, 0.25), 250);
+  assert.equal(a.maxMargin(1, 0.5), 500);
+  // At 100x a full-cash quarter is still affordable, so it is not clamped.
+  assert.equal(a.maxMargin(100, 0.25), 250);
+  // But the full size is.
+  assert.ok(a.maxMargin(100, 1) < 1000);
+});
+
+test('max sizing handles an empty account', () => {
+  const a = new Account(0);
+  assert.equal(a.maxMargin(10), 0);
+  a.cash = -5;
+  assert.equal(a.maxMargin(10), 0, 'a negative balance must not produce a size');
+});
+
+// ── profit targets ───────────────────────────────────────────────────────
+import { DEFAULTS as SETTING_DEFAULTS, TARGET_PRESETS } from '../src/engine/settings.js';
+
+test('a percentage take profit closes a long in the green', () => {
+  const m = new Market(601).warmUp(1);
+  const a = new Account(50000);
+  const entry = m.get('OBBY').price;
+  const tp = entry * 1.1;                       // the ticket's "10%" for a long
+  a.open(m, { sym: 'OBBY', side: 'LONG', margin: 2000, leverage: 1, tp });
+  a.runBrackets(m);
+  assert.equal(a.positions.length, 1, 'must not fire before the level');
+  m.get('OBBY').price = tp * 1.001;
+  a.runBrackets(m);
+  assert.equal(a.positions.length, 0);
+  assert.equal(a.history[0].reason, 'TAKE PROFIT');
+  assert.ok(a.history[0].pnl > 0);
+});
+
+test('a percentage take profit on a short fires when the price falls', () => {
+  const m = new Market(602).warmUp(1);
+  const a = new Account(50000);
+  const entry = m.get('PWN').price;
+  const tp = entry * 0.9;                       // "10%" the other way
+  a.open(m, { sym: 'PWN', side: 'SHORT', margin: 2000, leverage: 1, tp });
+  m.get('PWN').price = entry * 1.05;
+  a.runBrackets(m);
+  assert.equal(a.positions.length, 1, 'a rising price must not take profit on a short');
+  m.get('PWN').price = tp * 0.999;
+  a.runBrackets(m);
+  assert.equal(a.positions.length, 0);
+  assert.ok(a.history[0].pnl > 0);
+});
+
+test('a percentage stop loss caps the damage on both sides', () => {
+  for (const [side, mult] of [['LONG', 0.95], ['SHORT', 1.05]]) {
+    const m = new Market(603).warmUp(1);
+    const a = new Account(50000);
+    const entry = m.get('OBBY').price;
+    a.open(m, { sym: 'OBBY', side, margin: 2000, leverage: 1, sl: entry * mult });
+    m.get('OBBY').price = entry * (side === 'LONG' ? 0.94 : 1.06);
+    a.runBrackets(m);
+    assert.equal(a.positions.length, 0, `${side} stop did not fire`);
+    assert.equal(a.history[0].reason, 'STOP LOSS');
+    assert.ok(a.history[0].pnl > -2000, `${side} lost more than the margin`);
+  }
+});
+
+test('target defaults are sane and the presets are usable', () => {
+  assert.equal(SETTING_DEFAULTS.autoTakeProfit, false, 'opt-in, not on by default');
+  assert.equal(SETTING_DEFAULTS.autoStopLoss, false);
+  assert.ok(SETTING_DEFAULTS.takeProfitPct > 0 && SETTING_DEFAULTS.takeProfitPct <= 100);
+  assert.ok(SETTING_DEFAULTS.stopLossPct > 0 && SETTING_DEFAULTS.stopLossPct < 100);
+  assert.ok(TARGET_PRESETS.length >= 4);
+  assert.ok(TARGET_PRESETS.every((v) => v > 0 && v <= 1000));
+  assert.deepEqual(TARGET_PRESETS, [...TARGET_PRESETS].sort((x, y) => x - y), 'presets ascend');
+});
+
+test('the reset placement is a long one and capped', () => {
+  const p = PLACEMENTS.RESET_ACCOUNT;
+  assert.ok(p, 'reset must have its own placement');
+  assert.equal(p.seconds, 120, 'a two minute view, as asked');
+  assert.ok(p.dailyCap <= 5);
 });

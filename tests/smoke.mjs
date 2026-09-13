@@ -189,6 +189,36 @@ check('every leverage tier is selectable', await page.evaluate(() => {
   return levs.length === 6 && levs.every((b) => !b.classList.contains('locked') && !b.textContent.includes('🔒'));
 }));
 
+check('max sizing fills at 50x', await page.evaluate(async () => {
+  game.account.cash = 3836;
+  const ticket = document.querySelector('#ticket');
+  [...document.querySelectorAll('.lev')].find((b) => b.textContent === '50X').click();
+  [...document.querySelectorAll('.quick')].find((b) => b.textContent === 'MAX').click();
+  await new Promise((r) => setTimeout(r, 250));
+  const label = document.querySelector('#ticket .bigbtn').textContent;
+  return !label.includes('NOT ENOUGH');
+}));
+
+check('auto take profit prefills the ticket', await page.evaluate(async () => {
+  const { settings } = await import('/src/engine/settings.js');
+  settings.set('autoTakeProfit', true);
+  settings.set('takeProfitPct', 12);
+  await new Promise((r) => setTimeout(r, 350));
+  const tp = [...document.querySelectorAll('#ticket input')].find((i) => i.placeholder === 'price or %');
+  const ok = tp && tp.value === '12%';
+  settings.set('autoTakeProfit', false);
+  return ok;
+}));
+
+check('reset is behind a placement', await page.evaluate(async () => {
+  document.querySelector('[data-modal="settings"]').click();
+  await new Promise((r) => setTimeout(r, 250));
+  const btn = [...document.querySelectorAll('.bigrow')].find((b) => b.textContent.includes('RESET ACCOUNT'));
+  const gated = btn && btn.textContent.includes('PLACEMENT');
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  return gated;
+}));
+
 check('no empire tab', await page.evaluate(
   () => !document.querySelector('[data-view="empire"], #view-empire')));
 

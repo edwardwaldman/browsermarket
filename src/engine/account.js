@@ -98,6 +98,20 @@ export class Account {
     return FEE_RATE * (1 - clamp(this.perks.feeDiscount, 0, 0.9));
   }
 
+  /**
+   * Largest margin that still fills, for a given share of cash.
+   *
+   * The fee is charged on notional, so it scales with leverage:
+   *   margin + margin * leverage * feeRate <= cash
+   * At 50x with 10bps the fee is 5% of margin, so a flat percentage haircut
+   * oversizes badly. Floored to the cent so rounding lands inside the balance.
+   */
+  maxMargin(leverage = 1, fraction = 1) {
+    const cash = Math.max(0, this.cash);
+    const affordable = cash / (1 + Math.max(1, leverage) * this.feeRate());
+    return Math.floor(Math.min(cash * fraction, affordable) * 100) / 100;
+  }
+
   // --- opening and closing ------------------------------------------------
 
   /**

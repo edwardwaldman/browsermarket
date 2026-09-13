@@ -36,7 +36,14 @@ export const DEFAULTS = {
   fullNumbers: false,
   uiScale: 100,
   dockHeight: 240,
+  autoTakeProfit: false,
+  takeProfitPct: 10,
+  autoStopLoss: false,
+  stopLossPct: 5,
 };
+
+/** Presets offered next to the target inputs. */
+export const TARGET_PRESETS = [2, 5, 10, 25, 50, 100];
 
 export const TOGGLES = [
   { id: 'sound', label: 'SOUND EFFECTS', desc: 'Clicks, order fills and alert dings.' },

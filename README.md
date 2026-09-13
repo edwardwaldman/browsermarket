@@ -21,8 +21,8 @@ npm start          # serves on http://localhost:8080
 Or just open `index.html` directly — it's plain ES modules and static assets.
 
 ```bash
-npm test           # 82 engine tests, zero dependencies
-npm run test:ui    # 60-check browser smoke test (needs Playwright, see tests/smoke.mjs)
+npm test           # 92 engine tests, zero dependencies
+npm run test:ui    # 63-check browser smoke test (needs Playwright, see tests/smoke.mjs)
 ```
 
 ## What's in it

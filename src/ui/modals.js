@@ -9,7 +9,7 @@ import { BOT_TYPES, upgradeCost, OFFLINE_EFFICIENCY } from '../engine/bots.js';
 import { SHOP, CODES } from '../engine/game.js';
 import { PLACEMENTS } from '../engine/ads.js';
 import { SECTORS } from '../data/instruments.js';
-import { settings, TOGGLES, UI_SCALES, SHORTCUTS, THEMES, ACCENTS, CANDLE_PALETTES, GRID_DENSITY } from '../engine/settings.js';
+import { settings, TOGGLES, UI_SCALES, SHORTCUTS, THEMES, ACCENTS, CANDLE_PALETTES, GRID_DENSITY, TARGET_PRESETS } from '../engine/settings.js';
 import { sparkline } from './explorer.js';
 import { rankFor } from './pages.js';
 
@@ -300,6 +300,10 @@ export class Modals {
     ]));
     body.append(rows);
 
+    body.append(html('<h4>PROFIT &amp; LOSS TARGETS</h4><div class="ccard-sub">Fill the ticket\'s take profit and stop loss automatically on every new order. You can still override either one per trade.</div>'));
+    body.append(this.targetRow('AUTO TAKE PROFIT', 'Close the position once it is up this much.', 'autoTakeProfit', 'takeProfitPct'));
+    body.append(this.targetRow('AUTO STOP LOSS', 'Close the position once it is down this much.', 'autoStopLoss', 'stopLossPct'));
+
     body.append(el('button', {
       class: 'bigrow', text: '✦ CUSTOMIZE TERMINAL',
       onclick: () => this.open('customize'),
@@ -341,21 +345,79 @@ export class Modals {
     ]));
     body.append(el('button', {
       class: 'bigrow', style: { borderColor: 'rgba(255,77,106,.35)', color: 'var(--down)', background: 'rgba(255,77,106,.1)' },
-      text: 'RESET ACCOUNT',
-      onclick: (e) => {
-        if (e.target.dataset.armed) {
-          localStorage.removeItem('browsermarket.save.v1');
-          location.reload();
-        } else {
-          e.target.dataset.armed = '1';
-          e.target.textContent = 'PRESS AGAIN — THIS WIPES YOUR SAVE';
+      text: '▶ RESET ACCOUNT — WATCH A 2 MINUTE PLACEMENT',
+      onclick: async (e) => {
+        const btn = e.target;
+        if (!btn.dataset.armed) {
+          btn.dataset.armed = '1';
+          btn.textContent = 'PRESS AGAIN — THIS WIPES YOUR SAVE';
+          return;
         }
+        btn.disabled = true;
+        btn.textContent = 'PLACEMENT RUNNING…';
+        const ad = await this.onWatchAd?.('RESET_ACCOUNT');
+        if (!ad?.ok) {
+          btn.disabled = false;
+          delete btn.dataset.armed;
+          btn.textContent = '▶ RESET ACCOUNT — WATCH A 2 MINUTE PLACEMENT';
+          this.toast?.({ tone: 'bad', icon: '⚠', text: `${ad?.reason || 'No reward'} — save kept` });
+          return;
+        }
+        localStorage.removeItem('browsermarket.save.v1');
+        location.reload();
       },
     }));
     body.append(html(`<h4>ABOUT</h4><div class="ccard-sub">
       Browser Stock Exchange — a lightweight market simulation. Every market, company and currency here is
       invented. Nothing on this screen is financial advice and no real money is involved.
     </div>`));
+  }
+
+  /** A toggle plus a percentage, with presets, for one bracket target. */
+  targetRow(title, desc, toggleKey, pctKey) {
+    const presets = el('div', { class: 'scalerow' });
+    const input = el('input', {
+      type: 'text', inputmode: 'decimal', value: String(settings.get(pctKey)),
+      style: { width: '76px', padding: '8px 10px', background: 'var(--sunken)', border: '1px solid var(--line)', textAlign: 'right' },
+    });
+    const sw = el('button', {
+      class: cls('switch', settings.get(toggleKey) && 'on'),
+      text: settings.get(toggleKey) ? 'ON' : 'OFF',
+    });
+
+    const commit = (value) => {
+      const pct = Math.min(1000, Math.max(0.1, parseFloat(value) || 0));
+      settings.set(pctKey, Math.round(pct * 10) / 10);
+      input.value = String(settings.get(pctKey));
+      paint();
+    };
+    const paint = () => {
+      clear(presets);
+      for (const v of TARGET_PRESETS) {
+        presets.append(el('button', {
+          class: cls('scalebtn', settings.get(pctKey) === v && 'is-active'),
+          text: `${v}%`,
+          onclick: () => commit(v),
+        }));
+      }
+    };
+    paint();
+    input.addEventListener('change', () => commit(input.value));
+    sw.onclick = () => {
+      const on = settings.toggle(toggleKey);
+      sw.className = cls('switch', on && 'on');
+      sw.textContent = on ? 'ON' : 'OFF';
+      this.refresh?.();
+    };
+
+    return el('div', { class: 'setrow', style: { flexWrap: 'wrap' } }, [
+      el('div', { class: 'setrow-body' }, [
+        el('div', { class: 'setrow-title', text: title }),
+        el('div', { class: 'setrow-desc', text: desc }),
+      ]),
+      el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [input, sw]),
+      el('div', { style: { flexBasis: '100%' } }, [presets]),
+    ]);
   }
 
   view_customize(body) {
