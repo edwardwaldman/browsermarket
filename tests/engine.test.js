@@ -2,7 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Rng, mulberry32, clamp } from '../src/util/rng.js';
-import { sma, ema, rsi, macd, bollinger, vwap, crossSignal } from '../src/engine/indicators.js';
+import {
+  sma, ema, rsi, macd, bollinger, vwap, crossSignal,
+  wma, rma, rollingMedian, highest, lowest, stdev, shift,
+} from '../src/engine/indicators.js';
+import {
+  validateFormula, computeCustom, describeDef, normaliseDef, blankDef,
+  IndicatorLibrary, MAX_SAVED, SOURCES, OPERATIONS,
+} from '../src/engine/custom.js';
 import { Market, aggregate, sessionAt, ar1Innovation, TF } from '../src/engine/market.js';
 import { Account, FEE_RATE } from '../src/engine/account.js';
 import { Progression, totalXpForLevel, xpForLevel, LEVERAGE_TIERS, LEVELS } from '../src/engine/progression.js';
@@ -1131,4 +1138,233 @@ test('the reset placement is a long one and capped', () => {
   assert.ok(p, 'reset must have its own placement');
   assert.equal(p.seconds, 120, 'a two minute view, as asked');
   assert.ok(p.dailyCap <= 5);
+});
+
+// ── window functions ─────────────────────────────────────────────────────
+test('the new window functions agree with a hand calculation', () => {
+  const v = [1, 2, 3, 4, 5, 6];
+  assert.deepEqual(wma(v, 3).slice(2), [(1 + 4 + 9) / 6, (2 + 6 + 12) / 6, (3 + 8 + 15) / 6, (4 + 10 + 18) / 6]);
+  assert.deepEqual(highest(v, 3).slice(2), [3, 4, 5, 6]);
+  assert.deepEqual(lowest(v, 3).slice(2), [1, 2, 3, 4]);
+  assert.deepEqual(rollingMedian(v, 3).slice(2), [2, 3, 4, 5]);
+  assert.equal(rollingMedian([5, 1, 4, 2], 4)[3], 3, 'even windows average the middle pair');
+  // A constant series has zero dispersion and an unchanged Wilder average.
+  assert.equal(stdev([7, 7, 7, 7], 3)[3], 0);
+  assert.equal(rma([7, 7, 7, 7], 3)[3], 7);
+  assert.deepEqual(shift([1, 2, 3], 1), [null, 1, 2]);
+  assert.deepEqual(shift([1, 2, 3], -1), [2, 3, null]);
+  assert.deepEqual(shift([1, 2, 3], 0), [1, 2, 3]);
+});
+
+test('rollingMedian does not corrupt the series it reads', () => {
+  const v = [9, 1, 5, 3, 7];
+  rollingMedian(v, 3);
+  assert.deepEqual(v, [9, 1, 5, 3, 7], 'the input must not be sorted in place');
+});
+
+// ── custom indicators ────────────────────────────────────────────────────
+function fakeCandles(n = 140) {
+  const out = [];
+  let p = 100;
+  for (let i = 0; i < n; i++) {
+    const o = p;
+    p *= 1 + Math.sin(i / 6) * 0.008;
+    out.push({ t: i, o, h: Math.max(o, p) * 1.002, l: Math.min(o, p) * 0.998, c: p, v: 1000 + i * 3 });
+  }
+  return out;
+}
+
+test('a formula parses into terms and a warmup', () => {
+  const r = validateFormula('ema(close,12) - ema(close,26)');
+  assert.equal(r.ok, true);
+  assert.equal(r.terms, 7, 'close, 12, close, 26, two calls and the minus');
+  assert.equal(r.warmup, 26, 'the slower leg sets the warmup');
+});
+
+test('the parser rejects what it cannot evaluate', () => {
+  for (const bad of ['', 'ema(close)', 'foo(close,3)', 'close +', 'ema(bar,3)', '2 ** 3', 'sma(close,3))']) {
+    const r = validateFormula(bad);
+    assert.equal(r.ok, false, `"${bad}" should not parse`);
+    assert.ok(r.error && r.error.length > 4, `"${bad}" needs a readable reason`);
+  }
+});
+
+test('a formula indicator computes the same line as the primitives', () => {
+  const candles = fakeCandles();
+  const closes = candles.map((c) => c.c);
+  const direct = ema(closes, 12).map((v, i) => (v !== null && ema(closes, 26)[i] !== null ? v - ema(closes, 26)[i] : null));
+  const res = computeCustom({ mode: 'formula', formula: 'ema(close,12) - ema(close,26)' }, candles);
+  assert.equal(res.error, null);
+  assert.ok(Math.abs(res.values.at(-1) - direct.at(-1)) < 1e-9);
+  // Warmup shows up as leading nulls, never as NaN.
+  assert.ok(res.values.every((v) => v === null || Number.isFinite(v)));
+  assert.equal(res.values.length, candles.length);
+});
+
+test('nested calls survive the leading nulls of their inner series', () => {
+  const candles = fakeCandles();
+  const res = computeCustom({ mode: 'formula', formula: 'sma(ema(close,5),10)' }, candles);
+  assert.ok(Number.isFinite(res.values.at(-1)));
+  const firstDefined = res.values.findIndex((v) => v !== null);
+  assert.ok(firstDefined >= 10, 'an inner ema must push the first value out');
+});
+
+test('picker mode matches the operation it names', () => {
+  const candles = fakeCandles();
+  const closes = candles.map((c) => c.c);
+  const res = computeCustom({ mode: 'picker', op: 'sma', source: 'close', period: 20 }, candles);
+  assert.ok(Math.abs(res.values.at(-1) - sma(closes, 20).at(-1)) < 1e-9);
+  assert.equal(describeDef({ mode: 'picker', op: 'ema', source: 'hlc3', period: 9 }), 'EMA(HLC3, 9)');
+});
+
+test('every source and operation the builder offers actually computes', () => {
+  const candles = fakeCandles();
+  for (const src of SOURCES) {
+    for (const op of OPERATIONS) {
+      const res = computeCustom({ mode: 'picker', op: op.id, source: src.id, period: 14 }, candles);
+      assert.ok(res && !res.error, `${op.id}(${src.id}) failed`);
+      assert.ok(Number.isFinite(res.values.at(-1)), `${op.id}(${src.id}) produced no value`);
+    }
+  }
+});
+
+test('bands sit either side of the line', () => {
+  const candles = fakeCandles();
+  const envelope = computeCustom({ mode: 'picker', op: 'sma', period: 20, band: 'pct', bandValue: 2 }, candles);
+  const i = envelope.values.length - 1;
+  assert.ok(Math.abs(envelope.upper[i] / envelope.values[i] - 1.02) < 1e-9);
+  assert.ok(Math.abs(envelope.lower[i] / envelope.values[i] - 0.98) < 1e-9);
+  const sd = computeCustom({ mode: 'picker', op: 'sma', period: 20, band: 'stdev', bandValue: 2 }, candles);
+  assert.ok(sd.upper[i] > sd.values[i] && sd.lower[i] < sd.values[i]);
+});
+
+test('a plot offset moves the line without changing its shape', () => {
+  const candles = fakeCandles();
+  const flat = computeCustom({ mode: 'picker', op: 'sma', period: 10, offset: 0 }, candles);
+  const moved = computeCustom({ mode: 'picker', op: 'sma', period: 10, offset: 3 }, candles);
+  assert.equal(moved.values.at(-1), flat.values.at(-4));
+  assert.equal(moved.values.length, flat.values.length);
+});
+
+test('a definition is clamped into something drawable', () => {
+  const d = normaliseDef({
+    name: 'x'.repeat(80), period: 9999, offset: -400, width: 12,
+    color: 'javascript:alert(1)', band: 'nope', plot: 'nope', guides: ['a', 30, 70],
+  });
+  assert.ok(d.name.length <= 28);
+  assert.equal(d.period, 200);
+  assert.equal(d.offset, -50);
+  assert.equal(d.width, 4);
+  assert.ok(/^#[0-9a-f]{6}$/i.test(d.color), 'a bad colour never reaches the canvas');
+  assert.equal(d.band, 'off');
+  assert.equal(d.plot, 'overlay');
+  assert.deepEqual(d.guides, [30, 70]);
+});
+
+test('a broken formula reports instead of throwing', () => {
+  const res = computeCustom({ mode: 'formula', formula: 'ema(close' }, fakeCandles());
+  assert.ok(res.error, 'the chart needs a reason, not an exception');
+  assert.deepEqual(res.values, []);
+});
+
+test('the library saves, applies and deletes', () => {
+  const store = memoryStorage();
+  const lib = new IndicatorLibrary(store);
+  const a = lib.save({ ...blankDef(), name: 'ALPHA' });
+  assert.equal(a.ok, true);
+  assert.ok(a.def.id, 'saving assigns an id');
+  assert.equal(lib.applied.has(a.def.id), false, 'saving alone does not draw it');
+  lib.apply(a.def.id);
+  assert.deepEqual(lib.activeDefs().map((d) => d.name), ['ALPHA']);
+
+  // Re-saving the same id edits in place rather than piling up duplicates.
+  lib.save({ ...a.def, name: 'ALPHA TWO' });
+  assert.equal(lib.list.length, 1);
+  assert.equal(lib.list[0].name, 'ALPHA TWO');
+
+  // A fresh reader sees the same library, applied flags and all.
+  const reloaded = new IndicatorLibrary(store);
+  assert.equal(reloaded.list.length, 1);
+  assert.deepEqual(reloaded.activeDefs().map((d) => d.name), ['ALPHA TWO']);
+
+  lib.remove(a.def.id);
+  assert.equal(lib.list.length, 0);
+  assert.equal(lib.activeDefs().length, 0);
+});
+
+test('the library refuses a formula it cannot parse and caps its size', () => {
+  const lib = new IndicatorLibrary(memoryStorage());
+  assert.equal(lib.save({ ...blankDef(), mode: 'formula', formula: 'ema(close' }).ok, false);
+  for (let i = 0; i < MAX_SAVED; i++) lib.save({ ...blankDef(), name: `I${i}` });
+  assert.equal(lib.list.length, MAX_SAVED);
+  const over = lib.save({ ...blankDef(), name: 'ONE TOO MANY' });
+  assert.equal(over.ok, false);
+});
+
+function memoryStorage() {
+  const map = new Map();
+  return {
+    get length() { return map.size; },
+    key: (i) => [...map.keys()][i] ?? null,
+    getItem: (k) => (map.has(k) ? map.get(k) : null),
+    setItem: (k, v) => map.set(k, String(v)),
+    removeItem: (k) => map.delete(k),
+  };
+}
+
+// ── alerts ───────────────────────────────────────────────────────────────
+test('an alert fires once, lands in history and leaves the armed list', () => {
+  const g = new Game({ trader: 't', seed: 909 });
+  const ins = g.market.get('OBBY');
+  const res = g.addAlert('OBBY', ins.price * 1.02, ins.price);
+  assert.equal(res.ok, true);
+  assert.equal(g.alerts.pending.length, 1);
+  assert.equal(g.alerts.history.length, 0);
+
+  ins.price *= 1.05;
+  const fired = g.alerts.check(g.market);
+  assert.equal(fired.length, 1);
+  assert.equal(g.alerts.pending.length, 0, 'a fired alert stops being armed');
+  assert.equal(g.alerts.history.length, 1);
+  assert.ok(g.alerts.history[0].firedPrice > 0);
+
+  // A second pass must not re-fire it.
+  assert.equal(g.alerts.check(g.market).length, 0);
+  assert.equal(g.alerts.history.length, 1);
+});
+
+test('alerts refuse duplicates and survive a save round trip', () => {
+  const g = new Game({ trader: 't', seed: 77 });
+  const p = g.market.get('OBBY').price;
+  assert.equal(g.addAlert('OBBY', p * 1.03, p).ok, true);
+  assert.equal(g.addAlert('OBBY', p * 1.03, p).ok, false, 'the same level twice is a no-op');
+  g.market.get('OBBY').price = p * 1.05;
+  g.alerts.check(g.market);
+
+  const restored = Game.fromJSON(JSON.parse(JSON.stringify(g.toJSON())));
+  assert.equal(restored.alerts.history.length, 1, 'the bell history is part of the save');
+  restored.alerts.clearHistory();
+  assert.equal(restored.alerts.history.length, 0);
+});
+
+// ── wiping the account ───────────────────────────────────────────────────
+test('a wipe clears every key and blocks the saves that follow it', () => {
+  const store = memoryStorage();
+  store.setItem('unrelated.key', 'keep me');
+  const g = new Game({ trader: 't', seed: 4 });
+  assert.equal(g.save(store), true);
+  new IndicatorLibrary(store).save(blankDef());
+  store.setItem('browsermarket.favs', '["OBBY"]');
+  store.setItem('browsermarket.settings.v1', '{"theme":"light"}');
+
+  assert.equal(g.wipe(store), true);
+  for (let i = 0; i < store.length; i++) {
+    assert.ok(!store.key(i).startsWith('browsermarket.'), `${store.key(i)} survived the wipe`);
+  }
+  assert.equal(store.getItem('unrelated.key'), 'keep me', 'only our own keys go');
+
+  // The autosave timer and the beforeunload handler both fire after a wipe.
+  assert.equal(g.save(store), false, 'a wiped game must never write itself back');
+  assert.equal(store.getItem('browsermarket.save.v1'), null);
+  assert.equal(g.running, false, 'the loop stops so nothing can tick a save back in');
 });

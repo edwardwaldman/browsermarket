@@ -4,7 +4,7 @@
 
 A trading-simulator game that runs entirely in the browser. You start with a
 small account and work toward becoming a market legend: read price action, find
-the leading names, manage risk, and compound — the tape keeps running while
+the leading names, manage risk, and compound. The tape keeps running while
 you're away.
 
 No build step, no framework, no dependencies. Open `index.html` and play.
@@ -18,7 +18,7 @@ No build step, no framework, no dependencies. Open `index.html` and play.
 npm start          # serves on http://localhost:8080
 ```
 
-Or just open `index.html` directly — it's plain ES modules and static assets.
+Or just open `index.html` directly. It is plain ES modules and static assets.
 
 ```bash
 npm test           # 92 engine tests, zero dependencies
@@ -37,18 +37,31 @@ the IPO launchpad as you play.
 posted margin; the preview shows your fill, fee and liquidation price before you
 commit.
 
-**Options desk.** Black-Scholes-priced calls and puts with a live strike chain —
+**Options desk.** Black-Scholes-priced calls and puts with a live strike chain,
 premium, delta and implied vol per strike, three expiries, volatility skew on
 the wings. Long premium only, so the most you can lose is what you paid.
 
 **Charting.** Candlesticks on six timeframes with SMA, EMA, Bollinger bands,
 VWAP, RSI and MACD, a volume pane, crossover signals, your average entry and
-liquidation lines drawn on the chart, and a crosshair readout.
+liquidation lines drawn on the chart, and a crosshair readout. BUY and SELL sit
+on the chart toolbar for a one-press market order at whatever size the ticket is
+already showing.
+
+**Indicator builder.** Build your own and put it on the chart. PICKER mode
+assembles one from a source (close, open, high, low, HL2, HLC3, OHLC4, volume),
+a smoothing operation (SMA, EMA, WMA, RMA, median, highest, lowest, stdev, VWAP)
+and a period. FORMULA mode parses an expression instead, so
+`ema(close,12) - ema(close,26)` becomes a line, with live validation that tells
+you how many terms it read and how many bars of history it needs before the
+first value appears. Either way you pick an overlay or its own sub-pane, a
+percentage or standard-deviation band, a plot offset, line width, guide levels
+and a colour, preview it against the symbol you are looking at, then apply it or
+keep it in a library of up to 24. See `src/engine/custom.js`.
 
 **Order flow.** A synthetic depth ladder, live time-and-sales, spread and
 buy-pressure imbalance for every name.
 
-**Progression.** 30 levels, each paying cash or opening a desk — shorts at 3,
+**Progression.** 30 levels, each paying cash or opening a desk: shorts at 3,
 coins at 4, limits at 5, the launchpad at 9, algo slots at 10, funds at 13, the
 scanner at 15, futures at 16, the news wire at 20, options at 23, rebirth at 30.
 Missions, daily streaks, collectible drops and badges feed the XP curve.
@@ -56,13 +69,13 @@ Leverage is **not** gated: every tier from 1x to 100x is available from the
 first trade, because it is a risk choice rather than a reward.
 
 **Nothing is for sale.** Every unlock that would normally sit behind a purchase
-— the permanent-edge upgrades, the extra algo slot, simulating a day or a week —
+(the permanent-edge upgrades, the extra algo slot, simulating a day or a week)
 is opened by watching a rewarded placement instead. `src/engine/ads.js` holds
 the gate: daily caps and a cooldown per placement, and a `provider` that is the
 single integration point for a real ad SDK. The built-in provider is an honest
 placeholder that says so on screen; a skipped view grants nothing.
 
-**Algo desks.** Six strategies you buy, fund and upgrade — momentum, mean
+**Algo desks.** Six strategies you buy, fund and upgrade: momentum, mean
 reversion, market making, index arbitrage, news sentiment and yield harvesting.
 Each one reads the live tape it claims to trade, and each keeps earning at 60%
 efficiency while you're offline.
@@ -72,19 +85,22 @@ worth +5% XP, +25% starting cash, +4% algo yield, −2% fees, +3% dividends and
 +3% drop luck, permanently.
 
 **Price alerts.** Arm the bell, click a level on the chart, and it draws there
-until the tape crosses it. Armed names are flagged in the explorer.
+until the tape crosses it. Armed names are flagged in the explorer. The bell
+badge counts what is actually armed, and the alerts panel lists those levels with
+their distance from the last price, arms new ones by ticker, and keeps a history
+of the last thirty that fired and the price they fired at.
 
 **Time machine.** Skip to the open, or simulate a full day or week. Nothing is
-faked — the skip runs the same simulation you would have watched, so positions
+faked. The skip runs the same simulation you would have watched, so positions
 mark, brackets fire, dividends pay and IPOs settle exactly as they would have.
 
 **Research desk.** A scheduled calendar of everything the market already knows
-is coming — earnings, ex-dividend dates, lockup expiries, guidance and product
-events — that resolves into real news on the wire when its moment arrives. Plus
+is coming (earnings, ex-dividend dates, lockup expiries, guidance and product
+events) that resolves into real news on the wire when its moment arrives. Plus
 sector performance and a movers board.
 
 **Light and dark.** A full light theme alongside the dark one, or follow the
-operating system. Every element is squared off — no rounded corners anywhere.
+operating system. Every element is squared off, with no rounded corners anywhere.
 
 **Terminal customization.** Four accent colours, three candle palettes
 (classic, blue/orange, mono), three chart-grid densities and a reduced-motion
@@ -97,7 +113,7 @@ more of the book and the tape, optional trade confirmations, a
 buy-button-near-top layout for short screens, full-number formatting, and
 independent toggles for sound, notifications and market alerts.
 
-**Rate limits.** Player actions are throttled on a sliding window — orders,
+**Rate limits.** Player actions are throttled on a sliding window: orders,
 closes, alerts, codes, shop purchases, desk changes and time skips each get
 their own budget. The game is entirely client-side, so these are not a security
 boundary; they keep a held-down key from queueing hundreds of fills and stop a
@@ -118,23 +134,23 @@ so a trading day is about 12 minutes):
 return = β·market + sector + trend + meanReversion + idiosyncratic + newsShock
 ```
 
-- **Market factor** — a persistent AR(1) process scaled by the current regime.
+- **Market factor.** A persistent AR(1) process scaled by the current regime.
   Regimes (recovery, expansion, mania, distribution, contraction, crash) shift
   on a Markov chain once a day and move the drift and volatility of everything
   at once.
-- **Trend** — a per-name AR(1) momentum term, scaled to each name's own
+- **Trend.** A per-name AR(1) momentum term, scaled to each name's own
   volatility. This is what makes trends and pullbacks legible on the chart.
-- **Mean reversion** — each name has a slowly drifting anchor value it's pulled
+- **Mean reversion.** Each name has a slowly drifting anchor value it's pulled
   toward with a half-life of about four sessions. Loose enough to let a trend
   run, tight enough that nothing runs away.
-- **News** — headlines carry a stated total impact. The per-tick shock is scaled
+- **News.** Headlines carry a stated total impact. The per-tick shock is scaled
   by `1 − decay` so the geometric sum equals exactly that impact, rather than
   integrating into a runaway move.
 
 Persistent factors compound across a day, so every AR(1) innovation is sized
-through `ar1Innovation(dailySd, rho)` — getting that scaling wrong is the usual
+through `ar1Innovation(dailySd, rho)`. Getting that scaling wrong is the usual
 reason a naive market simulation explodes. The tests assert the resulting daily
-volatility stays in a believable band (roughly 2–5% for equities, 9–20% for
+volatility stays in a believable band (roughly 2-5% for equities, 9-20% for
 digital assets, ~1% for FX).
 
 Fills use a square-root impact law against a book scaled to each name's daily
@@ -158,6 +174,7 @@ src/
     ads.js              rewarded-placement gating for every unlock
     options.js          Black-Scholes, the chain, expiry settlement
     indicators.js       SMA, EMA, RSI, MACD, Bollinger, VWAP, crossovers
+    custom.js           user-built indicators and the formula language
     progression.js      levels, unlocks, missions, collectibles, rebirth
     bots.js             the six algo strategies
     leaderboard.js      rival traders
@@ -176,7 +193,7 @@ tests/engine.test.js    engine tests
 tests/smoke.mjs         browser smoke test
 ```
 
-The engine has no DOM dependency — every module under `src/engine` runs in plain
+The engine has no DOM dependency: every module under `src/engine` runs in plain
 Node, which is what the test suite exercises.
 
 ## Controls
@@ -186,18 +203,18 @@ Node, which is what the test suite exercises.
 | `Space` | pause / resume the market |
 | `B` / `S` | switch the ticket to long or short |
 | `Enter` | submit the ticket |
-| `1`–`6` | jump between chart timeframes |
+| `1`-`6` | jump between chart timeframes |
 | `A` | arm a price alert |
 | `T` | open the time machine |
 | `Esc` | close overlays |
 
-There is no login and no account step — the terminal opens straight onto the
+There is no login and no account step. The terminal opens straight onto the
 tape. The ⏩ button in the header opens the time machine, which also holds the
 1x / 2x / 4x speed control.
 
 ## Saving
 
 Progress autosaves to `localStorage` every 10 seconds and on unload. Reopening
-the page replays the time you were away — the market keeps moving, resting
+the page replays the time you were away: the market keeps moving, resting
 orders can fill, brackets can trigger and your algo desks keep earning. Export
 or wipe your save from Settings.

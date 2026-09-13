@@ -282,7 +282,7 @@ export class Game {
       {
         id: 'WEEK',
         title: 'Simulate 1 week',
-        desc: 'Seven full days — dividends stack, IPOs fill.',
+        desc: 'Seven full days. Dividends stack, IPOs fill.',
         minutes: 1440 * 7,
         free: false,
         placement: 'SIM_WEEK',
@@ -578,7 +578,7 @@ export class Game {
     const grant = 500 * (1 + this.prog.prestigePoints * 0.5);
     this.account.cash += grant;
     this.account.ledgerPush(this.market, 'DESK STAKE', grant);
-    this.emit({ type: 'toast', tone: 'info', icon: '🛟', text: `Desk stake +$${grant.toFixed(0)} — stay in the game` });
+    this.emit({ type: 'toast', tone: 'info', icon: '🛟', text: `Desk stake +$${grant.toFixed(0)}, stay in the game` });
   }
 
   // --- IPO ----------------------------------------------------------------
@@ -723,9 +723,9 @@ export class Game {
 
   rebirth() {
     const nw = this.account.netWorth(this.market);
-    if (!this.prog.canRebirth(nw)) return { ok: false, reason: 'Reach $1,000,000 net worth at level 30' };
+    if (!this.prog.canRebirth(nw)) return { ok: false, reason: 'Reach $1,000,000 portfolio value at level 30' };
     const res = this.prog.rebirth(nw);
-    if (!res) return { ok: false, reason: 'Not enough net worth' };
+    if (!res) return { ok: false, reason: 'Not enough portfolio value' };
     for (const o of this.account.options.slice()) this.account.closeOption(this.market, o.id, 1, 'REBIRTH');
     this.account.closeAll(this.market, 'REBIRTH');
     this.account.cash = this.prog.perks.startingCash;
@@ -797,12 +797,35 @@ export class Game {
   }
 
   save(storage = globalThis.localStorage) {
-    if (!storage) return false;
+    if (!storage || this.wiped) return false;
     try {
       storage.setItem(SAVE_KEY, JSON.stringify(this.toJSON()));
       return true;
     } catch (err) {
       console.warn('save failed', err);
+      return false;
+    }
+  }
+
+  /**
+   * Clear every trace of this player and stop the loop. The autosave timer and
+   * the beforeunload handler both fire after this, so `wiped` has to latch:
+   * without it the save is written straight back before the page reloads.
+   */
+  wipe(storage = globalThis.localStorage) {
+    this.wiped = true;
+    this.stop();
+    if (!storage) return false;
+    try {
+      const keys = [];
+      for (let i = 0; i < storage.length; i++) {
+        const k = storage.key(i);
+        if (k && k.startsWith('browsermarket.')) keys.push(k);
+      }
+      for (const k of keys) storage.removeItem(k);
+      return true;
+    } catch (err) {
+      console.warn('wipe failed', err);
       return false;
     }
   }

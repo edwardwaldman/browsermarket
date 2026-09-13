@@ -10,6 +10,10 @@ import { SHOP, CODES } from '../engine/game.js';
 import { PLACEMENTS } from '../engine/ads.js';
 import { SECTORS } from '../data/instruments.js';
 import { settings, TOGGLES, UI_SCALES, SHORTCUTS, THEMES, ACCENTS, CANDLE_PALETTES, GRID_DENSITY, TARGET_PRESETS } from '../engine/settings.js';
+import {
+  SOURCES, OPERATIONS, BANDS, PLOTS, SWATCHES, MIN_PERIOD, MAX_PERIOD, MAX_SAVED,
+  FUNC_HELP, blankDef, describeDef, validateFormula, computeCustom,
+} from '../engine/custom.js';
 import { sparkline } from './explorer.js';
 import { rankFor } from './pages.js';
 
@@ -65,7 +69,7 @@ export class Modals {
     const ret = ((nw - account.startingCash) / account.startingCash) * 100;
     body.append(html(`
       <div class="cardgrid">
-        ${stat('NET WORTH', moneyShort(nw))}
+        ${stat('PORTFOLIO VALUE', moneyShort(nw))}
         ${stat('AVAILABLE CASH', moneyShort(account.cash))}
         ${stat('POSTED MARGIN', moneyShort(invested))}
         ${stat('OPEN P&L', signed(unreal), unreal >= 0 ? 'up' : 'down')}
@@ -169,7 +173,7 @@ export class Modals {
         return `<div class="collectcell ${have ? 'have' : ''}" style="${r ? `color:${r.color}` : ''}">
           <div class="ci">${c.icon}</div>
           <div class="cn">${esc(c.name)}</div>
-          <div class="cr">${have ? `${esc(have.rarity)}${have.count > 1 ? ` x${have.count}` : ''}` : '—'}</div>
+          <div class="cr">${have ? `${esc(have.rarity)}${have.count > 1 ? ` x${have.count}` : ''}` : '-'}</div>
         </div>`;
       }).join('')}</div>`));
   }
@@ -200,8 +204,8 @@ export class Modals {
 
   view_shop(body) {
     const { game } = this;
-    body.append(html(`<div class="ccard-sub">Permanent account upgrades. Nothing here costs money —
-      each one is unlocked by watching a short rewarded placement, and everything keeps
+    body.append(html(`<div class="ccard-sub">Permanent account upgrades. Nothing here costs money.
+      Each one is unlocked by watching a short rewarded placement, and everything keeps
       working while you are offline.</div><h4>PERMANENT EDGE</h4>`));
     const grid = el('div', { class: 'cardgrid' });
     for (const item of SHOP) {
@@ -345,12 +349,12 @@ export class Modals {
     ]));
     body.append(el('button', {
       class: 'bigrow', style: { borderColor: 'rgba(255,77,106,.35)', color: 'var(--down)', background: 'rgba(255,77,106,.1)' },
-      text: '▶ RESET ACCOUNT — WATCH A 2 MINUTE PLACEMENT',
+      text: '▶ RESET ACCOUNT · WATCH A 2 MINUTE PLACEMENT',
       onclick: async (e) => {
         const btn = e.target;
         if (!btn.dataset.armed) {
           btn.dataset.armed = '1';
-          btn.textContent = 'PRESS AGAIN — THIS WIPES YOUR SAVE';
+          btn.textContent = 'PRESS AGAIN TO WIPE YOUR SAVE';
           return;
         }
         btn.disabled = true;
@@ -359,16 +363,18 @@ export class Modals {
         if (!ad?.ok) {
           btn.disabled = false;
           delete btn.dataset.armed;
-          btn.textContent = '▶ RESET ACCOUNT — WATCH A 2 MINUTE PLACEMENT';
-          this.toast?.({ tone: 'bad', icon: '⚠', text: `${ad?.reason || 'No reward'} — save kept` });
+          btn.textContent = '▶ RESET ACCOUNT · WATCH A 2 MINUTE PLACEMENT';
+          this.toast?.({ tone: 'bad', icon: '⚠', text: `${ad?.reason || 'No reward'}, save kept` });
           return;
         }
-        localStorage.removeItem('browsermarket.save.v1');
-        location.reload();
+        // Latches `wiped` and stops the loop, so neither the autosave timer
+        // nor the beforeunload handler can write the save back before reload.
+        this.game.wipe();
+        location.replace(location.pathname);
       },
     }));
     body.append(html(`<h4>ABOUT</h4><div class="ccard-sub">
-      Browser Stock Exchange — a lightweight market simulation. Every market, company and currency here is
+      Browser Stock Exchange, a lightweight market simulation. Every market, company and currency here is
       invented. Nothing on this screen is financial advice and no real money is involved.
     </div>`));
   }
@@ -586,7 +592,7 @@ export class Modals {
       <div class="cardgrid">
         <div class="ccard"><div class="ccard-sub">REBIRTHS</div><div style="font-size:22.4px">${prog.prestige}</div></div>
         <div class="ccard"><div class="ccard-sub">PRESTIGE POINTS</div><div style="font-size:22.4px" class="up">${prog.prestigePoints}</div></div>
-        <div class="ccard"><div class="ccard-sub">NET WORTH</div><div style="font-size:22.4px">${moneyShort(nw)}</div></div>
+        <div class="ccard"><div class="ccard-sub">PORTFOLIO VALUE</div><div style="font-size:22.4px">${moneyShort(nw)}</div></div>
         <div class="ccard"><div class="ccard-sub">NEXT REBIRTH PAYS</div><div style="font-size:22.4px" class="${reward ? 'up' : 'muted'}">${reward} pts</div></div>
       </div>
       <h4>PERMANENT BONUSES PER POINT</h4>
@@ -600,7 +606,7 @@ export class Modals {
       </div>
       <div class="ccard-sub" style="margin-top:10px">
         Rebirth closes every position, resets your level and cash, and pays prestige points based on
-        peak net worth. You keep your collection, badges, shop purchases and algo desks.
+        peak portfolio value. You keep your collection, badges, shop purchases and algo desks.
         ${prog.has('REBIRTH') ? '' : 'Unlocks at level 30.'}
       </div>`));
     wrap.append(el('button', {
@@ -729,16 +735,326 @@ export class Modals {
     );
   }
 
+  /**
+   * Real price alerts: what is armed, what has fired, and a form to arm more.
+   * The bell badge counts the armed ones, so the two always agree.
+   */
   view_alerts(body) {
+    const { market, alerts } = this.game;
+    const pending = alerts.pending;
+
+    body.append(el('h4', { text: 'ARM A NEW ALERT' }));
+    const symInput = el('input', {
+      type: 'text', value: this.symbol || '', placeholder: 'TICKER',
+      maxlength: '8', autocomplete: 'off', spellcheck: 'false',
+      oninput: (e) => { e.target.value = e.target.value.toUpperCase(); syncHint(); },
+    });
+    const priceInput = el('input', { type: 'text', inputmode: 'decimal', placeholder: 'LEVEL' });
+    const hint = el('div', { class: 'ccard-sub' });
+    const syncHint = () => {
+      const ins = market.get(symInput.value.trim());
+      hint.textContent = ins
+        ? `${ins.sym} last ${fmtPrice(ins.price)}. An alert above that fires on the way up, below it on the way down.`
+        : 'Type a ticker you can see in the market explorer.';
+      if (ins && !priceInput.value) priceInput.value = ins.price.toFixed(2);
+    };
+    syncHint();
+    const arm = () => {
+      const sym = symInput.value.trim();
+      const ins = market.get(sym);
+      if (!ins) { this.toast?.({ tone: 'bad', icon: '⚠', text: `No instrument called ${sym || '--'}` }); return; }
+      const level = Number(String(priceInput.value).replace(/[^0-9.\-]/g, ''));
+      const res = this.game.addAlert(ins.sym, level, ins.price);
+      if (!res.ok) { this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+      this.toast?.({ tone: 'good', icon: '🔔', text: `${ins.sym} alert armed at ${fmtPrice(level)}` });
+      this.refresh?.();
+      this.rerender();
+    };
+    priceInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') arm(); });
+    body.append(el('div', { class: 'alert-form' }, [
+      el('div', { class: 'field' }, [el('label', { text: 'SYMBOL' }), symInput]),
+      el('div', { class: 'field' }, [el('label', { text: 'PRICE LEVEL' }), priceInput]),
+      el('button', { class: 'bigrow', text: '🔔 ARM', onclick: arm }),
+    ]));
+    body.append(hint);
+
+    body.append(el('h4', { text: `ARMED · ${pending.length}` }));
+    if (!pending.length) {
+      body.append(html(`<div class="ccard-sub">Nothing armed. Add one above, or press
+        <b>A</b> on the chart and click the level you want.</div>`));
+    } else {
+      const rows = el('div', { class: 'rowlist' });
+      for (const a of pending) {
+        const ins = market.get(a.sym);
+        const away = ins ? ((a.price - ins.price) / ins.price) * 100 : 0;
+        rows.append(el('div', { class: 'listrow' }, [
+          el('span', { class: 'pill', text: a.above ? '▲ ABOVE' : '▼ BELOW' }),
+          el('b', { text: a.sym }),
+          el('div', { class: 'grow ccard-sub', text: ins ? `last ${fmtPrice(ins.price)}` : 'delisted' }),
+          el('b', { text: fmtPrice(a.price) }),
+          el('span', {
+            class: away >= 0 ? 'up' : 'down',
+            text: `${away >= 0 ? '+' : ''}${away.toFixed(2)}%`,
+          }),
+          el('button', {
+            class: 'pill', text: '✕', title: 'Remove',
+            onclick: () => { alerts.remove(a.id); this.refresh?.(); this.rerender(); },
+          }),
+        ]));
+      }
+      body.append(rows);
+      body.append(el('button', {
+        class: 'bigrow plain', text: 'CLEAR ALL ARMED ALERTS',
+        onclick: () => {
+          for (const a of alerts.pending) alerts.remove(a.id);
+          this.refresh?.();
+          this.rerender();
+        },
+      }));
+    }
+
+    body.append(el('h4', { text: `TRIGGERED · ${alerts.history.length}` }));
+    if (!alerts.history.length) {
+      body.append(html('<div class="ccard-sub">No alert has fired yet.</div>'));
+    } else {
+      body.append(html(`<div class="rowlist">${alerts.history.map((a) => `
+        <div class="listrow">
+          <span class="pill ${a.above ? 'on' : ''}">${a.above ? '▲' : '▼'} HIT</span>
+          <b>${esc(a.sym)}</b>
+          <span class="grow muted">DAY ${a.firedDay ?? '--'} · ${a.firedTick !== undefined ? clockTime(market.minuteOfTick(a.firedTick)) : ''}</span>
+          <span class="muted">level ${fmtPrice(a.price)}</span>
+          <b>${fmtPrice(a.firedPrice ?? a.price)}</b>
+        </div>`).join('')}</div>`));
+      body.append(el('button', {
+        class: 'bigrow plain', text: 'CLEAR HISTORY',
+        onclick: () => { alerts.clearHistory(); this.refresh?.(); this.rerender(); },
+      }));
+    }
+
     const events = this.game.events.slice(-40).reverse()
       .filter((e) => ['toast', 'celebrate', 'badge', 'news', 'regime'].includes(e.type));
-    if (!events.length) { body.append(html('<div class="ccard-sub">No alerts yet.</div>')); return; }
+    body.append(el('h4', { text: 'TERMINAL FEED' }));
+    if (!events.length) {
+      body.append(html('<div class="ccard-sub">Quiet so far.</div>'));
+      return;
+    }
     body.append(html(`<div class="rowlist">${events.map((e) => {
       const text = e.text || e.title || e.item?.headline || e.regime || '';
       const sub = e.sub || e.item?.body || '';
       return `<div class="listrow"><span class="pill">${esc(e.type.toUpperCase())}</span>
         <div class="grow"><div>${esc(text)}</div>${sub ? `<div class="ccard-sub">${esc(sub)}</div>` : ''}</div></div>`;
     }).join('')}</div>`));
+  }
+
+  // --- indicator builder --------------------------------------------------
+
+  /**
+   * Build your own indicator. PICKER assembles one from dropdowns, FORMULA
+   * parses an expression. Both preview live against the chart's current
+   * symbol before anything is applied or saved.
+   */
+  view_builder(body) {
+    const lib = this.game.library;
+    const draft = this.draft || (this.draft = blankDef());
+    const candles = this.previewCandles?.() ?? [];
+
+    const tabs = el('div', { class: 'bld-tabs' });
+    for (const mode of [['picker', 'PICKER'], ['formula', 'FORMULA']]) {
+      tabs.append(el('button', {
+        class: cls('tf', draft.mode === mode[0] && 'is-active'),
+        text: mode[1],
+        onclick: () => { draft.mode = mode[0]; this.rerender(); },
+      }));
+    }
+    body.append(tabs);
+
+    const nameField = el('div', { class: 'field' }, [
+      el('label', { text: 'NAME' }),
+      el('input', {
+        type: 'text', value: draft.name, maxlength: '28',
+        oninput: (e) => { draft.name = e.target.value.toUpperCase(); status(); },
+      }),
+    ]);
+    body.append(nameField);
+
+    // segmented picker row
+    const seg = (label, options, get, set) => {
+      const row = el('div', { class: 'bld-seg' });
+      for (const o of options) {
+        row.append(el('button', {
+          class: cls('tf', get() === o.id && 'is-active'), text: o.label,
+          onclick: () => { set(o.id); this.rerender(); },
+        }));
+      }
+      return el('div', { class: 'bld-row' }, [el('label', { text: label }), row]);
+    };
+
+    const slider = (label, min, max, step, get, set, fmt = (v) => String(v)) => {
+      const out = el('b', { class: 'bld-val', text: fmt(get()) });
+      const input = el('input', {
+        type: 'range', min: String(min), max: String(max), step: String(step),
+        value: String(get()),
+        oninput: (e) => { set(Number(e.target.value)); out.textContent = fmt(get()); status(); },
+      });
+      return el('div', { class: 'bld-row' }, [
+        el('label', { text: label }),
+        el('div', { class: 'bld-slider' }, [input, out]),
+      ]);
+    };
+
+    if (draft.mode === 'picker') {
+      body.append(seg('SOURCE', SOURCES, () => draft.source, (v) => { draft.source = v; }));
+      body.append(seg('SMOOTHING', OPERATIONS, () => draft.op, (v) => { draft.op = v; }));
+      if (draft.op !== 'vwap') {
+        body.append(slider('PERIOD', MIN_PERIOD, MAX_PERIOD, 1, () => draft.period, (v) => { draft.period = v; }));
+      }
+    } else {
+      const box = el('textarea', {
+        class: 'bld-formula', rows: '3', spellcheck: 'false',
+        placeholder: 'ema(close,12) - ema(close,26)',
+        oninput: (e) => { draft.formula = e.target.value; status(); },
+      });
+      box.value = draft.formula;
+      body.append(el('div', { class: 'field' }, [el('label', { text: 'FORMULA' }), box]));
+    }
+
+    body.append(seg('PLOT', PLOTS, () => draft.plot, (v) => { draft.plot = v; }));
+    body.append(seg('BAND', BANDS, () => draft.band, (v) => { draft.band = v; }));
+    if (draft.band !== 'off') {
+      body.append(slider('BAND VALUE', 0.5, 10, 0.5, () => draft.bandValue,
+        (v) => { draft.bandValue = v; }, (v) => (draft.band === 'pct' ? `${v}%` : `${v} SD`)));
+    }
+    body.append(slider('PLOT OFFSET', -50, 50, 1, () => draft.offset, (v) => { draft.offset = v; },
+      (v) => `${v > 0 ? '+' : ''}${v} bars`));
+    body.append(slider('LINE WIDTH', 1, 4, 1, () => draft.width, (v) => { draft.width = v; },
+      (v) => `${v}px`));
+
+    const guides = el('input', {
+      type: 'text', value: draft.guides.join(', '), placeholder: '30, 70',
+      oninput: (e) => {
+        draft.guides = e.target.value.split(',').map((x) => Number(x.trim()))
+          .filter(Number.isFinite).slice(0, 4);
+        status();
+      },
+    });
+    body.append(el('div', { class: 'bld-row' }, [
+      el('label', { text: 'GUIDE LEVELS' }),
+      el('div', { class: 'field grow' }, [guides]),
+    ]));
+
+    const swatches = el('div', { class: 'bld-swatches' });
+    for (const c of SWATCHES) {
+      swatches.append(el('button', {
+        class: cls('bld-swatch', draft.color === c && 'is-active'),
+        style: { background: c },
+        title: c,
+        onclick: () => { draft.color = c; this.rerender(); },
+      }));
+    }
+    body.append(el('div', { class: 'bld-row' }, [el('label', { text: 'COLOR' }), swatches]));
+
+    // live preview and validity line
+    const statusLine = el('div', { class: 'bld-status' });
+    const preview = el('div', { class: 'bld-preview' });
+    body.append(statusLine, preview);
+
+    const status = () => {
+      clear(preview);
+      if (draft.mode === 'formula') {
+        const check = validateFormula(draft.formula);
+        if (!check.ok) {
+          statusLine.className = 'bld-status bad';
+          statusLine.textContent = `✗ ${check.error}`;
+          return;
+        }
+        statusLine.className = 'bld-status good';
+        statusLine.textContent = `✓ valid · ${check.terms} terms · needs ${check.warmup} bars of history`;
+      } else {
+        statusLine.className = 'bld-status good';
+        statusLine.textContent = `✓ ${describeDef(draft)} · ${draft.plot === 'sub' ? 'sub-pane' : 'overlay'}`;
+      }
+      if (!candles.length) return;
+      const res = computeCustom(draft, candles.slice(-180));
+      const vals = (res?.values ?? []).filter((v) => Number.isFinite(v));
+      if (!vals.length) {
+        preview.append(html('<div class="ccard-sub">Not enough bars on this timeframe to draw it yet.</div>'));
+        return;
+      }
+      const svg = sparkline(vals, draft.color, 700, 78);
+      svg.setAttribute('style', 'width:100%;height:78px');
+      svg.setAttribute('preserveAspectRatio', 'none');
+      preview.append(svg);
+      preview.append(html(`<div class="ccard-sub">LATEST <b>${vals.at(-1).toFixed(4)}</b>
+        · LOW ${Math.min(...vals).toFixed(4)} · HIGH ${Math.max(...vals).toFixed(4)}
+        · ${vals.length} of ${Math.min(candles.length, 180)} bars plotted</div>`));
+    };
+    status();
+
+    const actions = el('div', { class: 'bld-actions' });
+    actions.append(el('button', {
+      class: 'bigrow', text: '▶ APPLY TO CHART',
+      onclick: () => {
+        const res = lib.save(draft);
+        if (!res.ok) { this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+        lib.apply(res.def.id);
+        this.draft = { ...res.def };
+        this.toast?.({ tone: 'good', icon: '📐', text: `${res.def.name} is on the chart` });
+        this.refresh?.();
+        this.rerender();
+      },
+    }));
+    actions.append(el('button', {
+      class: 'bigrow plain', text: '💾 SAVE TO LIBRARY',
+      onclick: () => {
+        const res = lib.save(draft);
+        if (!res.ok) { this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+        this.draft = { ...res.def };
+        this.toast?.({ tone: 'good', icon: '💾', text: `${res.def.name} saved` });
+        this.rerender();
+      },
+    }));
+    actions.append(el('button', {
+      class: 'bigrow plain', text: '✚ NEW',
+      onclick: () => { this.draft = blankDef(); this.rerender(); },
+    }));
+    body.append(actions);
+
+    if (draft.mode === 'formula') {
+      body.append(html(`<h4>FUNCTION REFERENCE</h4><div class="bld-help">${FUNC_HELP
+        .map(([sig, desc]) => `<div><code>${esc(sig)}</code><span>${esc(desc)}</span></div>`)
+        .join('')}</div><div class="ccard-sub">Series: ${SOURCES.map((x) => x.id).join(', ')}.
+        Operators: + - * / and parentheses.</div>`));
+    }
+
+    body.append(el('h4', { text: `MY LIBRARY · ${lib.list.length}/${MAX_SAVED}` }));
+    if (!lib.list.length) {
+      body.append(html('<div class="ccard-sub">Nothing saved yet. Build one above and press SAVE TO LIBRARY.</div>'));
+      return;
+    }
+    const rows = el('div', { class: 'rowlist' });
+    for (const def of lib.list) {
+      const on = lib.applied.has(def.id);
+      rows.append(el('div', { class: 'listrow' }, [
+        el('i', { class: 'bld-dot', style: { background: def.color } }),
+        el('div', { class: 'grow' }, [
+          el('div', { text: def.name }),
+          el('div', { class: 'ccard-sub', text: `${describeDef(def)} · ${def.plot === 'sub' ? 'SUB-PANE' : 'OVERLAY'}` }),
+        ]),
+        el('button', {
+          class: cls('switch', on && 'on'), text: on ? 'ON' : 'OFF',
+          onclick: () => { lib.toggle(def.id); this.refresh?.(); this.rerender(); },
+        }),
+        el('button', {
+          class: 'pill', text: 'EDIT',
+          onclick: () => { this.draft = { ...def }; this.rerender(); },
+        }),
+        el('button', {
+          class: 'pill', text: '✕', title: 'Delete',
+          onclick: () => { lib.remove(def.id); this.refresh?.(); this.rerender(); },
+        }),
+      ]));
+    }
+    body.append(rows);
   }
 
   // --- explorer chips -----------------------------------------------------
@@ -810,7 +1126,7 @@ export class Modals {
     body.append(html(`<div class="cardgrid">${idx.map((i) => `
       <div class="ccard">
         <div class="ccard-title">${i.sym}</div>
-        <div class="ccard-sub">${esc(i.name)} — ${esc(i.def.blurb || '')}</div>
+        <div class="ccard-sub">${esc(i.name)} · ${esc(i.def.blurb || '')}</div>
         <div class="ccard-foot"><b>${fmtPrice(i.price)}</b>
         <span class="${i.changePct >= 0 ? 'up' : 'down'}">${pct(i.changePct)}</span></div>
       </div>`).join('')}</div>
@@ -853,8 +1169,8 @@ export class Modals {
         body.append(html(`<div class="ccard-sub up">Pending subscription: ${money(this.game.ipoSub.amount)} in ${esc(this.game.ipoSub.sym)}</div>`));
       }
     } else {
-      body.append(html(`<div class="ccard-sub">No book is open. Companies file for listing on their own schedule —
-        watch the feed for an <b>IPO FILED</b> headline.</div>`));
+      body.append(html(`<div class="ccard-sub">No book is open. Companies file for listing on their own schedule.
+        Watch the feed for an <b>IPO FILED</b> headline.</div>`));
     }
     if (market.ipoHistory.length) {
       body.append(html(`<h4>RECENT LISTINGS</h4><div class="rowlist">${market.ipoHistory.map((h) => `
@@ -887,19 +1203,20 @@ export const REWARDS = [
   },
   {
     id: 'SIX_FIGURES', icon: '💎', title: 'Six figures',
-    desc: 'Reach $100,000 net worth.', cash: 25000,
+    desc: 'Reach $100,000 portfolio value.', cash: 25000,
     eligible: (g) => g.account.netWorth(g.market) >= 100000,
   },
 ];
 
 const TITLES = {
-  portfolio: 'PORTFOLIO', ledger: 'CASH LEDGER', level: 'LEVEL & UNLOCKS',
+  portfolio: 'PORTFOLIO VALUE', ledger: 'CASH LEDGER', level: 'LEVEL & UNLOCKS',
   missions: 'MISSIONS', collection: 'COLLECTION INDEX', badges: 'BADGES',
-  rewards: 'FREE REWARDS', leaderboard: 'GLOBAL NET WORTH', shop: 'SHOP',
+  rewards: 'FREE REWARDS', leaderboard: 'GLOBAL PORTFOLIO VALUE', shop: 'SHOP',
   timemachine: 'TIME MACHINE', shortcuts: 'KEYBOARD SHORTCUTS',
   customize: 'TERMINAL CUSTOMIZATION', desks: 'ALGO DESKS', rebirth: 'REBIRTH',
   settings: 'SETTINGS', alerts: 'ALERTS', scanner: 'MARKET SCANNER',
   sectors: 'SECTORS', fundhq: 'FUND HQ', index: 'INDEX DESK', launchpad: 'IPO LAUNCHPAD',
+  builder: 'INDICATOR BUILDER',
 };
 
 function stat(label, value, tone = '') {

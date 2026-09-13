@@ -88,7 +88,7 @@ export class AdGate {
     if (!p) return { ok: false, reason: 'Unknown placement' };
     if (this.showing) return { ok: false, reason: 'An ad is already playing' };
     if (this.remaining(id) <= 0) {
-      return { ok: false, reason: `No more today — ${p.dailyCap} per day. Comes back tomorrow.` };
+      return { ok: false, reason: `No more today. ${p.dailyCap} per day. Comes back tomorrow.` };
     }
     const cd = this.cooldownLeft();
     if (cd > 0) {
@@ -108,7 +108,7 @@ export class AdGate {
     this.showing = id;
     try {
       const res = await this.provider.show(placement, onTick, signal);
-      if (!res?.completed) return { ok: false, reason: 'Ad skipped — no reward' };
+      if (!res?.completed) return { ok: false, reason: 'Ad skipped, no reward' };
       this.refresh();
       this.views[id] = (this.views[id] || 0) + 1;
       this.lifetimeViews += 1;

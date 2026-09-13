@@ -2,6 +2,7 @@
 // position lines and a crosshair readout.
 
 import { sma, ema, rsi, macd, bollinger, vwap, crossSignal } from '../engine/indicators.js';
+import { computeCustom } from '../engine/custom.js';
 import { price as fmtPrice, compact, clockTime } from '../util/format.js';
 import { settings } from '../engine/settings.js';
 
@@ -62,6 +63,7 @@ export class Chart {
     this.markers = [];
     this.lines = [];
     this.active = new Set(['sma20', 'vol']);
+    this.custom = [];        // user-built indicator definitions, drawn on top
     this.barCount = 90;
     this.hover = null;
     this.minuteOf = (t) => t % 1440;
@@ -88,6 +90,10 @@ export class Chart {
     else this.active.add(id);
     this.render();
   }
+
+  customOverlay() { return this.custom.filter((d) => d.plot !== 'sub'); }
+
+  customSub() { return this.custom.filter((d) => d.plot === 'sub'); }
 
   zoom(delta) {
     this.barCount = Math.max(24, Math.min(320, this.barCount + delta));
@@ -163,7 +169,7 @@ export class Chart {
     const padR = 74;
     const padT = 36;
     const padB = 26;
-    const hasSub = this.active.has('rsi') || this.active.has('macd');
+    const hasSub = this.active.has('rsi') || this.active.has('macd') || this.customSub().length > 0;
     const volH = this.active.has('vol') ? height * 0.15 : 0;
     const subH = hasSub ? height * 0.22 : 0;
     const mainH = height - padT - padB - volH - subH;
@@ -280,6 +286,67 @@ export class Chart {
     if (this.active.has('sma50')) line(sma(closes, 50), '#8b5cf6', 1.3);
     if (this.active.has('ema9')) line(ema(closes, 9), COL.ema, 1.2);
     if (this.active.has('vwap')) line(vwap(bars), COL.vwap, 1.2, [4, 3]);
+
+    for (const def of this.customOverlay()) {
+      const res = computeCustom(def, bars);
+      if (!res || res.error) continue;
+      if (res.upper) line(res.upper, withAlpha(def.color, 0.4), 1);
+      if (res.lower) line(res.lower, withAlpha(def.color, 0.4), 1);
+      line(res.values, def.color, def.width, def.offset ? [5, 3] : null);
+    }
+  }
+
+  /** A user-built indicator that asked for its own pane below the candles. */
+  drawCustomSub(ctx, geo, bars, top) {
+    const def = this.customSub()[0];
+    const { padL, padR, width, subH } = geo;
+    const res = computeCustom(def, bars);
+    if (!res || res.error) {
+      ctx.fillStyle = chrome().text;
+      ctx.font = '11px ui-monospace, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`${def.name}: ${res?.error ?? 'no data'}`, padL + 2, top + 14);
+      return;
+    }
+    const defined = res.values.filter((v) => Number.isFinite(v));
+    if (!defined.length) {
+      ctx.fillStyle = chrome().text;
+      ctx.font = '11px ui-monospace, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`${def.name} needs ${res.warmup} bars`, padL + 2, top + 14);
+      return;
+    }
+    let hi = Math.max(...defined, ...def.guides);
+    let lo = Math.min(...defined, ...def.guides);
+    if (hi === lo) { hi += 1; lo -= 1; }
+    const pad = (hi - lo) * 0.12;
+    hi += pad; lo -= pad;
+    const y = (v) => top + subH - ((v - lo) / (hi - lo)) * (subH - 14) - 6;
+    const xOf = (i) => padL + i * geo.step + geo.step / 2;
+
+    ctx.save();
+    ctx.strokeStyle = withAlpha(def.color, 0.28);
+    ctx.setLineDash([3, 3]);
+    for (const g of def.guides) {
+      if (g < lo || g > hi) continue;
+      ctx.beginPath(); ctx.moveTo(padL, y(g)); ctx.lineTo(width - padR, y(g)); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.strokeStyle = def.color;
+    ctx.lineWidth = def.width;
+    ctx.beginPath();
+    let started = false;
+    res.values.forEach((v, i) => {
+      if (!Number.isFinite(v)) { started = false; return; }
+      if (!started) { ctx.moveTo(xOf(i), y(v)); started = true; } else ctx.lineTo(xOf(i), y(v));
+    });
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = def.color;
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${def.name} ${defined.at(-1).toFixed(2)}`, padL + 2, top + 10);
   }
 
   drawCandles(ctx, geo, bars, yOf, xOf, bw) {
@@ -437,6 +504,8 @@ export class Chart {
       ctx.font = '11px ui-monospace, monospace';
       ctx.textAlign = 'left';
       ctx.fillText('MACD 12 26 9', padL + 2, top + 10);
+    } else if (this.customSub().length) {
+      this.drawCustomSub(ctx, geo, geo.bars, top);
     }
   }
 

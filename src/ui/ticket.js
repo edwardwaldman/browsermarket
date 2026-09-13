@@ -276,7 +276,7 @@ export class Ticket {
       (!affordable || !valid) && 'disabled');
     r.optionAction.disabled = !affordable || !valid;
     r.optionNote.textContent = affordable || !valid ? `${this.optionType === 'CALL' ? 'Calls' : 'Puts'} profit when ${this.getSymbol()} ${this.optionType === 'CALL' ? 'rises above' : 'falls below'} $${fmtPrice(breakeven)} by expiry.`
-      : `Needs ${money(cost + fee, 0)} — you have ${money(this.account.cash, 0)}`;
+      : `Needs ${money(cost + fee, 0)}, you have ${money(this.account.cash, 0)}`;
 
     const open = this.account.options.filter((o) => o.sym === this.getSymbol());
     const key = open.map((o) => `${o.id}:${o.qty}`).join('|');
@@ -492,7 +492,7 @@ export class Ticket {
     else if (this.account.cash < needed) {
       disabled = true;
       label = 'NOT ENOUGH CASH';
-      note = `Needs ${money(needed, 0)} including the fee — you have ${money(this.account.cash, 0)}`;
+      note = `Needs ${money(needed, 0)} including the fee, you have ${money(this.account.cash, 0)}`;
     } else if (this.type === 'LIMIT') {
       label = `PLACE ${short ? 'SHORT' : 'LONG'} LIMIT`;
     }
@@ -502,9 +502,9 @@ export class Ticket {
       note = `${short ? 'Short' : 'Long'} ${money(notional, 0)} of ${sym}`;
     } else if (!note) {
       const sess = this.game.market.session;
-      if (sess.id === 'AH') note = '🌙 After-hours session — thin volume';
-      else if (sess.id === 'CLOSED') note = '🌙 Overnight session — widest spreads';
-      else if (sess.id === 'PRE') note = '☀ Pre-market session — thin volume';
+      if (sess.id === 'AH') note = '🌙 After-hours session, thin volume';
+      else if (sess.id === 'CLOSED') note = '🌙 Overnight session, widest spreads';
+      else if (sess.id === 'PRE') note = '☀ Pre-market session, thin volume';
     }
 
     r.action.textContent = label;
