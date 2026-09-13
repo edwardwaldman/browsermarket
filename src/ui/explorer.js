@@ -3,6 +3,7 @@
 import { el, clear, cls } from '../util/dom.js';
 import { price as fmtPrice, pct, compact } from '../util/format.js';
 import { ASSET_CLASSES } from '../data/instruments.js';
+import { settings } from '../engine/settings.js';
 
 const CLASS_FILTER = {
   STOCKS: (i) => i.kind === 'STOCK',
@@ -10,10 +11,18 @@ const CLASS_FILTER = {
   CRYPTO: (i) => i.kind === 'CRYPTO',
   FX: (i) => i.kind === 'FX',
   FUT: (i) => i.kind === 'FUTURE',
+  COINS: (i) => i.kind === 'COIN',
   IDX: (i) => i.kind === 'INDEX',
 };
 
+/**
+ * `color` may be a literal, or "up"/"down" to follow the active palette.
+ * SVG presentation attributes cannot read CSS variables, so resolve here.
+ */
 export function sparkline(values, color, w = 46, h = 18) {
+  const stroke = color === 'up' ? settings.palette.up
+    : color === 'down' ? settings.palette.down
+      : color;
   if (!values || values.length < 2) return el('span', { class: 'spark' });
   const lo = Math.min(...values);
   const hi = Math.max(...values);
@@ -32,7 +41,7 @@ export function sparkline(values, color, w = 46, h = 18) {
   const line = document.createElementNS(ns, 'polyline');
   line.setAttribute('points', pts);
   line.setAttribute('fill', 'none');
-  line.setAttribute('stroke', color);
+  line.setAttribute('stroke', stroke);
   line.setAttribute('stroke-width', '1.3');
   line.setAttribute('stroke-linejoin', 'round');
   svg.append(line);
@@ -81,7 +90,7 @@ export class Explorer {
     } else if (this.assetClass === 'PLAYER') {
       const held = new Set(game.account.positions.map((p) => p.sym));
       list = market.list((i) => held.has(i.sym));
-    } else if (this.assetClass === 'COINS' || this.assetClass === 'COLLECT') {
+    } else if (this.assetClass === 'COLLECT') {
       list = [];
     } else {
       list = market.list(CLASS_FILTER[this.assetClass] || (() => true));
@@ -170,7 +179,7 @@ export class Explorer {
     const html = `<div class="assetrow-price">$${fmtPrice(ins.price)}</div>`
       + `<div class="assetrow-chg ${chg >= 0 ? 'up' : 'down'}">${pct(chg)}</div>`;
     if (ref.px.innerHTML !== html) ref.px.innerHTML = html;
-    clear(ref.spark).append(sparkline(ins.spark, chg >= 0 ? '#16d97d' : '#ff4d6a'));
+    clear(ref.spark).append(sparkline(ins.spark, chg >= 0 ? 'up' : 'down'));
   }
 }
 

@@ -1,6 +1,7 @@
 // Boot, wiring and the render loop.
 
 import { Game, MS_PER_TICK, SAVE_KEY } from './engine/game.js';
+import { UNLOCKS } from './engine/progression.js';
 import { REGIMES, TF, TF_ORDER } from './engine/market.js';
 import { Chart, INDICATORS } from './ui/chart.js';
 import { Explorer } from './ui/explorer.js';
@@ -9,6 +10,8 @@ import { BottomDock } from './ui/panels.js';
 import { Modals } from './ui/modals.js';
 import { ResearchPage, EmpirePage } from './ui/pages.js';
 import { Toasts, Celebration, floatXp } from './ui/toast.js';
+import { Assistant } from './ui/assistant.js';
+import { settings } from './engine/settings.js';
 import { $, el, clear, cls, esc, on } from './util/dom.js';
 import {
   money, moneyShort, price as fmtPrice, pct, signed, num, compact, qty as fmtQty,
@@ -26,7 +29,7 @@ let lastRender = 0;
 // ── audio ────────────────────────────────────────────────────────────────
 let audioCtx = null;
 function blip(freq = 440, dur = 0.07, type = 'sine', gain = 0.04) {
-  if (muted) return;
+  if (muted || !settings.get('sound')) return;
   try {
     audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
     const osc = audioCtx.createOscillator();
@@ -43,29 +46,21 @@ function blip(freq = 440, dur = 0.07, type = 'sine', gain = 0.04) {
 
 // ── boot ─────────────────────────────────────────────────────────────────
 function boot() {
-  const saved = localStorage.getItem(SAVE_KEY);
-  const cont = $('#boot-continue');
-  if (saved) cont.hidden = false;
-  $('#boot-new').addEventListener('click', () => {
-    localStorage.removeItem(SAVE_KEY);
-    startGame(new Game({ trader: ($('#boot-name').value || 'trader').trim() }));
-  });
-  cont.addEventListener('click', () => {
-    const loaded = Game.load();
-    startGame(loaded || new Game({ trader: 'trader' }), true);
-  });
+  settings.apply();
+  const saved = Game.load();
+  const resumed = Boolean(saved);
+  startGame(saved || new Game({ trader: 'trader' }), resumed);
 }
 
 function startGame(g, resumed = false) {
   game = g;
   window.game = g; // handy in the console
-  $('#boot').hidden = true;
-  $('#app').hidden = false;
 
   const report = resumed ? game.catchUp() : null;
 
   buildUi();
   game.on(handleEvent);
+  settings.on(onSettingChange);
   game.start();
   render(true);
 
@@ -84,6 +79,13 @@ function startGame(g, resumed = false) {
     if (document.hidden) { game.save(); game.stop(); }
     else { game.catchUp(); game.start(); render(true); }
   });
+}
+
+function onSettingChange(id) {
+  settings.apply();
+  if (id === 'colorblind' || id === '*') ui.chart?.render();
+  if (id === 'buyNearTop') ui.ticket?.applyLayout();
+  render(true);
 }
 
 // ── ui construction ──────────────────────────────────────────────────────
@@ -132,14 +134,38 @@ function buildUi() {
   ui.research = new ResearchPage({ root: $('#view-research'), game, onSelect: (s) => { selectSymbol(s); setView('trade'); } });
   ui.empire = new EmpirePage({ root: $('#view-empire'), game, refresh: () => render(true) });
 
+  ui.chart.onArmAlert = (price) => {
+    const ins = game.market.get(symbol);
+    const res = game.alerts.add(symbol, price, ins.price);
+    ui.alertBtn.className = 'ctool';
+    if (!res.ok) { ui.toasts.push({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+    ui.toasts.push({ tone: 'info', icon: '🔔', text: `Alert set @ ${fmtPrice(price)}` });
+    renderChart(true);
+    ui.explorer.renderList(true);
+  };
+
+  ui.assistant = new Assistant({
+    bar: $('#assistant'),
+    input: $('#assistant-input'),
+    log: $('#assistant-log'),
+    sendBtn: $('#assistant-send'),
+    orb: $('#assistant-orb'),
+    game,
+    getSymbol: () => symbol,
+    onSelect: selectSymbol,
+  });
+
+  ui.liveBtn = el('button', { class: 'livebtn', text: '⊕ LIVE', onclick: () => ui.chart.goLive() });
+  ui.liveBtn.hidden = true;
+  $('.chartwrap').append(ui.liveBtn);
+
+  ui.modals.onReplayTutorial = () => { game.flags.tutorialDone = false; showPromo(); };
+
   buildChartTools();
 
   on(document, 'click', '[data-modal]', (e, node) => ui.modals.open(node.dataset.modal));
   on($('#viewnav'), 'click', '.viewtab', (e, node) => setView(node.dataset.view));
-  $('#btn-speed').addEventListener('click', () => {
-    const s = game.cycleSpeed();
-    $('#speed-tag').textContent = `${s}x`;
-  });
+
 
   window.addEventListener('resize', () => { ui.chart.render(); });
   document.addEventListener('keydown', onKey);
@@ -191,6 +217,12 @@ function buildChartTools() {
   document.body.append(indicatorMenu);
   bar.append(indBtn);
 
+  ui.alertBtn = el('button', {
+    class: cls('ctool', ui.chart.alertMode && 'is-active'),
+    text: '🔔', title: 'Set a price alert (A)',
+    onclick: () => armAlert(),
+  });
+  bar.append(ui.alertBtn);
   bar.append(el('button', {
     class: 'ctool wide', text: 'BOOK',
     onclick: () => { ui.dock.tab = 'flow'; ui.dock.renderTabs(); ui.dock.render(true); },
@@ -217,9 +249,55 @@ function buildChartTools() {
   }));
 }
 
+function armAlert() {
+  ui.chart.alertMode = !ui.chart.alertMode;
+  ui.alertBtn.className = cls('ctool', ui.chart.alertMode && 'is-active');
+  ui.toasts.push({
+    tone: 'info', icon: '🔔',
+    text: ui.chart.alertMode ? 'Click the chart at the level you want' : 'Alert cancelled',
+  });
+}
+
 function onKey(e) {
   if (e.target.matches('input, textarea')) return;
   const map = { b: 'LONG', s: 'SHORT' };
+  const tfKeys = TF_ORDER;
+  if (/^[1-6]$/.test(e.key)) {
+    timeframe = tfKeys[Number(e.key) - 1];
+    ui.chart.onArmAlert = (price) => {
+    const ins = game.market.get(symbol);
+    const res = game.alerts.add(symbol, price, ins.price);
+    ui.alertBtn.className = 'ctool';
+    if (!res.ok) { ui.toasts.push({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+    ui.toasts.push({ tone: 'info', icon: '🔔', text: `Alert set @ ${fmtPrice(price)}` });
+    renderChart(true);
+    ui.explorer.renderList(true);
+  };
+
+  ui.assistant = new Assistant({
+    bar: $('#assistant'),
+    input: $('#assistant-input'),
+    log: $('#assistant-log'),
+    sendBtn: $('#assistant-send'),
+    orb: $('#assistant-orb'),
+    game,
+    getSymbol: () => symbol,
+    onSelect: selectSymbol,
+  });
+
+  ui.liveBtn = el('button', { class: 'livebtn', text: '⊕ LIVE', onclick: () => ui.chart.goLive() });
+  ui.liveBtn.hidden = true;
+  $('.chartwrap').append(ui.liveBtn);
+
+  ui.modals.onReplayTutorial = () => { game.flags.tutorialDone = false; showPromo(); };
+
+  buildChartTools();
+    renderChart(true);
+    return;
+  }
+  if (e.key.toLowerCase() === 'a') { armAlert(); return; }
+  if (e.key.toLowerCase() === 't') { ui.modals.open('timemachine'); return; }
+  if (e.key === '/') { e.preventDefault(); $('#assistant-input').focus(); return; }
   if (map[e.key.toLowerCase()]) {
     ui.ticket.setSide(map[e.key.toLowerCase()]);
   } else if (e.key === 'Enter') {
@@ -265,22 +343,28 @@ function handleEvent(e) {
       if (performance.now() - lastRender > 110) render();
       break;
     case 'toast':
-      ui.toasts.push(e);
+      if (settings.get('notifications')) ui.toasts.push(e);
       break;
     case 'celebrate':
-      ui.celebration.show(e);
+      if (settings.get('marketAlerts')) ui.celebration.show(e);
       blip(880, 0.12, 'triangle', 0.05);
       break;
     case 'news':
-      if (game.prog.has('NEWSWIRE')) {
+      if (game.prog.has('NEWSWIRE') && settings.get('marketAlerts')) {
         ui.toasts.push({ tone: 'info', icon: '📰', text: e.item.headline });
       }
       break;
     case 'day':
       ui.dock.render(true);
       break;
+    case 'timeskip':
+      render(true);
+      break;
     case 'regime':
       ui.toasts.push({ tone: 'info', icon: '🌐', text: `Regime shift · ${REGIMES[e.regime].label}` });
+      break;
+    case 'pnl-flash':
+      flashCash(e.amount);
       break;
     case 'bot-payout':
       if (Math.abs(e.amount) > 0.01) {
@@ -297,6 +381,20 @@ function handleEvent(e) {
     floatXp($('#chart-float'), e.amount);
   }
   if (e.type === 'celebrate' || e.type === 'toast') updateAlertCount();
+}
+
+/** Briefly replaces the cash card with the P&L of the closing trade. */
+function flashCash(amount) {
+  const card = $('#card-cash');
+  if (!card || !Number.isFinite(amount) || Math.abs(amount) < 0.01) return;
+  card.classList.add('flash', amount >= 0 ? 'flash-up' : 'flash-down');
+  const value = $('#cash-value');
+  value.textContent = `${amount >= 0 ? '+' : '-'}${moneyShort(Math.abs(amount))}`;
+  clearTimeout(card.__flashTimer);
+  card.__flashTimer = setTimeout(() => {
+    card.classList.remove('flash', 'flash-up', 'flash-down');
+    renderHeader();
+  }, 1400);
 }
 
 function updateAlertCount() {
@@ -328,17 +426,18 @@ function renderHeader() {
   const nw = account.netWorth(market);
   const delta = nw - account.startingCash;
   const deltaPct = (delta / account.startingCash) * 100;
-  $('#nw-value').textContent = moneyShort(nw);
+  $('#nw-value').textContent = settings.get('fullNumbers') ? money(nw, 0) : moneyShort(nw);
   const d = $('#nw-delta');
   d.textContent = `${signed(delta).replace(/\.\d+$/, '')} (${pct(deltaPct)})`;
   d.className = `statcard-delta ${delta >= 0 ? 'up' : 'down'}`;
-  $('#cash-value').textContent = moneyShort(account.cash);
+  $('#cash-value').textContent = settings.get('fullNumbers') ? money(account.cash, 0) : moneyShort(account.cash);
+  $('#speed-tag').textContent = `${game.speed}x`;
   $('#card-cash').style.borderColor = account.cash < 100 ? 'rgba(255,77,106,.5)' : '';
 
   $('#level-label').textContent = `LVL ${prog.level}`;
   const reward = prog.nextLevelReward;
   $('#level-next').textContent = reward
-    ? `NEXT: ${reward.cash ? `+${moneyShort(reward.cash)} CASH` : reward.unlock.replace(/_/g, ' ')} L${reward.lvl}`
+    ? `NEXT: ${reward.cash ? `+${moneyShort(reward.cash)} CASH` : (UNLOCKS[reward.unlock] || reward.unlock)} L${reward.lvl}`
     : 'MAX TRACK';
   $('#xp-fill').style.width = `${Math.min(100, (prog.xpIntoLevel / prog.xpForNext) * 100).toFixed(1)}%`;
   $('#mission-dot').hidden = prog.missions.every((m) => !m.done);
@@ -412,6 +511,7 @@ function renderChart(full = false) {
     .filter((h) => h.sym === symbol)
     .slice(0, 60)
     .map((h) => ({ t: h.t, side: h.action === 'OPEN' ? (h.side === 'LONG' ? 'BUY' : 'SELL') : (h.side === 'LONG' ? 'SELL' : 'BUY') }));
+  ui.chart.alerts = game.alerts.for(symbol);
   const lines = game.account.positions
     .filter((p) => p.sym === symbol)
     .map((p) => ({ price: p.avg, color: '#c3d2e6', label: `AVG ENTRY ${fmtPrice(p.avg)}` }));
@@ -423,6 +523,7 @@ function renderChart(full = false) {
   }
   ui.chart.setData({ candles, markers, lines });
   ui.chart.render();
+  if (ui.liveBtn) ui.liveBtn.hidden = ui.chart.isLive;
   renderLegend();
 }
 

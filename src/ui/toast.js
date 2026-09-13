@@ -44,8 +44,9 @@ export class Celebration {
     if (!item) { this.busy = false; this.root.hidden = true; return; }
     this.busy = true;
     this.root.hidden = false;
+    const gold = /BADGE|COLLECTIBLE|MOVED|REBIRTH|LEVEL/.test(item.title || '');
     clear(this.root).append(
-      el('div', { class: 'celebration-inner' }, [
+      el('div', { class: `celebration-inner${gold ? ' gold' : ''}` }, [
         el('div', { class: 'celebration-title', text: `${item.icon || '🏆'} ${item.title}` }),
         item.sub ? el('div', { class: 'celebration-sub', text: item.sub }) : null,
       ]),

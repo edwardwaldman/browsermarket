@@ -8,6 +8,7 @@ import { LEVELS, RARITIES, COLLECTIBLES, BADGES, totalXpForLevel, xpForLevel } f
 import { BOT_TYPES } from '../engine/bots.js';
 import { SHOP, CODES } from '../engine/game.js';
 import { SECTORS } from '../data/instruments.js';
+import { settings, TOGGLES, UI_SCALES, SHORTCUTS } from '../engine/settings.js';
 import { sparkline } from './explorer.js';
 
 export class Modals {
@@ -79,7 +80,7 @@ export class Modals {
     `));
     const curve = account.equityCurve.length > 1 ? account.equityCurve : [account.startingCash, nw];
     const wrap = el('div', { style: { background: '#0c121d', border: '1px solid #18222f', borderRadius: '7px', padding: '10px' } });
-    const svg = sparkline(curve, curve.at(-1) >= curve[0] ? '#16d97d' : '#ff4d6a', 700, 120);
+    const svg = sparkline(curve, curve.at(-1) >= curve[0] ? 'up' : 'down', 700, 120);
     svg.setAttribute('style', 'width:100%;height:120px');
     svg.setAttribute('preserveAspectRatio', 'none');
     wrap.append(svg);
@@ -177,32 +178,6 @@ export class Modals {
     }).join('')}</div>`));
   }
 
-  view_codes(body) {
-    const input = el('input', {
-      placeholder: 'enter code', maxlength: 24,
-      style: { flex: '1', padding: '9px 11px', background: '#070c14', border: '1px solid #18222f', borderRadius: '6px' },
-    });
-    const result = el('div', { class: 'ccard-sub', style: { marginTop: '8px' } });
-    const submit = () => {
-      const res = this.game.redeemCode(input.value);
-      result.textContent = res.ok ? `Redeemed · +${money(res.reward.cash, 0)} and ${res.reward.xp} XP` : res.reason;
-      result.className = `ccard-sub ${res.ok ? 'up' : 'down'}`;
-      input.value = '';
-      this.refresh?.();
-    };
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
-    body.append(
-      el('div', { style: { display: 'flex', gap: '8px' } }, [
-        input, el('button', { class: 'btn btn-blue', text: 'REDEEM', onclick: submit }),
-      ]),
-      result,
-      html(`<h4>REDEEMED (${this.game.flags.codes.length} / ${Object.keys(CODES).length})</h4>
-        <div class="rowlist">${this.game.flags.codes.map((c) => `
-          <div class="listrow"><span class="pill on">USED</span><span class="grow">${esc(c)}</span>
-          <span class="muted">${esc(CODES[c]?.label || '')}</span></div>`).join('') || '<div class="ccard-sub">None yet. Codes are shared by the developers — try the obvious ones.</div>'}</div>`),
-    );
-  }
-
   view_leaderboard(body) {
     const { board, account, market, prog } = this.game;
     const rows = board.standings(this.game.trader, account.netWorth(market), prog.level);
@@ -239,46 +214,201 @@ export class Modals {
   }
 
   view_settings(body) {
-    const { game } = this;
-    const row = (label, sub, control) => el('div', { class: 'listrow' }, [
-      el('div', { class: 'grow' }, [el('div', { text: label }), el('div', { class: 'ccard-sub', text: sub })]),
-      control,
-    ]);
-    body.append(el('div', { class: 'rowlist' }, [
-      row('Simulation speed', 'How fast game minutes tick by.', el('button', {
-        class: 'btn btn-sm', text: `${game.speed}x`,
-        onclick: (e) => { e.target.textContent = `${game.cycleSpeed()}x`; },
-      })),
-      row('Dividend reinvestment', 'Roll dividends straight back into the payer.', el('button', {
-        class: 'btn btn-sm', text: game.account.drip ? 'ON' : 'OFF',
-        onclick: (e) => { game.account.drip = !game.account.drip; e.target.textContent = game.account.drip ? 'ON' : 'OFF'; },
-      })),
-      row('Export save', 'Copy your save to the clipboard as JSON.', el('button', {
-        class: 'btn btn-sm', text: 'EXPORT',
-        onclick: async (e) => {
-          try {
-            await navigator.clipboard.writeText(JSON.stringify(game.toJSON()));
-            e.target.textContent = 'COPIED';
-          } catch { e.target.textContent = 'BLOCKED'; }
+    const rows = el('div');
+    for (const t of TOGGLES) {
+      const sw = el('button', {
+        class: cls('switch', settings.get(t.id) && 'on'),
+        text: settings.get(t.id) ? 'ON' : 'OFF',
+      });
+      sw.onclick = () => {
+        const on = settings.toggle(t.id);
+        sw.className = cls('switch', on && 'on');
+        sw.textContent = on ? 'ON' : 'OFF';
+        this.refresh?.();
+      };
+      rows.append(el('div', { class: 'setrow' }, [
+        el('div', { class: 'setrow-body' }, [
+          el('div', { class: 'setrow-title', text: t.label }),
+          el('div', { class: 'setrow-desc', text: t.desc }),
+        ]),
+        sw,
+      ]));
+    }
+
+    const scale = el('div', { class: 'scalerow' });
+    for (const v of UI_SCALES) {
+      scale.append(el('button', {
+        class: cls('scalebtn', settings.get('uiScale') === v && 'is-active'),
+        text: `${v}%`,
+        onclick: () => {
+          settings.set('uiScale', v);
+          settings.apply();
+          this.rerender();
         },
-      })),
-      row('Reset account', 'Wipes the save and starts a brand new market.', el('button', {
-        class: 'btn btn-sm btn-red', text: 'RESET',
-        onclick: (e) => {
-          if (e.target.dataset.armed) {
-            localStorage.removeItem('browsermarket.save.v1');
-            location.reload();
-          } else {
-            e.target.dataset.armed = '1';
-            e.target.textContent = 'SURE?';
-          }
-        },
-      })),
+      }));
+    }
+    rows.append(el('div', { class: 'setrow' }, [
+      el('div', { class: 'setrow-body' }, [
+        el('div', { class: 'setrow-title', text: 'UI SCALE' }),
+        el('div', { class: 'setrow-desc', text: 'Resize the whole terminal.' }),
+      ]),
+      scale,
     ]));
+    body.append(rows);
+
+    body.append(el('button', {
+      class: 'bigrow', text: '⌨ VIEW KEYBOARD SHORTCUTS',
+      onclick: () => this.open('shortcuts'),
+    }));
+    body.append(el('button', {
+      class: 'bigrow purple', text: '↺ REPLAY TUTORIAL',
+      onclick: () => { this.close(); this.onReplayTutorial?.(); },
+    }));
+    body.append(el('button', {
+      class: 'bigrow plain', text: '⇩ EXPORT SAVE',
+      onclick: async (e) => {
+        try {
+          await navigator.clipboard.writeText(JSON.stringify(this.game.toJSON()));
+          e.target.textContent = '✓ COPIED TO CLIPBOARD';
+        } catch { e.target.textContent = '✕ CLIPBOARD BLOCKED'; }
+      },
+    }));
+    body.append(el('div', { class: 'setrow', style: { marginTop: '6px' } }, [
+      el('div', { class: 'setrow-body' }, [
+        el('div', { class: 'setrow-title', text: 'DIVIDEND REINVESTMENT' }),
+        el('div', { class: 'setrow-desc', text: 'Roll dividends straight back into the payer.' }),
+      ]),
+      (() => {
+        const sw = el('button', {
+          class: cls('switch', this.game.account.drip && 'on'),
+          text: this.game.account.drip ? 'ON' : 'OFF',
+        });
+        sw.onclick = () => {
+          this.game.account.drip = !this.game.account.drip;
+          sw.className = cls('switch', this.game.account.drip && 'on');
+          sw.textContent = this.game.account.drip ? 'ON' : 'OFF';
+        };
+        return sw;
+      })(),
+    ]));
+    body.append(el('button', {
+      class: 'bigrow', style: { borderColor: 'rgba(255,77,106,.35)', color: 'var(--down)', background: 'rgba(255,77,106,.1)' },
+      text: 'RESET ACCOUNT',
+      onclick: (e) => {
+        if (e.target.dataset.armed) {
+          localStorage.removeItem('browsermarket.save.v1');
+          location.reload();
+        } else {
+          e.target.dataset.armed = '1';
+          e.target.textContent = 'PRESS AGAIN — THIS WIPES YOUR SAVE';
+        }
+      },
+    }));
     body.append(html(`<h4>ABOUT</h4><div class="ccard-sub">
       Browser Stock Exchange 2 — a trading simulator. Every market, company and currency here is
       invented. Nothing on this screen is financial advice and no real money is involved.
     </div>`));
+  }
+
+  view_shortcuts(body) {
+    body.append(html(`<div class="rowlist">${SHORTCUTS.map(([key, what]) => `
+      <div class="listrow"><span class="pill" style="min-width:64px;text-align:center">${esc(key)}</span>
+      <span class="grow">${esc(what)}</span></div>`).join('')}</div>`));
+  }
+
+  // --- time machine -------------------------------------------------------
+
+  view_timemachine(body) {
+    body.append(html(`<div class="ccard-sub">Fast-forward your own market. Positions, dividends,
+      IPOs and news all play out exactly as they would have.</div><h4>SKIP AHEAD</h4>`));
+    const list = el('div');
+    for (const opt of this.game.timeMachineOptions()) {
+      list.append(el('div', { class: 'tmrow' }, [
+        el('div', { class: 'tmrow-body' }, [
+          el('div', { class: 'tmrow-title', text: opt.title }),
+          el('div', { class: 'tmrow-desc', text: opt.desc }),
+          el('div', { class: 'tmrow-desc', text: opt.limit }),
+        ]),
+        el('button', {
+          class: cls('tmbtn', opt.free && !opt.disabled && 'free'),
+          text: opt.disabled ? 'LOCKED' : opt.free ? 'RUN' : 'USED',
+          disabled: opt.disabled || !opt.free,
+          onclick: () => {
+            const res = this.game.runTimeMachine(opt.id);
+            if (!res.ok) return;
+            this.rerender();
+            this.refresh?.();
+          },
+        }),
+      ]));
+    }
+    body.append(list);
+
+    body.append(html('<h4>SIMULATION SPEED</h4>'));
+    const speeds = el('div', { class: 'scalerow' });
+    for (const sp of [1, 2, 4]) {
+      speeds.append(el('button', {
+        class: cls('scalebtn', this.game.speed === sp && 'is-active'),
+        text: `${sp}x`,
+        onclick: () => {
+          while (this.game.speed !== sp) this.game.cycleSpeed();
+          this.rerender();
+          this.refresh?.();
+        },
+      }));
+    }
+    body.append(speeds);
+    body.append(html(`<div class="ccard-sub" style="margin-top:8px">A trading day is
+      ${(1440 * 0.5 / 60 / this.game.speed).toFixed(1)} real minutes at ${this.game.speed}x.</div>`));
+  }
+
+  // --- free rewards -------------------------------------------------------
+
+  view_rewards(body) {
+    const { game } = this;
+    body.append(html('<div class="ccard-sub">One-time bonuses and promo codes.</div><h4>BONUSES</h4>'));
+    const list = el('div');
+    for (const r of REWARDS) {
+      const claimed = game.flags.rewards?.includes(r.id);
+      const eligible = r.eligible ? r.eligible(game) : true;
+      list.append(el('div', { class: 'tmrow' }, [
+        el('div', { class: 'tmrow-body' }, [
+          el('div', { class: 'tmrow-title', text: `${r.icon} ${r.title}` }),
+          el('div', { class: 'tmrow-desc', text: r.desc }),
+          el('div', { class: 'tmrow-desc up', text: `+${money(r.cash, 0)}` }),
+        ]),
+        el('button', {
+          class: cls('tmbtn', !claimed && eligible && 'free'),
+          text: claimed ? 'CLAIMED' : eligible ? 'CLAIM' : 'LOCKED',
+          disabled: claimed || !eligible,
+          onclick: () => { game.claimReward(r.id); this.rerender(); this.refresh?.(); },
+        }),
+      ]));
+    }
+    body.append(list);
+
+    body.append(html('<h4>PROMO CODE</h4>'));
+    const input = el('input', {
+      placeholder: 'ENTER CODE', maxlength: 24,
+      style: { flex: '1', padding: '10px 12px', background: '#070c14', border: '1px solid #18222f', borderRadius: '6px', letterSpacing: '1px' },
+    });
+    const result = el('div', { class: 'ccard-sub', style: { marginTop: '8px' } });
+    const submit = () => {
+      const res = game.redeemCode(input.value);
+      result.textContent = res.ok ? `Redeemed · +${money(res.reward.cash, 0)} and ${res.reward.xp} XP` : res.reason;
+      result.className = `ccard-sub ${res.ok ? 'up' : 'down'}`;
+      input.value = '';
+      this.refresh?.();
+    };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    body.append(
+      el('div', { style: { display: 'flex', gap: '8px' } }, [
+        input, el('button', { class: 'tmbtn free', text: 'REDEEM', onclick: submit }),
+      ]),
+      result,
+      html(`<div class="ccard-sub" style="margin-top:10px">Redeemed ${game.flags.codes.length} of
+        ${Object.keys(CODES).length} known codes.</div>`),
+    );
   }
 
   view_alerts(body) {
@@ -417,10 +547,38 @@ export class Modals {
   }
 }
 
+export const REWARDS = [
+  {
+    id: 'FIRST_LOGIN', icon: '🎉', title: 'Welcome to the floor',
+    desc: 'A starting stake, on the house.', cash: 5000,
+  },
+  {
+    id: 'FIRST_TRADE', icon: '📈', title: 'First fill bonus',
+    desc: 'Open and close your first position.', cash: 2500,
+    eligible: (g) => g.account.stats.trades >= 1,
+  },
+  {
+    id: 'TEN_TRADES', icon: '🔥', title: 'Ten trades deep',
+    desc: 'Close ten trades to unlock.', cash: 7500,
+    eligible: (g) => g.account.stats.trades >= 10,
+  },
+  {
+    id: 'FIRST_STREAK', icon: '📆', title: 'Three-day streak',
+    desc: 'Trade three game days in a row.', cash: 10000,
+    eligible: (g) => g.prog.bestStreak >= 3,
+  },
+  {
+    id: 'SIX_FIGURES', icon: '💎', title: 'Six figures',
+    desc: 'Reach $100,000 net worth.', cash: 25000,
+    eligible: (g) => g.account.netWorth(g.market) >= 100000,
+  },
+];
+
 const TITLES = {
   portfolio: 'PORTFOLIO', ledger: 'CASH LEDGER', level: 'LEVEL & UNLOCKS',
   missions: 'MISSIONS', collection: 'COLLECTION INDEX', badges: 'BADGES',
-  codes: 'REDEEM CODES', leaderboard: 'GLOBAL NET WORTH', shop: 'SHOP',
+  rewards: 'FREE REWARDS', leaderboard: 'GLOBAL NET WORTH', shop: 'SHOP',
+  timemachine: 'TIME MACHINE', shortcuts: 'KEYBOARD SHORTCUTS',
   settings: 'SETTINGS', alerts: 'ALERTS', scanner: 'MARKET SCANNER',
   sectors: 'SECTORS', fundhq: 'FUND HQ', index: 'INDEX DESK', launchpad: 'IPO LAUNCHPAD',
 };

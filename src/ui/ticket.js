@@ -4,6 +4,7 @@ import { el, clear, cls } from '../util/dom.js';
 import { money, price as fmtPrice, qty as fmtQty, num, signed } from '../util/format.js';
 import { LEVERAGE_TIERS } from '../engine/progression.js';
 import { CONTRACT_SIZE, markOption, EXPIRIES } from '../engine/options.js';
+import { settings } from '../engine/settings.js';
 
 const QUICK = [
   { label: '25%', f: 0.25 }, { label: '50%', f: 0.5 },
@@ -163,8 +164,18 @@ export class Ticket {
     ]);
 
     this.root.append(r.sheetHead, r.tabs, r.notice, r.orderPane, r.optionsPane, r.statsWrap);
+    this.applyLayout();
     this.renderLeverage();
     this.renderExpiries();
+  }
+
+  /** "Buy button near top" lifts the action above the form fields. */
+  applyLayout() {
+    const r = this.refs;
+    const actionBlock = r.action.parentElement;
+    if (!actionBlock) return;
+    if (settings.get('buyNearTop')) r.orderPane.insertBefore(actionBlock, r.marginField);
+    else r.orderPane.insertBefore(actionBlock, r.posWrap);
   }
 
   setMode(mode) {
@@ -363,6 +374,19 @@ export class Ticket {
   }
 
   submit() {
+    if (settings.get('tradeConfirm') && !this.pendingConfirm) {
+      this.pendingConfirm = true;
+      clearTimeout(this._confirmTimer);
+      this._confirmTimer = setTimeout(() => { this.pendingConfirm = false; this.update(); }, 4000);
+      this.update();
+      return;
+    }
+    this.pendingConfirm = false;
+    clearTimeout(this._confirmTimer);
+    this.submitNow();
+  }
+
+  submitNow() {
     const sym = this.getSymbol();
     const ins = this.game.market.get(sym);
     if (!ins) return;
@@ -428,8 +452,8 @@ export class Ticket {
 
     const needed = this.margin + fee;
     const short = this.side === 'SHORT';
-    let label = `${short ? 'SHORT' : 'BUY'} ${sym}`;
-    if (this.leverage > 1) label = `${short ? 'SHORT' : 'BUY'} ${this.leverage}X ${sym}`;
+    let label = short ? `SHORT ${sym}` : `BUY ${sym}`;
+    if (this.leverage > 1) label = `${short ? 'SHORT' : 'LONG'} ${this.leverage}X ${sym}`;
     let disabled = false;
     let note = '';
 
@@ -444,8 +468,19 @@ export class Ticket {
       label = `PLACE ${short ? 'SHORT' : 'LONG'} LIMIT`;
     }
 
+    if (this.pendingConfirm && !disabled) {
+      label = 'PRESS AGAIN TO CONFIRM';
+      note = `${short ? 'Short' : 'Long'} ${money(notional, 0)} of ${sym}`;
+    } else if (!note) {
+      const sess = this.game.market.session;
+      if (sess.id === 'AH') note = '🌙 After-hours session — thin volume';
+      else if (sess.id === 'CLOSED') note = '🌙 Overnight session — widest spreads';
+      else if (sess.id === 'PRE') note = '☀ Pre-market session — thin volume';
+    }
+
     r.action.textContent = label;
-    r.action.className = cls('bigbtn', short && !disabled && 'short', disabled && 'disabled');
+    r.action.className = cls('bigbtn', short && !disabled && 'short',
+      this.pendingConfirm && !disabled && 'confirm', disabled && 'disabled');
     r.action.disabled = disabled;
     r.actionNote.textContent = note;
 

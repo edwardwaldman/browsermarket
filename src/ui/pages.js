@@ -7,6 +7,8 @@ import {
 import { SECTORS } from '../data/instruments.js';
 import { BOT_TYPES, upgradeCost, OFFLINE_EFFICIENCY } from '../engine/bots.js';
 import { REGIMES } from '../engine/market.js';
+import { EVENT_KINDS } from '../engine/calendar.js';
+import { clockTime, dayName } from '../util/format.js';
 import { sparkline } from './explorer.js';
 
 export class ResearchPage {
@@ -14,110 +16,115 @@ export class ResearchPage {
     this.root = root;
     this.game = game;
     this.onSelect = onSelect;
+    this.tab = 'CALENDAR';
     this.sort = { key: 'changePct', dir: -1 };
     this.filter = 'ALL';
   }
 
   render() {
-    const { market } = this.game;
-    const stocks = market.stocks();
-    const pool = this.filter === 'ALL' ? stocks : stocks.filter((s) => s.sector === this.filter);
-    const val = (i, key) => ({
-      sym: i.sym, name: i.name, price: i.price, changePct: i.changePct,
-      cap: i.marketCap || 0, pe: i.pe ?? 9999, eps: i.def.eps || 0,
-      div: i.def.divYield || 0, vol: i.dayVolume, beta: i.def.beta ?? 1,
-    })[key];
-    const rows = [...pool].sort((a, b) => (val(a, this.sort.key) - val(b, this.sort.key)) * this.sort.dir);
-
     clear(this.root);
-    const sectorChips = ['ALL', ...Object.keys(SECTORS).filter((k) => stocks.some((s) => s.sector === k))];
-
-    const page = el('div', { class: 'pagegrid', style: { gridTemplateColumns: 'minmax(0,2fr) minmax(0,1fr)' } });
-
-    // --- fundamentals table
-    const left = el('div', { class: 'pagepanel' });
-    left.append(el('div', { class: 'panel-head' }, [
-      el('span', { class: 'panel-title', text: 'FUNDAMENTALS' }),
-      el('span', { class: 'live-pill', text: `${rows.length} NAMES` }),
-    ]));
-    const chips = el('div', { class: 'chiprow', style: { padding: '9px 12px 4px' } });
-    for (const s of sectorChips) {
-      chips.append(el('button', {
-        class: cls('chip', this.filter === s ? 'chip-green' : 'chip-blue'),
-        text: s === 'ALL' ? 'ALL SECTORS' : SECTORS[s].label,
-        onclick: () => { this.filter = s; this.render(); },
-      }));
-    }
-    left.append(chips);
-    const cols = [
-      ['sym', 'TICKER'], ['price', 'PRICE'], ['changePct', '24H'], ['cap', 'MKT CAP'],
-      ['pe', 'P/E'], ['eps', 'EPS'], ['div', 'DIV/DAY'], ['beta', 'BETA'], ['vol', 'VOLUME'],
-    ];
-    const table = el('div', { style: { overflow: 'auto', maxHeight: '62dvh' } });
-    table.innerHTML = `<table class="grid"><thead><tr>${cols.map(([k, l]) =>
-      `<th style="cursor:pointer" data-sort="${k}">${l}${this.sort.key === k ? (this.sort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead>
-      <tbody>${rows.map((i) => `<tr data-sym="${i.sym}" style="cursor:pointer">
-        <td><b>${i.sym}</b><br><span class="muted" style="font-size:8.5px">${esc(i.name)}</span></td>
-        <td>${fmtPrice(i.price)}</td>
-        <td class="${i.changePct >= 0 ? 'up' : 'down'}">${pct(i.changePct)}</td>
-        <td>${i.marketCap ? moneyShort(i.marketCap) : '--'}</td>
-        <td>${i.pe ? num(i.pe, 1) : '--'}</td>
-        <td>${money(i.def.eps || 0)}</td>
-        <td class="${i.def.divYield ? 'up' : 'muted'}">${((i.def.divYield || 0) * 100).toFixed(2)}%</td>
-        <td>${num(i.def.beta ?? 1, 2)}</td>
-        <td class="muted">${compact(i.dayVolume)}</td>
-      </tr>`).join('')}</tbody></table>`;
-    table.addEventListener('click', (e) => {
-      const th = e.target.closest('[data-sort]');
-      if (th) {
-        const key = th.dataset.sort;
-        this.sort = { key, dir: this.sort.key === key ? -this.sort.dir : -1 };
-        this.render();
-        return;
-      }
-      const tr = e.target.closest('[data-sym]');
-      if (tr) this.onSelect?.(tr.dataset.sym);
-    });
-    left.append(table);
-
-    // --- right column
-    const right = el('div', { style: { display: 'grid', gap: '8px' } });
-    const reg = REGIMES[this.game.market.regime];
-    right.append(panel('MARKET REGIME', `
-      <div style="font-size:20px;color:${reg.color}">${esc(reg.label)}</div>
-      <div class="ccard-sub">Day ${this.game.market.day} · running ${this.game.market.regimeAge} day(s).
-      Drift ${(reg.drift * 100).toFixed(2)}%/day · volatility ${reg.vol.toFixed(2)}x.</div>
-      <h4>SECTOR PERFORMANCE</h4>
-      ${Object.keys(SECTORS).filter((k) => stocks.some((s) => s.sector === k)).map((k) => {
-        const names = stocks.filter((s) => s.sector === k);
-        const avg = names.reduce((s, i) => s + i.changePct, 0) / names.length;
-        const w = Math.min(100, Math.abs(avg) * 12);
-        return `<div style="margin-bottom:6px">
-          <div class="statline"><span>${esc(SECTORS[k].label)}</span><b class="${avg >= 0 ? 'up' : 'down'}" style="margin-left:auto">${pct(avg)}</b></div>
-          <div class="progressbar ${avg >= 0 ? 'green' : ''}"><i style="width:${w}%;${avg < 0 ? 'background:linear-gradient(90deg,#a32639,#ff4d6a)' : ''}"></i></div>
-        </div>`;
-      }).join('')}`));
-
-    const movers = [...stocks].sort((a, b) => b.changePct - a.changePct);
-    right.append(panel('MOVERS', `<div class="rowlist">
-      ${movers.slice(0, 4).map((i) => moverRow(i)).join('')}
-      ${movers.slice(-4).reverse().map((i) => moverRow(i)).join('')}
+    const panel = el('div', { class: 'pagepanel' });
+    panel.append(html(`<div class="pagehead">
+      <div class="pagehead-title">RESEARCH</div>
+      <div class="pagehead-sub">Everything scheduled and public in the next four market days.</div>
     </div>`));
 
-    const news = this.game.market.news.slice(0, 8);
-    right.append(panel('WIRE', news.length ? news.map((n) => `<div class="feeditem" style="padding:6px 0">
-      <span class="feedtag ${n.tone === 'bull' ? 'bull' : 'bear'}">${esc(n.headline)}</span>
-      <div class="feedbody"><div class="feedhead">${esc(n.body)}</div>
-      <div class="feedsub">DAY ${n.day}</div></div></div>`).join('')
-      : '<div class="ccard-sub">Nothing on the wire yet.</div>'));
+    const nav = el('div', { class: 'subnav' });
+    for (const [id, label] of [['CALENDAR', '📅 CALENDAR'], ['SECTORS', '▦ SECTORS'], ['MOVERS', '⚡ MOVERS']]) {
+      nav.append(el('button', {
+        class: cls('subtab', this.tab === id && 'is-active'),
+        text: label,
+        onclick: () => { this.tab = id; this.render(); },
+      }));
+    }
+    panel.append(nav);
 
-    page.append(left, right);
-    this.root.append(page);
-    this.root.addEventListener('click', (e) => {
+    const body = el('div');
+    if (this.tab === 'CALENDAR') this.renderCalendar(body);
+    else if (this.tab === 'SECTORS') this.renderSectors(body);
+    else this.renderMovers(body);
+    panel.append(body);
+
+    this.root.append(panel);
+    body.addEventListener('click', (e) => {
       const row = e.target.closest('[data-sym]');
       if (row) this.onSelect?.(row.dataset.sym);
-    }, { once: true });
+    });
   }
+
+  renderCalendar(body) {
+    const { game } = this;
+    const events = game.calendar.upcoming(game.market, 40);
+    if (!events.length) {
+      body.append(html('<div class="empty"><div class="empty-title">Nothing scheduled</div><div class="empty-sub">The calendar fills as the next market days come into view.</div></div>'));
+      return;
+    }
+    body.append(html(events.map((e) => {
+      const def = EVENT_KINDS[e.kind] || { label: e.kind.toLowerCase(), icon: '•' };
+      const ins = game.market.get(e.sym);
+      return `<div class="calrow" data-sym="${esc(e.sym)}" style="cursor:pointer">
+        <span class="calrow-icon">${def.icon}</span>
+        <div class="calrow-body">
+          <div class="calrow-title"><b>${esc(e.sym)}</b> ${esc(def.label)}</div>
+          <div class="calrow-sub">${esc(e.slot)} · ${dayName(e.day)} · DAY ${e.day} · ${clockTime(e.minute)}</div>
+        </div>
+        <span class="calrow-in">${formatIn(e.inMinutes)}</span>
+        <span class="minibtn">OPEN CHART</span>
+        <b class="${ins && ins.changePct >= 0 ? 'up' : 'down'} nowrap">${ins ? pct(ins.changePct) : '--'}</b>
+      </div>`;
+    }).join('')));
+  }
+
+  renderSectors(body) {
+    const stocks = this.game.market.stocks();
+    const keys = Object.keys(SECTORS).filter((k) => stocks.some((x) => x.sector === k));
+    const rows = keys.map((k) => {
+      const names = stocks.filter((x) => x.sector === k);
+      const avg = names.reduce((sum, i) => sum + i.changePct, 0) / names.length;
+      return { k, names, avg };
+    }).sort((a, b) => b.avg - a.avg);
+
+    body.append(html(`<div class="pagepanel-body">${rows.map((r) => {
+      const best = [...r.names].sort((a, b) => b.changePct - a.changePct)[0];
+      const worst = [...r.names].sort((a, b) => a.changePct - b.changePct)[0];
+      return `<div style="margin-bottom:12px">
+        <div class="statline">
+          <span style="color:${SECTORS[r.k].color}">${esc(SECTORS[r.k].label)}</span>
+          <span class="muted">${r.names.length} names</span>
+          <b class="${r.avg >= 0 ? 'up' : 'down'}" style="margin-left:auto">${pct(r.avg)}</b>
+        </div>
+        <div class="progressbar ${r.avg >= 0 ? 'green' : ''}">
+          <i style="width:${Math.min(100, Math.abs(r.avg) * 12)}%;${r.avg < 0 ? 'background:linear-gradient(90deg,#a32639,var(--down))' : ''}"></i>
+        </div>
+        <div class="statline" style="margin-top:5px">
+          <span data-sym="${best.sym}" style="cursor:pointer">LEADER <b class="up">${best.sym} ${pct(best.changePct)}</b></span>
+          <span data-sym="${worst.sym}" style="cursor:pointer">LAGGARD <b class="down">${worst.sym} ${pct(worst.changePct)}</b></span>
+        </div>
+      </div>`;
+    }).join('')}</div>`));
+  }
+
+  renderMovers(body) {
+    const pool = this.game.market.list((i) => i.kind === 'STOCK' || i.kind === 'CRYPTO' || i.kind === 'ETF');
+    const byChange = [...pool].sort((a, b) => b.changePct - a.changePct);
+    const byVol = [...pool].sort((a, b) => b.dayVolume - a.dayVolume);
+    const block = (title, rows, fmt) => `<h4 style="padding:0 14px">${title}</h4>
+      <div class="rowlist" style="padding:0 14px 12px">${rows.slice(0, 6).map((i) => `
+        <div class="listrow" data-sym="${i.sym}" style="cursor:pointer">
+          <b>${i.sym}</b><span class="grow muted">${esc(i.name)}</span>${fmt(i)}</div>`).join('')}</div>`;
+    body.append(html(
+      block('TOP GAINERS', byChange, (i) => `<b class="up">${pct(i.changePct)}</b>`)
+      + block('TOP LOSERS', [...byChange].reverse(), (i) => `<b class="down">${pct(i.changePct)}</b>`)
+      + block('MOST ACTIVE', byVol, (i) => `<span class="muted">${compact(i.dayVolume)}</span>`),
+    ));
+  }
+}
+
+function formatIn(minutes) {
+  if (minutes <= 0) return 'now';
+  if (minutes < 60) return `in ${Math.round(minutes)}m`;
+  if (minutes < 1440) return `in ${Math.floor(minutes / 60)}h ${Math.round(minutes % 60)}m`;
+  return `in ${Math.floor(minutes / 1440)}d ${Math.floor((minutes % 1440) / 60)}h`;
 }
 
 function moverRow(i) {
@@ -134,27 +141,171 @@ function panel(title, body) {
   return node;
 }
 
+const RANKS = [
+  { at: 0, name: 'RETAIL TRADER' },
+  { at: 5, name: 'ACTIVE TRADER' },
+  { at: 10, name: 'PROP TRADER' },
+  { at: 15, name: 'DESK HEAD' },
+  { at: 20, name: 'PORTFOLIO MANAGER' },
+  { at: 25, name: 'PARTNER' },
+  { at: 30, name: 'MARKET LEGEND' },
+];
+
+export function rankFor(level, prestige) {
+  const base = [...RANKS].reverse().find((r) => level >= r.at) || RANKS[0];
+  return prestige > 0 ? `${base.name} ✦${prestige}` : base.name;
+}
+
 export class EmpirePage {
-  constructor({ root, game, refresh }) {
+  constructor({ root, game, refresh, onOpen }) {
     this.root = root;
     this.game = game;
     this.refresh = refresh;
+    this.onOpen = onOpen;
+    this.tab = 'OVERVIEW';
   }
 
   render() {
-    const { game } = this;
-    const { bots, account, prog, market } = game;
     clear(this.root);
-    const page = el('div', { class: 'pagegrid' });
+    const panel = el('div', { class: 'pagepanel' });
+    panel.append(html(`<div class="pagehead">
+      <div class="pagehead-title">EMPIRE</div>
+      <div class="pagehead-sub">Everything you have built, and what it is worth.</div>
+    </div>`));
 
-    // --- algo desks
-    const desks = el('div', { class: 'pagepanel' });
-    desks.append(el('div', { class: 'panel-head' }, [
-      el('span', { class: 'panel-title', text: 'ALGO DESKS' }),
-      el('span', { class: 'live-pill', text: `${bots.bots.length} / ${game.botSlots()} SLOTS` }),
+    const tabs = [
+      ['OVERVIEW', '✦ OVERVIEW'], ['DESKS', '🤖 ALGO DESKS'], ['CAREER', '🏅 CAREER'],
+      ['COLLECTION', '🏆 COLLECTION'], ['REBIRTH', '♾ REBIRTH'],
+    ];
+    const nav = el('div', { class: 'subnav' });
+    for (const [id, label] of tabs) {
+      nav.append(el('button', {
+        class: cls('subtab', this.tab === id && 'is-active'),
+        text: label,
+        onclick: () => { this.tab = id; this.render(); },
+      }));
+    }
+    panel.append(nav);
+
+    const body = el('div');
+    ({
+      OVERVIEW: () => this.renderOverview(body),
+      DESKS: () => this.renderDesks(body),
+      CAREER: () => this.renderCareer(body),
+      COLLECTION: () => this.renderCollection(body),
+      REBIRTH: () => this.renderRebirth(body),
+    })[this.tab]();
+    panel.append(body);
+    this.root.append(panel);
+  }
+
+  renderOverview(body) {
+    const { game } = this;
+    const { account, market, prog, bots } = game;
+    const nw = account.netWorth(market);
+    const seasonDays = Object.keys(account.calendar).map(Number).filter((d) => d > market.day - 7);
+    const season = seasonDays.reduce((sum, d) => sum + account.calendar[d].realized, 0);
+    const slots = game.botSlots();
+    const funded = bots.bots.filter((b) => b.capital > 0).length;
+
+    const rows = [
+      {
+        label: 'NET WORTH',
+        value: moneyShort(nw),
+        sub: `cash ${moneyShort(account.cash)} · ${account.positions.length} open position${account.positions.length === 1 ? '' : 's'}`,
+      },
+      {
+        label: 'RANK',
+        value: rankFor(prog.level, prog.prestige),
+        cls: 'amber',
+        sub: `level ${prog.level} · ${prog.prestige} rebirth${prog.prestige === 1 ? '' : 's'}`,
+      },
+      {
+        label: 'ALGO FLEET',
+        value: bots.bots.length ? `${bots.bots.length} DESK${bots.bots.length === 1 ? '' : 'S'}` : 'NO BOTS',
+        cls: bots.bots.length ? '' : 'dim',
+        sub: slots ? `${funded} funded · ${slots} slot${slots === 1 ? '' : 's'} available` : 'Unlocks at level 10',
+        action: slots ? ['ALGO DESK', () => { this.tab = 'DESKS'; this.render(); }] : null,
+      },
+      {
+        label: 'FUND CAPITAL',
+        value: moneyShort(bots.allocated()),
+        cls: bots.allocated() ? 'blue' : 'dim',
+        sub: `lifetime algo P&L ${signed(bots.totalPnl)}`,
+      },
+      {
+        label: 'OPTIONS DESK',
+        value: prog.has('OPTIONS') ? `${account.options.length} CONTRACTS` : 'UNREGISTERED',
+        cls: prog.has('OPTIONS') ? '' : 'dim',
+        sub: prog.has('OPTIONS') ? `marked at ${moneyShort(account.optionsValue(market))}` : 'Unlocks at level 23',
+      },
+      {
+        label: 'SEASON',
+        value: signed(season),
+        cls: season >= 0 ? 'blue' : '',
+        sub: 'realised profit over the last seven days',
+      },
+    ];
+
+    const list = el('div', { class: 'bigrows' });
+    for (const r of rows) {
+      list.append(el('div', { class: 'bigstat' }, [
+        el('div', { class: 'bigstat-body' }, [
+          el('div', { class: 'bigstat-label', text: r.label }),
+          el('div', { class: cls('bigstat-value', r.cls), text: r.value }),
+          el('div', { class: 'bigstat-sub', text: r.sub }),
+        ]),
+        r.action ? el('button', { class: 'btn btn-sm btn-blue', text: r.action[0], onclick: r.action[1] }) : null,
+      ]));
+    }
+    body.append(list);
+  }
+
+  renderCareer(body) {
+    const { account, bots, prog, market } = this.game;
+    const pf = account.profitFactor;
+    body.append(html(`<div class="pagepanel-body"><div class="cardgrid">
+      <div class="ccard"><div class="ccard-sub">TRADES</div><div style="font-size:19px">${account.stats.trades}</div></div>
+      <div class="ccard"><div class="ccard-sub">WIN RATE</div><div style="font-size:19px">${account.winRate.toFixed(0)}%</div></div>
+      <div class="ccard"><div class="ccard-sub">PROFIT FACTOR</div><div style="font-size:19px">${Number.isFinite(pf) ? pf.toFixed(2) : '∞'}</div></div>
+      <div class="ccard"><div class="ccard-sub">VOLUME TRADED</div><div style="font-size:19px">${moneyShort(account.stats.volume)}</div></div>
+      <div class="ccard"><div class="ccard-sub">BEST TRADE</div><div style="font-size:19px" class="up">${account.stats.best ? signed(account.stats.best) : '--'}</div></div>
+      <div class="ccard"><div class="ccard-sub">WORST TRADE</div><div style="font-size:19px" class="down">${account.stats.worst ? signed(account.stats.worst) : '--'}</div></div>
+      <div class="ccard"><div class="ccard-sub">LIQUIDATIONS</div><div style="font-size:19px">${account.stats.liquidations}</div></div>
+      <div class="ccard"><div class="ccard-sub">ALGO LIFETIME</div><div style="font-size:19px" class="${bots.totalPnl >= 0 ? 'up' : 'down'}">${signed(bots.totalPnl)}</div></div>
+      <div class="ccard"><div class="ccard-sub">DIVIDENDS</div><div style="font-size:19px" class="up">${moneyShort(account.stats.dividends)}</div></div>
+      <div class="ccard"><div class="ccard-sub">FEES PAID</div><div style="font-size:19px">${moneyShort(account.stats.fees)}</div></div>
+      <div class="ccard"><div class="ccard-sub">BEST STREAK</div><div style="font-size:19px">${prog.bestStreak} days</div></div>
+      <div class="ccard"><div class="ccard-sub">DAYS TRADED</div><div style="font-size:19px">${Object.keys(account.calendar).length}</div></div>
+    </div></div>`));
+  }
+
+  renderCollection(body) {
+    const { prog } = this.game;
+    const owned = Object.keys(prog.collection).length;
+    body.append(html(`<div class="pagepanel-body">
+      <div class="ccard-sub">Collectibles drop at random while you trade. ${owned} of ${COLLECTIBLES.length} found.</div>
+      <div class="collectgrid" style="margin-top:10px">${COLLECTIBLES.map((c) => {
+        const have = prog.collection[c.id];
+        const r = have ? RARITIES.find((x) => x.id === have.rarity) : null;
+        return `<div class="collectcell ${have ? 'have' : ''}" style="${r ? `color:${r.color}` : ''}">
+          <div class="ci">${c.icon}</div>
+          <div class="cn">${esc(c.name)}</div>
+          <div class="cr">${have ? `${esc(have.rarity)}${have.count > 1 ? ` x${have.count}` : ''}` : '—'}</div>
+        </div>`;
+      }).join('')}</div></div>`));
+  }
+
+  renderDesks(host) {
+    const { game } = this;
+    const { bots, account } = game;
+    const wrap = el('div', { class: 'pagepanel-body', style: { display: 'grid', gap: '9px' } });
+    wrap.append(el('div', { class: 'statline' }, [
+      html(`<span>SLOTS<b>${bots.bots.length} / ${game.botSlots()}</b></span>
+        <span>CAPITAL<b>${moneyShort(bots.allocated())}</b></span>
+        <span>LIFETIME<b class="${bots.totalPnl >= 0 ? 'up' : 'down'}">${signed(bots.totalPnl)}</b></span>`),
     ]));
-    const body = el('div', { class: 'pagepanel-body', style: { display: 'grid', gap: '9px' } });
-    body.append(el('div', {
+    wrap.append(el('div', {
       class: 'ccard-sub',
       text: `Desks trade the live tape and keep running while you are away at ${Math.round(OFFLINE_EFFICIENCY * 100)}% efficiency. Payouts land in cash at every session close.`,
     }));
@@ -170,7 +321,7 @@ export class EmpirePage {
           el('div', { class: 'ccard-sub', text: bot.focus ? `Working ${bot.focus}` : 'Scanning for a setup' }),
         ]),
         el('button', {
-          class: cls('btn', 'btn-sm', account.cash >= cost ? 'btn-blue' : ''),
+          class: cls('btn', 'btn-sm', account.cash >= cost && 'btn-blue'),
           text: `UPGRADE ${moneyShort(cost)}`,
           disabled: account.cash < cost,
           onclick: () => { game.upgradeBot(bot.id); this.render(); this.refresh?.(); },
@@ -186,7 +337,7 @@ export class EmpirePage {
         const cum = [];
         let acc = 0;
         for (const v of bot.history) { acc += v; cum.push(acc); }
-        const svg = sparkline(cum, acc >= 0 ? '#16d97d' : '#ff4d6a', 300, 34);
+        const svg = sparkline(cum, acc >= 0 ? 'up' : 'down', 300, 34);
         svg.setAttribute('style', 'width:100%;height:34px');
         svg.setAttribute('preserveAspectRatio', 'none');
         card.append(svg);
@@ -210,12 +361,12 @@ export class EmpirePage {
           onclick: () => { bot.enabled = !bot.enabled; this.render(); },
         }),
       ]));
-      body.append(card);
+      wrap.append(card);
     }
 
     const available = Object.values(BOT_TYPES).filter((d) => !bots.bots.some((b) => b.type === d.id));
     if (available.length) {
-      body.append(el('h4', { text: 'HIRE A DESK', style: { fontSize: '9px', letterSpacing: '1.4px', color: '#4a5768', margin: '6px 0 0' } }));
+      wrap.append(html('<h4 style="margin:6px 0 0">HIRE A DESK</h4>'));
       const grid = el('div', { class: 'cardgrid' });
       for (const def of available) {
         const afford = account.cash >= def.cost;
@@ -232,18 +383,19 @@ export class EmpirePage {
           }),
         ]));
       }
-      body.append(grid);
+      wrap.append(grid);
     }
-    desks.append(body);
+    host.append(wrap);
+  }
 
-    // --- prestige
+  renderRebirth(host) {
+    const { game } = this;
+    const { account, market, prog } = game;
     const nw = account.netWorth(market);
     const reward = prog.rebirthReward(nw);
     const canRebirth = prog.canRebirth(nw);
-    const prestige = el('div', { class: 'pagepanel' });
-    prestige.append(el('div', { class: 'panel-head' }, [el('span', { class: 'panel-title', text: 'REBIRTH' })]));
-    const pbody = el('div', { class: 'pagepanel-body' });
-    pbody.append(html(`
+    const wrap = el('div', { class: 'pagepanel-body' });
+    wrap.append(html(`
       <div class="cardgrid">
         <div class="ccard"><div class="ccard-sub">REBIRTHS</div><div style="font-size:19px">${prog.prestige}</div></div>
         <div class="ccard"><div class="ccard-sub">PRESTIGE POINTS</div><div style="font-size:19px" class="up">${prog.prestigePoints}</div></div>
@@ -264,32 +416,14 @@ export class EmpirePage {
         peak net worth. You keep your collection, badges, shop purchases and algo desks.
         ${prog.has('REBIRTH') ? '' : 'Unlocks at level 30.'}
       </div>`));
-    pbody.append(el('button', {
-      class: cls('btn', canRebirth ? 'btn-primary' : ''),
+    wrap.append(el('button', {
+      class: cls('btn', canRebirth && 'btn-primary'),
       style: { marginTop: '10px', width: '100%' },
       text: canRebirth ? `REBIRTH FOR ${reward} PRESTIGE` : 'REQUIREMENTS NOT MET',
       disabled: !canRebirth,
       onclick: () => { game.rebirth(); this.render(); this.refresh?.(); },
     }));
-    prestige.append(pbody);
-
-    // --- career stats
-    const stats = el('div', { class: 'pagepanel' });
-    stats.append(el('div', { class: 'panel-head' }, [el('span', { class: 'panel-title', text: 'CAREER' })]));
-    const pf = account.profitFactor;
-    stats.append(html(`<div class="pagepanel-body"><div class="cardgrid">
-      <div class="ccard"><div class="ccard-sub">TRADES</div><div style="font-size:19px">${account.stats.trades}</div></div>
-      <div class="ccard"><div class="ccard-sub">WIN RATE</div><div style="font-size:19px">${account.winRate.toFixed(0)}%</div></div>
-      <div class="ccard"><div class="ccard-sub">PROFIT FACTOR</div><div style="font-size:19px">${Number.isFinite(pf) ? pf.toFixed(2) : '∞'}</div></div>
-      <div class="ccard"><div class="ccard-sub">VOLUME TRADED</div><div style="font-size:19px">${moneyShort(account.stats.volume)}</div></div>
-      <div class="ccard"><div class="ccard-sub">BEST TRADE</div><div style="font-size:19px" class="up">${account.stats.best ? signed(account.stats.best) : '--'}</div></div>
-      <div class="ccard"><div class="ccard-sub">WORST TRADE</div><div style="font-size:19px" class="down">${account.stats.worst ? signed(account.stats.worst) : '--'}</div></div>
-      <div class="ccard"><div class="ccard-sub">LIQUIDATIONS</div><div style="font-size:19px">${account.stats.liquidations}</div></div>
-      <div class="ccard"><div class="ccard-sub">ALGO LIFETIME</div><div style="font-size:19px" class="${bots.totalPnl >= 0 ? 'up' : 'down'}">${signed(bots.totalPnl)}</div></div>
-    </div></div>`));
-
-    page.append(desks, el('div', { style: { display: 'grid', gap: '8px' } }, [prestige, stats]));
-    this.root.append(page);
+    host.append(wrap);
   }
 }
 

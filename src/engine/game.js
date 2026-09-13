@@ -3,10 +3,12 @@
 
 import { Market, REGIMES } from './market.js';
 import { Account } from './account.js';
-import { Progression, LEVELS } from './progression.js';
+import { Progression, LEVELS, UNLOCKS } from './progression.js';
 import { BotDesk, BOT_TYPES, upgradeCost } from './bots.js';
 import { Leaderboard } from './leaderboard.js';
 import { Rng, clamp } from '../util/rng.js';
+import { Alerts } from './alerts.js';
+import { EventCalendar } from './calendar.js';
 import { buildChain, markOption, CONTRACT_SIZE } from './options.js';
 
 export const SAVE_KEY = 'browsermarket.save.v1';
@@ -14,6 +16,9 @@ export const MS_PER_TICK = 500;         // one game minute at 1x
 export const SPEEDS = [1, 2, 4];
 export const MAX_OFFLINE_TICKS = 20160; // 14 game days of catch-up
 export const STARTING_CASH = 10000;
+
+/** Local calendar day, used for once-a-day allowances. */
+const dayStamp = () => new Date().toISOString().slice(0, 10);
 
 export const CODES = {
   WELCOME: { cash: 2500, xp: 10, label: 'Welcome to the floor' },
@@ -67,6 +72,8 @@ export class Game {
     this.bots = new BotDesk(seed ^ 0x51ed);
     this.board = new Leaderboard(seed ^ 0x2545);
     this.rng = new Rng(seed ^ 0x7f4a);
+    this.alerts = new Alerts();
+    this.calendar = new EventCalendar(new Rng(seed ^ 0x1d3b));
 
     this.trader = opts.trader || 'you';
     this.speed = 1;
@@ -74,16 +81,18 @@ export class Game {
     this.timer = null;
     this.lastSeen = Date.now();
     this.createdAt = Date.now();
-    this.flags = { dailyPick: false, luck: 1, bonusSlots: 0, purchased: [], codes: [], tutorialDone: false };
+    this.flags = { dailyPick: false, luck: 1, bonusSlots: 0, purchased: [], codes: [], rewards: [], tutorialDone: false };
     this.ipoSub = null;
     this.dailyPick = null;
     this.events = [];
     this.listeners = new Set();
     this.volumeMilestone = 0;
     this.botPendingPnl = 0;
+    this.timeMachine = { skipsUsed: 0, simsUsed: 0, quotaDay: dayStamp() };
 
     this.wireEngines();
     if (opts.warmUpDays !== 0) this.market.warmUp(opts.warmUpDays ?? 6);
+    this.calendar.refill(this.market);
   }
 
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
@@ -138,6 +147,17 @@ export class Game {
       this.account.tick(this.market);
       this.botPendingPnl += this.bots.step(this.market, this.prog.perks, 1, offline);
 
+      if (!offline) {
+        for (const alert of this.alerts.check(this.market)) {
+          this.emit({
+            type: 'toast', tone: 'info', icon: '🔔',
+            text: `${alert.sym} hit ${alert.price.toFixed(2)}`,
+          });
+        }
+      } else {
+        this.alerts.check(this.market);
+      }
+      this.calendar.resolve(this.market);
       if (this.market.minuteOfDay === 960) this.onSessionClose(offline);
       if (this.market.day !== prevDay) this.onDayRoll(prevDay, offline);
       if (!offline) this.maybeAmbientEvents();
@@ -181,6 +201,7 @@ export class Game {
       this.prog.addXp(5 * streak, { tick: this.market.tick });
       if (streak >= 7) this.prog.award('STREAK7', this.market.day);
     }
+    this.calendar.refill(this.market);
     if (this.flags.dailyPick) this.rollDailyPick();
     this.checkNetWorthBadges();
     this.maybeBailout();
@@ -213,6 +234,92 @@ export class Game {
     }
   }
 
+  // --- time machine -------------------------------------------------------
+
+  /**
+   * Fast-forward the player's own market. Everything plays out exactly as it
+   * would have: positions mark, brackets fire, dividends pay, IPOs settle.
+   */
+  /** Free skips refresh on the real calendar day, not the simulated one. */
+  refreshQuota() {
+    const today = dayStamp();
+    if (this.timeMachine.quotaDay !== today) {
+      this.timeMachine = { skipsUsed: 0, simsUsed: 0, quotaDay: today };
+    }
+    return this.timeMachine;
+  }
+
+  timeMachineOptions() {
+    this.refreshQuota();
+    const sess = this.market.session;
+    const toOpen = sess.id === 'RTH' ? 0 : this.minutesUntilOpen();
+    return [
+      {
+        id: 'OPEN',
+        title: 'Skip to market open',
+        desc: sess.id === 'RTH' ? 'The session is already open.' : `${Math.round(toOpen)} market minutes from now.`,
+        minutes: toOpen,
+        free: this.timeMachine.skipsUsed < 1,
+        limit: this.timeMachine.skipsUsed < 1 ? '1 free per day' : 'Used today',
+        disabled: sess.id === 'RTH',
+      },
+      {
+        id: 'DAY',
+        title: 'Simulate 1 day',
+        desc: '24 market hours in an instant.',
+        minutes: 1440,
+        free: this.timeMachine.simsUsed < 2,
+        limit: `${Math.max(0, 2 - this.timeMachine.simsUsed)} of 2 left today`,
+      },
+      {
+        id: 'WEEK',
+        title: 'Simulate 1 week',
+        desc: 'Seven full days — dividends stack, IPOs fill.',
+        minutes: 1440 * 7,
+        free: this.prog.level >= 12,
+        limit: this.prog.level >= 12 ? 'Unlocked' : 'Unlocks at level 12',
+        disabled: this.prog.level < 12,
+      },
+    ];
+  }
+
+  minutesUntilOpen() {
+    const m = this.market.minuteOfDay;
+    const open = 570;
+    return m < open ? open - m : 1440 - m + open;
+  }
+
+  runTimeMachine(id) {
+    const option = this.timeMachineOptions().find((o) => o.id === id);
+    if (!option) return { ok: false, reason: 'Unknown skip' };
+    if (option.disabled) return { ok: false, reason: option.limit };
+    if (!option.free) return { ok: false, reason: `No skips left — ${option.limit}` };
+    const minutes = Math.max(1, Math.round(option.minutes));
+
+    const before = this.account.equity(this.market);
+    const startDay = this.market.day;
+    this.advance(minutes, true);
+    const after = this.account.equity(this.market);
+
+    if (id === 'OPEN') this.timeMachine.skipsUsed += 1;
+    if (id === 'DAY') this.timeMachine.simsUsed += 1;
+
+    const report = {
+      minutes,
+      days: this.market.day - startDay,
+      delta: after - before,
+      option: option.title,
+    };
+    this.emit({
+      type: 'celebrate',
+      title: 'TIME SKIPPED',
+      sub: `${option.title} · account ${report.delta >= 0 ? '+' : '-'}$${Math.abs(report.delta).toFixed(2)}`,
+      icon: '⏩',
+    });
+    this.emit({ type: 'timeskip', report });
+    return { ok: true, report };
+  }
+
   // --- gating -------------------------------------------------------------
 
   canTrade(sym) {
@@ -222,6 +329,9 @@ export class Game {
       return { ok: false, reason: `Executive terminal · level ${ins.tier}` };
     }
     if (ins.kind === 'INDEX') return { ok: false, reason: 'Index is not directly tradable' };
+    if (ins.kind === 'COIN' && this.prog.level < 4) {
+      return { ok: false, reason: 'Community coins unlock at level 4' };
+    }
     if (ins.kind === 'FUTURE' && !this.prog.has('FUTURES')) {
       return { ok: false, reason: 'Futures desk unlocks at level 16' };
     }
@@ -333,6 +443,14 @@ export class Game {
         type: 'toast', tone: pnl >= 0 ? 'good' : 'bad', icon: pnl >= 0 ? '🟢' : '🔴',
         text: `Closed for ${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toFixed(2)}${e.reason !== 'MANUAL' ? ` · ${e.reason}` : ''}`,
       });
+      this.emit({ type: 'pnl-flash', amount: pnl });
+      if (pnl > 0) {
+        this.emit({
+          type: 'celebrate', title: 'PROFIT LOCKED',
+          sub: `+$${pnl.toFixed(2)} · ${((pnl / Math.max(1, e.pos.margin)) * 100).toFixed(1)}%`,
+          icon: '✓',
+        });
+      }
       this.checkVolumeMilestone();
     }
     if (e.type === 'option-open') {
@@ -369,7 +487,7 @@ export class Game {
       }
       this.emit({
         type: 'celebrate', title: 'LEVEL UP',
-        sub: `Level ${e.level} · ${reward.cash ? `+$${reward.cash.toLocaleString()} cash` : `${(reward.unlock || '').replace(/_/g, ' ')} unlocked`}`,
+        sub: `Level ${e.level} · ${reward.cash ? `+$${reward.cash.toLocaleString()} cash` : `${UNLOCKS[reward.unlock] || reward.unlock} unlocked`}`,
         icon: '⭐',
       });
     }
@@ -509,6 +627,23 @@ export class Game {
     return { ok: true, item };
   }
 
+  /** One-time bonuses claimed from the rewards panel. */
+  claimReward(id) {
+    this.flags.rewards ||= [];
+    if (this.flags.rewards.includes(id)) return { ok: false, reason: 'Already claimed' };
+    const amounts = {
+      FIRST_LOGIN: 5000, FIRST_TRADE: 2500, TEN_TRADES: 7500,
+      FIRST_STREAK: 10000, SIX_FIGURES: 25000,
+    };
+    const cash = amounts[id];
+    if (!cash) return { ok: false, reason: 'Unknown reward' };
+    this.flags.rewards.push(id);
+    this.account.cash += cash;
+    this.account.ledgerPush(this.market, `REWARD ${id.replace(/_/g, ' ')}`, cash);
+    this.emit({ type: 'toast', tone: 'good', icon: '🎁', text: `Reward claimed · +$${cash.toLocaleString()}` });
+    return { ok: true, cash };
+  }
+
   redeemCode(raw) {
     const code = String(raw || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
     const reward = CODES[code];
@@ -563,6 +698,9 @@ export class Game {
       dailyPick: this.dailyPick,
       volumeMilestone: this.volumeMilestone,
       botPendingPnl: this.botPendingPnl,
+      alerts: this.alerts.toJSON(),
+      calendar: this.calendar.toJSON(),
+      timeMachine: this.timeMachine,
       market: this.market.toJSON(),
       account: this.account.toJSON(),
       prog: this.prog.toJSON(),
@@ -581,6 +719,9 @@ export class Game {
     game.dailyPick = raw.dailyPick ?? null;
     game.volumeMilestone = raw.volumeMilestone ?? 0;
     game.botPendingPnl = raw.botPendingPnl ?? 0;
+    game.alerts.load(raw.alerts);
+    game.calendar.load(raw.calendar);
+    game.timeMachine = { ...game.timeMachine, ...(raw.timeMachine || {}) };
     game.market.load(raw.market);
     game.account.load(raw.account);
     game.prog.load(raw.prog);

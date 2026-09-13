@@ -28,11 +28,11 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(`PAGEERROR: ${e.message}`));
 
 await page.goto(URL, { waitUntil: 'networkidle' });
-await page.click('#boot-new');
-await page.waitForTimeout(4000);
+await page.waitForTimeout(4500);
 await page.click('#promo-go').catch(() => {});
 
-check('terminal boots', await page.isVisible('#app'));
+check('terminal opens straight into the tape', await page.isVisible('#app'));
+check('no login screen', (await page.locator('#boot').count()) === 0);
 check('chart has history', await page.evaluate(() => game.market.get('OBBY').candles('m5').length > 50));
 check('explorer lists the universe', (await page.locator('.assetrow').count()) > 20);
 
@@ -57,7 +57,7 @@ for (const view of ['research', 'empire', 'trade']) {
   check(`view renders: ${view}`, await page.isVisible(`#view-${view}`));
 }
 
-for (const m of ['portfolio', 'level', 'missions', 'collection', 'codes', 'leaderboard', 'shop', 'settings', 'scanner', 'sectors', 'fundhq', 'index', 'launchpad', 'badges', 'alerts', 'ledger']) {
+for (const m of ['portfolio', 'level', 'missions', 'collection', 'rewards', 'leaderboard', 'shop', 'settings', 'timemachine', 'scanner', 'sectors', 'fundhq', 'index', 'launchpad', 'badges', 'alerts', 'ledger']) {
   await page.click(`[data-modal="${m}"]`);
   await page.waitForTimeout(180);
   const open = await page.isVisible('.modal');
@@ -65,11 +65,51 @@ for (const m of ['portfolio', 'level', 'missions', 'collection', 'codes', 'leade
   check(`modal opens: ${m}`, open);
 }
 
+// the shortcuts sheet opens from within settings
+await page.click('[data-modal="settings"]');
+await page.waitForTimeout(250);
+await page.click('.bigrow');
+await page.waitForTimeout(250);
+check('shortcuts sheet opens', await page.evaluate(
+  () => document.querySelector('.modal-title')?.textContent === 'KEYBOARD SHORTCUTS'));
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+
+// colourblind palette reaches both the CSS and the canvas layer
+await page.evaluate(() => {
+  const cb = [...document.querySelectorAll('.setrow')].find((r) => r.textContent.includes('COLORBLIND'));
+  document.querySelector('[data-modal="settings"]').click();
+});
+await page.waitForTimeout(300);
+await page.evaluate(() => {
+  const cb = [...document.querySelectorAll('.setrow')].find((r) => r.textContent.includes('COLORBLIND'));
+  cb.querySelector('.switch').click();
+});
+await page.waitForTimeout(300);
+check('colourblind palette applies', await page.evaluate(
+  () => getComputedStyle(document.documentElement).getPropertyValue('--up').trim() === '#3b9dff'));
+check('sparklines follow the palette', await page.evaluate(
+  () => document.querySelector('.spark polyline')?.getAttribute('stroke') !== '#16d97d'));
+await page.keyboard.press('Escape');
+
+// the assistant answers from real state
+await page.fill('#assistant-input', 'how is my account');
+await page.press('#assistant-input', 'Enter');
+await page.waitForTimeout(300);
+check('assistant answers', await page.evaluate(
+  () => (document.querySelector('.assistant-a')?.textContent || '').includes('Net worth')));
+
+// price alerts round-trip through the chart
+check('price alert arms', await page.evaluate(() => {
+  const px = game.market.get('OBBY').price;
+  return game.alerts.add('OBBY', px * 1.02, px).ok && game.alerts.has('OBBY');
+}));
+
 await page.evaluate(() => { game.save(); });
 await page.reload({ waitUntil: 'networkidle' });
-await page.click('#boot-continue');
-await page.waitForTimeout(2500);
-check('save resumes', await page.evaluate(() => game.account.stats.trades >= 0 && game.market.day > 1));
+await page.waitForTimeout(3000);
+check('save resumes with no login step', await page.evaluate(
+  () => game.account.stats.trades >= 0 && game.market.day > 1));
 
 for (const [w, h] of [[390, 844], [768, 1024], [1280, 800]]) {
   await page.setViewportSize({ width: w, height: h });

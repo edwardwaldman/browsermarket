@@ -4,7 +4,7 @@
 
 import { Rng, clamp } from '../util/rng.js';
 import {
-  STOCKS, ETFS, CRYPTO, FX, INDICES, FUTURES, IPO_PIPELINE, SECTORS,
+  STOCKS, ETFS, CRYPTO, COINS, FX, INDICES, FUTURES, IPO_PIPELINE, SECTORS,
 } from '../data/instruments.js';
 
 export const TF = {
@@ -254,7 +254,7 @@ export class Market {
     this.ipoHistory = [];
     this.listeners = new Set();
 
-    for (const def of [...STOCKS, ...CRYPTO, ...FX]) this.add(new Instrument(def));
+    for (const def of [...STOCKS, ...CRYPTO, ...COINS, ...FX]) this.add(new Instrument(def));
     for (const def of ETFS) this.add(new Instrument({ ...def, price: 100 }));
     for (const def of INDICES) this.add(new Instrument({ ...def, price: 1000 }));
     for (const def of FUTURES) this.add(new Instrument({ ...def, price: 1000, expiresDay: def.termDays }));
@@ -383,7 +383,7 @@ export class Market {
     const rng = this.rng;
     const def = ins.def;
     const perMin = 1 / 1440;
-    const isAlwaysOn = ins.kind === 'CRYPTO' || ins.kind === 'FX';
+    const isAlwaysOn = ins.kind === 'CRYPTO' || ins.kind === 'COIN' || ins.kind === 'FX';
     const liqMul = isAlwaysOn ? 0.75 + liq * 0.35 : liq;
     const vol = ((def.vol || 0.03) * reg.vol * (0.55 + liqMul * 0.7)) / 37.95;
     const beta = def.beta ?? 1;

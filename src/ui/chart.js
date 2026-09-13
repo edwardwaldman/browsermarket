@@ -3,12 +3,9 @@
 
 import { sma, ema, rsi, macd, bollinger, vwap, crossSignal } from '../engine/indicators.js';
 import { price as fmtPrice, compact, clockTime } from '../util/format.js';
+import { settings } from '../engine/settings.js';
 
 const COL = {
-  up: '#16d97d',
-  down: '#ff4d6a',
-  upFill: 'rgba(22,217,125,.85)',
-  downFill: 'rgba(255,77,106,.85)',
   grid: '#0f1724',
   axis: '#5a6b81',
   text: '#8fa3bd',
@@ -18,6 +15,18 @@ const COL = {
   vwap: '#22d3ee',
   entry: '#c3d2e6',
   cross: '#3b4b63',
+  alert: '#22d3ee',
+};
+
+/** Candle colours follow the colourblind setting. */
+function palette() {
+  const p = settings.palette;
+  return { up: p.up, down: p.down, upFill: p.up, downFill: p.down };
+}
+
+const withAlpha = (hex, a) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 };
 
 export const INDICATORS = [
@@ -44,11 +53,20 @@ export class Chart {
     this.minuteOf = (t) => t % 1440;
     this.onHover = null;
     this.dpr = 1;
+    this.offset = 0;          // bars scrolled back from the live edge
+    this.alertMode = false;
+    this.onArmAlert = null;
+    this.alerts = [];
 
     canvas.addEventListener('mousemove', (e) => this.handleMove(e));
     canvas.addEventListener('mouseleave', () => { this.hover = null; this.render(); this.onHover?.(null); });
     canvas.addEventListener('touchstart', (e) => this.handleMove(e.touches[0]), { passive: true });
     canvas.addEventListener('touchmove', (e) => this.handleMove(e.touches[0]), { passive: true });
+    canvas.addEventListener('click', (e) => this.handleClick(e));
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      this.pan(e.deltaX || e.deltaY > 0 ? 2 : -2);
+    }, { passive: false });
   }
 
   toggle(id) {
@@ -70,7 +88,43 @@ export class Chart {
   }
 
   visible() {
-    return this.candles.slice(Math.max(0, this.candles.length - this.barCount));
+    const end = Math.max(this.barCount, this.candles.length - this.offset);
+    return this.candles.slice(Math.max(0, end - this.barCount), end);
+  }
+
+  /** True when the view is pinned to the newest bar. */
+  get isLive() {
+    return this.offset <= 0;
+  }
+
+  pan(bars) {
+    const max = Math.max(0, this.candles.length - this.barCount);
+    this.offset = Math.max(0, Math.min(max, this.offset + bars));
+    this.render();
+  }
+
+  goLive() {
+    this.offset = 0;
+    this.render();
+  }
+
+  /** Convert a click's y position into a price, for arming alerts. */
+  priceAt(y) {
+    const geo = this.geometry();
+    if (!geo) return null;
+    const { padT, mainH } = geo;
+    const { hi, lo } = this.scale || {};
+    if (hi === undefined) return null;
+    return lo + ((padT + mainH - y) / mainH) * (hi - lo);
+  }
+
+  handleClick(e) {
+    if (!this.alertMode) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const price = this.priceAt(e.clientY - rect.top);
+    if (price === null || !(price > 0)) return;
+    this.alertMode = false;
+    this.onArmAlert?.(price);
   }
 
   handleMove(e) {
@@ -131,8 +185,12 @@ export class Chart {
     for (const l of this.lines) {
       if (l.price > lo * 0.9 && l.price < hi * 1.1) { hi = Math.max(hi, l.price); lo = Math.min(lo, l.price); }
     }
+    for (const a of this.alerts) {
+      if (a.price > lo * 0.75 && a.price < hi * 1.25) { hi = Math.max(hi, a.price); lo = Math.min(lo, a.price); }
+    }
     const pad = (hi - lo) * 0.08 || hi * 0.01 || 1;
     hi += pad; lo -= pad;
+    this.scale = { hi, lo };
     const yOf = (p) => padT + mainH - ((p - lo) / (hi - lo)) * mainH;
     const xOf = (i) => padL + i * step + step / 2;
 
@@ -141,6 +199,7 @@ export class Chart {
     this.drawOverlays(ctx, geo, bars, closes, yOf, xOf);
     this.drawCandles(ctx, geo, bars, yOf, xOf, bw);
     this.drawLines(ctx, geo, yOf);
+    this.drawAlerts(ctx, geo, yOf);
     this.drawMarkers(ctx, geo, bars, yOf, xOf);
     if (subH > 0) this.drawSubPane(ctx, geo, closes);
     this.drawAxes(ctx, geo, hi, lo, yOf, xOf, bars);
@@ -170,7 +229,8 @@ export class Chart {
     for (let i = 0; i < bars.length; i++) {
       const c = bars[i];
       const h = (c.v / max) * (volH - 4);
-      ctx.fillStyle = c.c >= c.o ? 'rgba(22,217,125,.28)' : 'rgba(255,77,106,.28)';
+      const pal = palette();
+      ctx.fillStyle = withAlpha(c.c >= c.o ? pal.up : pal.down, 0.3);
       ctx.fillRect(padL + i * step + (step - bw) / 2, top + volH - h - 2, bw, h);
     }
     ctx.fillStyle = '#3b4a61';
@@ -209,12 +269,13 @@ export class Chart {
   }
 
   drawCandles(ctx, geo, bars, yOf, xOf, bw) {
+    const pal = palette();
     for (let i = 0; i < bars.length; i++) {
       const c = bars[i];
       const up = c.c >= c.o;
       const x = xOf(i);
-      ctx.strokeStyle = up ? COL.up : COL.down;
-      ctx.fillStyle = up ? COL.upFill : COL.downFill;
+      ctx.strokeStyle = up ? pal.up : pal.down;
+      ctx.fillStyle = up ? pal.upFill : pal.downFill;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(Math.round(x) + 0.5, yOf(c.h));
@@ -256,6 +317,33 @@ export class Chart {
     }
   }
 
+  drawAlerts(ctx, geo, yOf) {
+    const { width, padL, padR } = geo;
+    for (const a of this.alerts) {
+      const y = Math.round(yOf(a.price)) + 0.5;
+      if (!Number.isFinite(y)) continue;
+      ctx.save();
+      ctx.strokeStyle = COL.alert;
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padL, y);
+      ctx.lineTo(width - padR, y);
+      ctx.stroke();
+      ctx.restore();
+      const label = `🔔 ${fmtPrice(a.price)}`;
+      ctx.font = '8.5px ui-monospace, monospace';
+      const w = ctx.measureText(label).width + 12;
+      ctx.fillStyle = 'rgba(13,28,38,.95)';
+      ctx.fillRect(width - padR - w - 6, y - 8, w, 15);
+      ctx.strokeStyle = COL.alert;
+      ctx.strokeRect(width - padR - w - 6, y - 8, w, 15);
+      ctx.fillStyle = COL.alert;
+      ctx.textAlign = 'left';
+      ctx.fillText(label, width - padR - w, y + 3);
+    }
+  }
+
   drawMarkers(ctx, geo, bars, yOf, xOf) {
     if (!bars.length) return;
     const first = bars[0].t;
@@ -267,7 +355,7 @@ export class Chart {
       const c = bars[i];
       const buy = m.side === 'BUY';
       const y = buy ? yOf(c.l) + 8 : yOf(c.h) - 8;
-      ctx.fillStyle = buy ? COL.up : COL.down;
+      ctx.fillStyle = buy ? palette().up : palette().down;
       ctx.beginPath();
       const x = xOf(i);
       if (buy) { ctx.moveTo(x, y - 5); ctx.lineTo(x - 4, y + 2); ctx.lineTo(x + 4, y + 2); }
@@ -317,7 +405,7 @@ export class Chart {
       const y = (v) => mid - (v / max) * (subH / 2 - 6);
       m.hist.forEach((v, i) => {
         if (v === null) return;
-        ctx.fillStyle = v >= 0 ? 'rgba(22,217,125,.55)' : 'rgba(255,77,106,.55)';
+        ctx.fillStyle = withAlpha(v >= 0 ? palette().up : palette().down, 0.55);
         ctx.fillRect(xOf(i) - geo.bw / 2, Math.min(mid, y(v)), geo.bw, Math.abs(y(v) - mid));
       });
       const drawLine = (vals, color) => {
@@ -358,17 +446,18 @@ export class Chart {
     const { width, padR } = geo;
     const last = bars[bars.length - 1];
     if (!last) return;
+    const pal = palette();
     const up = last.c >= last.o;
     const y = yOf(last.c);
     ctx.save();
-    ctx.strokeStyle = up ? 'rgba(22,217,125,.35)' : 'rgba(255,77,106,.35)';
+    ctx.strokeStyle = withAlpha(up ? pal.up : pal.down, 0.35);
     ctx.setLineDash([2, 3]);
     ctx.beginPath();
     ctx.moveTo(geo.padL, Math.round(y) + 0.5);
     ctx.lineTo(width - padR, Math.round(y) + 0.5);
     ctx.stroke();
     ctx.restore();
-    ctx.fillStyle = up ? COL.up : COL.down;
+    ctx.fillStyle = up ? pal.up : pal.down;
     ctx.fillRect(width - padR + 2, y - 8, padR - 4, 16);
     ctx.fillStyle = '#040a12';
     ctx.font = 'bold 9.5px ui-monospace, monospace';

@@ -121,6 +121,14 @@ export const IPO_PIPELINE = [
   { sym: 'ZENO', name: 'Zenolith Data', sector: 'TECHNOLOGY', offer: 55, vol: 0.052, beta: 1.55, eps: 1.9, hype: 1.45 },
 ];
 
+// Community coins: microcap, absurdly volatile, no fundamentals at all.
+export const COINS = [
+  { sym: 'DMAGIC', name: 'dmagic coin', kind: 'COIN', sector: 'DIGITAL', price: 0.000021, vol: 0.42, beta: 2.9, drift: 0, liquidity: 0.12, color: '#c084fc', blurb: 'Launched by a player. Pure reflexivity.' },
+  { sym: 'STARCO', name: 'star coin', kind: 'COIN', sector: 'DIGITAL', price: 0.000034, vol: 0.38, beta: 2.7, drift: 0, liquidity: 0.14, color: '#f5c451', blurb: 'Community launch, thin float.' },
+  { sym: 'MOONB', name: 'moonboy', kind: 'COIN', sector: 'DIGITAL', price: 0.000008, vol: 0.5, beta: 3.2, drift: 0, liquidity: 0.09, color: '#22d3ee', blurb: 'No roadmap. No team. No mercy.' },
+  { sym: 'FLOOR', name: 'floor coin', kind: 'COIN', sector: 'DIGITAL', price: 0.000112, vol: 0.33, beta: 2.4, drift: 0, liquidity: 0.18, color: '#34d399', blurb: 'Named optimistically.' },
+];
+
 export const ASSET_CLASSES = [
   { id: 'STOCKS', label: 'STOCKS' },
   { id: 'ETFS', label: 'ETFS' },
@@ -136,5 +144,5 @@ export const ASSET_CLASSES = [
 ];
 
 export function baseUniverse() {
-  return [...STOCKS, ...ETFS, ...CRYPTO, ...FX, ...INDICES, ...FUTURES];
+  return [...STOCKS, ...ETFS, ...CRYPTO, ...COINS, ...FX, ...INDICES, ...FUTURES];
 }

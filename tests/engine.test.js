@@ -680,3 +680,141 @@ test('option marks feed account equity and the options desk is gated', () => {
   assert.ok(equityAfter < equityBefore && equityAfter > equityBefore - premium);
   assert.ok(g.account.optionsValue(g.market) > 0);
 });
+
+// ── alerts, calendar, time machine, rewards ──────────────────────────────
+import { Alerts } from '../src/engine/alerts.js';
+import { EventCalendar, EVENT_KINDS } from '../src/engine/calendar.js';
+import { PALETTES, DEFAULTS, TOGGLES } from '../src/engine/settings.js';
+import { rankFor } from '../src/ui/pages.js';
+
+test('alerts fire once, in the direction they were armed', () => {
+  const m = new Market(101).warmUp(1);
+  const alerts = new Alerts();
+  const px = m.get('OBBY').price;
+
+  const above = alerts.add('OBBY', px * 1.05, px);
+  const below = alerts.add('OBBY', px * 0.95, px);
+  assert.ok(above.ok && below.ok);
+  assert.equal(above.alert.above, true);
+  assert.equal(below.alert.above, false);
+  assert.equal(alerts.for('OBBY').length, 2);
+  assert.equal(alerts.has('OBBY'), true);
+
+  assert.equal(alerts.check(m).length, 0, 'nothing should fire at the arming price');
+  m.get('OBBY').price = px * 1.06;
+  const fired = alerts.check(m);
+  assert.equal(fired.length, 1);
+  assert.equal(fired[0].id, above.alert.id);
+  assert.equal(alerts.list.length, 1, 'a fired alert is removed');
+  assert.equal(alerts.check(m).length, 0, 'it does not fire twice');
+});
+
+test('alerts reject bad levels and can be removed', () => {
+  const alerts = new Alerts();
+  assert.equal(alerts.add('OBBY', 0, 10).ok, false);
+  const { alert } = alerts.add('OBBY', 12, 10);
+  assert.equal(alerts.remove(alert.id), true);
+  assert.equal(alerts.remove('nope'), false);
+  assert.equal(alerts.has('OBBY'), false);
+});
+
+test('the calendar schedules ahead and resolves into real news', () => {
+  const m = new Market(102).warmUp(1);
+  const cal = new EventCalendar(new Rng(5));
+  cal.refill(m);
+  const upcoming = cal.upcoming(m, 50);
+  assert.ok(upcoming.length > 3, 'should schedule a slate');
+  assert.ok(upcoming.every((e) => EVENT_KINDS[e.kind]), 'every event has a known kind');
+  assert.ok(upcoming.every((e) => e.inMinutes >= 0), 'nothing scheduled in the past');
+  assert.ok(upcoming.every((e) => m.get(e.sym)), 'events point at listed names');
+
+  const newsBefore = m.news.length;
+  m.day += 5;
+  m.minuteOfDay = 1439;
+  const fired = cal.resolve(m);
+  assert.ok(fired.length > 0, 'due events resolve');
+  assert.ok(m.news.length > newsBefore, 'resolving pushes news onto the wire');
+  assert.equal(cal.resolve(m).length, 0, 'events resolve only once');
+});
+
+test('the time machine advances the clock and respects its limits', () => {
+  const g = new Game({ seed: 103, warmUpDays: 0 });
+  const startTick = g.market.tick;
+  const first = g.runTimeMachine('DAY');
+  assert.ok(first.ok);
+  assert.equal(first.report.minutes, 1440);
+  assert.ok(g.market.tick >= startTick + 1440);
+
+  assert.ok(g.runTimeMachine('DAY').ok, 'two daily sims are allowed');
+  const third = g.runTimeMachine('DAY');
+  assert.equal(third.ok, false, 'the third is refused');
+  assert.match(third.reason, /left today/);
+
+  const week = g.runTimeMachine('WEEK');
+  assert.equal(week.ok, false, 'the week skip is level gated');
+  g.prog.addXp(totalXpForLevel(12) + 1, {});
+  assert.ok(g.runTimeMachine('WEEK').ok);
+  assert.equal(g.runTimeMachine('NOPE').ok, false);
+});
+
+test('time skips carry the account forward, not around', () => {
+  const g = new Game({ seed: 104, warmUpDays: 1 });
+  g.account.cash = 100000;
+  g.openPosition({ sym: 'BLX', side: 'LONG', margin: 20000, leverage: 1 });
+  const posBefore = g.account.positions.length;
+  const dividendsBefore = g.account.stats.dividends;
+  g.runTimeMachine('DAY');
+  assert.equal(g.account.positions.length, posBefore, 'the position survives the skip');
+  assert.ok(g.account.stats.dividends > dividendsBefore, 'dividends paid during the skip');
+  assert.ok(Object.keys(g.account.calendar).length > 0, 'the day was booked');
+});
+
+test('rewards are claimable exactly once and only when earned', () => {
+  const g = new Game({ seed: 105, warmUpDays: 0 });
+  const cash = g.account.cash;
+  assert.ok(g.claimReward('FIRST_LOGIN').ok);
+  assert.equal(g.account.cash, cash + 5000);
+  assert.match(g.claimReward('FIRST_LOGIN').reason, /Already/);
+  assert.match(g.claimReward('MADE_UP').reason, /Unknown/);
+});
+
+test('community coins are gated and behave like microcaps', () => {
+  const g = new Game({ seed: 106, warmUpDays: 2 });
+  const coins = g.market.list((i) => i.kind === 'COIN');
+  assert.ok(coins.length >= 4);
+  assert.match(g.canTrade(coins[0].sym).reason, /level 4/);
+  g.prog.addXp(totalXpForLevel(4) + 1, {});
+  assert.equal(g.canTrade(coins[0].sym).ok, true);
+  for (const c of coins) assert.ok(c.price > 0 && Number.isFinite(c.price));
+});
+
+test('the colourblind palette is a distinct, complete pair', () => {
+  assert.notEqual(PALETTES.standard.up, PALETTES.colorblind.up);
+  assert.notEqual(PALETTES.standard.down, PALETTES.colorblind.down);
+  for (const p of Object.values(PALETTES)) {
+    for (const key of ['up', 'down', 'upSoft', 'downSoft']) assert.ok(p[key], `${key} missing`);
+    assert.notEqual(p.up, p.down, 'gains and losses must differ');
+  }
+  for (const t of TOGGLES) {
+    assert.ok(t.id in DEFAULTS, `${t.id} has no default`);
+    assert.equal(typeof DEFAULTS[t.id], 'boolean');
+  }
+});
+
+test('career rank tracks level and prestige', () => {
+  assert.equal(rankFor(1, 0), 'RETAIL TRADER');
+  assert.equal(rankFor(11, 0), 'PROP TRADER');
+  assert.equal(rankFor(30, 0), 'MARKET LEGEND');
+  assert.match(rankFor(11, 2), /✦2$/);
+});
+
+test('alerts and the calendar survive a save round trip', () => {
+  const g = new Game({ seed: 107, warmUpDays: 1 });
+  const px = g.market.get('OBBY').price;
+  g.alerts.add('OBBY', px * 1.2, px);
+  const restored = Game.fromJSON(JSON.parse(JSON.stringify(g.toJSON())));
+  assert.equal(restored.alerts.list.length, 1);
+  assert.equal(restored.alerts.list[0].sym, 'OBBY');
+  assert.equal(restored.calendar.events.length, g.calendar.events.length);
+  assert.equal(restored.timeMachine.simsUsed, g.timeMachine.simsUsed);
+});
