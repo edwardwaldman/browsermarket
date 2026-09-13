@@ -391,6 +391,95 @@ for (const [w, h] of [[390, 844], [768, 1024], [1280, 800]]) {
   check(`no horizontal overflow at ${w}px`, overflow === 0, `${overflow}px`);
 }
 
+// ── the phone layout ─────────────────────────────────────────────────────
+await page.setViewportSize({ width: 390, height: 844 });
+await page.waitForTimeout(600);
+
+check('the phone shows a buy and sell bar, not the desk ticket', await page.evaluate(() => {
+  const bar = document.querySelector('#mobile-bar');
+  const ticket = document.querySelector('#ticket');
+  return getComputedStyle(bar).display === 'grid'
+    && getComputedStyle(ticket).display === 'none'
+    && getComputedStyle(document.querySelector('#bottompanel')).display === 'none';
+}));
+
+check('the buy and sell buttons are big enough to hit', await page.evaluate(() => {
+  const r = document.querySelector('.mbtn.buy').getBoundingClientRect();
+  return r.height >= 56 && r.width >= 150;
+}));
+
+check('the bar carries the two sided price', await page.evaluate(() => {
+  const subs = [...document.querySelectorAll('.mbtn-sub')].map((s) => s.textContent);
+  return subs.length === 2 && subs.every((t) => /\d/.test(t));
+}));
+
+check('the chart keeps most of the screen', await page.evaluate(() => {
+  const h = document.querySelector('.chartwrap').getBoundingClientRect().height;
+  return h >= 280;
+}));
+
+await page.click('.mbtn.buy');
+await page.waitForTimeout(400);
+check('pressing buy expands the trade sheet', await page.evaluate(() => {
+  const root = document.querySelector('#mobile-sheet');
+  return !root.hidden && root.classList.contains('is-open')
+    && document.querySelector('.mseg-btn.buy').classList.contains('is-active');
+}));
+
+check('the sheet has the market order form', await page.evaluate(() => {
+  const t = document.querySelector('.msheet').textContent;
+  return ['MARKET', 'LIMIT', 'Buy', 'Sell', 'Balance', '25%', '100%'].every((x) => t.includes(x))
+    && Boolean(document.querySelector('.mamount-input') && document.querySelector('.mslider'));
+}));
+
+const sized = await page.evaluate(async () => {
+  game.limiter.hits.clear();
+  game.account.cash = 20000;
+  const tick = [...document.querySelectorAll('.mtick')].find((t) => t.textContent === '50%');
+  tick.click();
+  await new Promise((r) => setTimeout(r, 200));
+  return { amount: document.querySelector('.mamount-input').value, slider: document.querySelector('.mslider').value };
+});
+check('a percentage tick sizes the order', Number(sized.amount) > 0 && sized.slider === '50',
+  `${sized.amount} at ${sized.slider}%`);
+
+check('the sheet fills an order', await page.evaluate(async () => {
+  // An order in a name already held adds to that position rather than making
+  // a second one, so measure the size rather than the count.
+  const held = () => game.account.positions.reduce((n, p) => n + p.qty, 0);
+  const before = held();
+  document.querySelector('.msubmit').click();
+  await new Promise((r) => setTimeout(r, 400));
+  return held() > before && document.querySelectorAll('.mpos').length >= 1;
+}));
+
+check('a percentage keeps meaning that share of the cash left', await page.evaluate(() => {
+  const shown = Number(document.querySelector('.mamount-input').value);
+  const want = game.account.maxMargin(1, 0.5);
+  return Math.abs(shown - want) < 1;
+}));
+
+check('the sell side locks until shorts unlock', await page.evaluate(() => {
+  const locked = !game.prog.has('SHORTS');
+  const btn = document.querySelector('.mseg-btn.sell');
+  return locked === btn.classList.contains('is-locked');
+}));
+
+await page.click('.msheet-scrim', { position: { x: 195, y: 40 } });
+await page.waitForTimeout(400);
+check('tapping outside collapses the sheet', await page.evaluate(
+  () => document.querySelector('#mobile-sheet').hidden === true));
+
+const mobileOverflow = await page.evaluate(
+  () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+check('no horizontal overflow with the phone bar', mobileOverflow === 0, `${mobileOverflow}px`);
+
+await page.setViewportSize({ width: 1280, height: 800 });
+await page.waitForTimeout(400);
+check('the desk ticket comes back on a wide screen', await page.evaluate(
+  () => getComputedStyle(document.querySelector('#ticket')).display !== 'none'
+    && getComputedStyle(document.querySelector('#mobile-bar')).display === 'none'));
+
 check('a wipe clears the save and the autosave cannot undo it', await page.evaluate(async () => {
   game.save();
   localStorage.setItem('browsermarket.favs', '["OBBY"]');
