@@ -333,22 +333,19 @@ export class Ticket {
   }
 
   renderLeverage() {
-    const max = this.game.maxLeverage();
     clear(this.refs.levRow);
     for (const tier of LEVERAGE_TIERS) {
-      const unlocked = !tier.unlock || this.game.prog.has(tier.unlock);
       this.refs.levRow.append(el('button', {
-        class: cls('lev', this.leverage === tier.x && 'is-active', !unlocked && 'locked'),
-        text: unlocked ? `${tier.x}X` : `🔒${tier.x}`,
+        class: cls('lev', this.leverage === tier.x && 'is-active'),
+        text: `${tier.x}X`,
         onclick: () => {
-          if (!unlocked) { this.flash(`${tier.x}x leverage unlocks with more levels`); return; }
           this.leverage = tier.x;
           this.renderLeverage();
           this.update();
+          if (tier.x >= 20) this.flash(`${tier.x}x moves your liquidation price very close to entry.`);
         },
       }));
     }
-    if (this.leverage > max) this.leverage = max;
   }
 
   flash(text) {

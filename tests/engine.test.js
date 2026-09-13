@@ -5,10 +5,10 @@ import { Rng, mulberry32, clamp } from '../src/util/rng.js';
 import { sma, ema, rsi, macd, bollinger, vwap, crossSignal } from '../src/engine/indicators.js';
 import { Market, aggregate, sessionAt, ar1Innovation, TF } from '../src/engine/market.js';
 import { Account, FEE_RATE } from '../src/engine/account.js';
-import { Progression, totalXpForLevel, xpForLevel } from '../src/engine/progression.js';
+import { Progression, totalXpForLevel, xpForLevel, LEVERAGE_TIERS, LEVELS } from '../src/engine/progression.js';
 import { BotDesk, BOT_TYPES, upgradeCost } from '../src/engine/bots.js';
 import { Leaderboard } from '../src/engine/leaderboard.js';
-import { Game } from '../src/engine/game.js';
+import { Game, SHOP } from '../src/engine/game.js';
 import { money, moneyShort, pct, clockTime, gameDate } from '../src/util/format.js';
 
 // ── rng ──────────────────────────────────────────────────────────────────
@@ -357,15 +357,21 @@ test('xp thresholds rise monotonically', () => {
   }
 });
 
-test('levelling grants the right unlocks and leverage tiers', () => {
+test('levelling grants the right unlocks', () => {
   const p = new Progression(1);
-  assert.equal(p.maxLeverage(), 1);
   assert.equal(p.has('SHORTS'), false);
   p.addXp(totalXpForLevel(12) + 1, {});
   assert.ok(p.level >= 12);
-  assert.ok(p.has('SHORTS') && p.has('LIMIT') && p.has('LEV5'));
-  assert.ok(p.maxLeverage() >= 10);
+  assert.ok(p.has('SHORTS') && p.has('LIMIT'));
   assert.ok(p.botSlots() >= 1);
+});
+
+test('every leverage tier is open from the start', () => {
+  const fresh = new Progression(2);
+  assert.equal(fresh.maxLeverage(), 100, 'no level gate on leverage');
+  assert.ok(LEVERAGE_TIERS.every((t) => t.unlock === null), 'no tier carries an unlock');
+  // The level track must not promise a leverage unlock it no longer performs.
+  assert.ok(LEVELS.every((l) => !String(l.unlock || '').startsWith('LEV')));
 });
 
 test('missions advance, complete and roll to the next tier', () => {
@@ -470,13 +476,16 @@ test('the board ranks the player among rivals', () => {
 });
 
 // ── game ─────────────────────────────────────────────────────────────────
-test('gating blocks shorts, leverage and executive names until unlocked', () => {
+test('gating blocks shorts and executive names, but never leverage', () => {
   const g = new Game({ seed: 12, warmUpDays: 0 });
   assert.match(g.openPosition({ sym: 'OBBY', side: 'SHORT', margin: 100 }).reason, /Shorts/);
   assert.match(g.openPosition({ sym: 'OMNI', side: 'LONG', margin: 100 }).reason, /Executive/);
-  assert.match(g.openPosition({ sym: 'OBBY', side: 'LONG', margin: 100, leverage: 20 }).reason, /locked/);
   assert.match(g.openPosition({ sym: 'BSX500', side: 'LONG', margin: 100 }).reason, /not directly tradable/i);
   assert.ok(g.openPosition({ sym: 'OBBY', side: 'LONG', margin: 100 }).ok);
+  for (const x of [5, 10, 20, 50, 100]) {
+    const res = g.openPosition({ sym: 'OBBY', side: 'LONG', margin: 50, leverage: x });
+    assert.ok(res.ok, `${x}x should be available at level 1: ${res.reason}`);
+  }
 });
 
 test('codes redeem exactly once', () => {
@@ -528,12 +537,17 @@ test('a broke account gets a stake rather than a dead save', () => {
   assert.ok(g.account.cash > 0);
 });
 
-test('the shop applies permanent perks once', () => {
+test('shop unlocks need a completed placement and apply once', () => {
   const g = new Game({ seed: 24, warmUpDays: 0 });
-  g.account.cash = 10e6;
-  assert.ok(g.buyShopItem('STARTER').ok);
+  const cashBefore = g.account.cash;
+  assert.match(g.claimShopItem('STARTER').reason, /Watch the placement/);
+  assert.equal(g.account.perks.dividendBoost, 0, 'nothing applied without a view');
+
+  assert.ok(g.claimShopItem('STARTER', { adCompleted: true }).ok);
   assert.ok(g.account.perks.dividendBoost > 0);
-  assert.match(g.buyShopItem('STARTER').reason, /Already/);
+  assert.equal(g.account.cash, cashBefore, 'unlocks cost no cash');
+  assert.match(g.claimShopItem('STARTER', { adCompleted: true }).reason, /Already/);
+  assert.ok(SHOP.every((i) => i.price === undefined), 'nothing in the shop carries a price');
 });
 
 test('an IPO allocation prices at the offer and scales back a hot book', () => {
@@ -737,24 +751,37 @@ test('the calendar schedules ahead and resolves into real news', () => {
   assert.equal(cal.resolve(m).length, 0, 'events resolve only once');
 });
 
-test('the time machine advances the clock and respects its limits', () => {
+test('time skips need a completed placement, except the daily free one', () => {
   const g = new Game({ seed: 103, warmUpDays: 0 });
   const startTick = g.market.tick;
-  const first = g.runTimeMachine('DAY');
-  assert.ok(first.ok);
-  assert.equal(first.report.minutes, 1440);
+
+  const unwatched = g.runTimeMachine('DAY');
+  assert.equal(unwatched.ok, false);
+  assert.match(unwatched.reason, /Watch the placement/);
+  assert.equal(g.market.tick, startTick, 'a refused skip must not move the clock');
+
+  const watched = g.runTimeMachine('DAY', { adCompleted: true });
+  assert.ok(watched.ok);
+  assert.equal(watched.report.minutes, 1440);
   assert.ok(g.market.tick >= startTick + 1440);
 
-  assert.ok(g.runTimeMachine('DAY').ok, 'two daily sims are allowed');
-  const third = g.runTimeMachine('DAY');
-  assert.equal(third.ok, false, 'the third is refused');
-  assert.match(third.reason, /left today/);
-
-  const week = g.runTimeMachine('WEEK');
-  assert.equal(week.ok, false, 'the week skip is level gated');
+  const week = g.runTimeMachine('WEEK', { adCompleted: true });
+  assert.equal(week.ok, false, 'the week skip is still level gated');
   g.prog.addXp(totalXpForLevel(12) + 1, {});
-  assert.ok(g.runTimeMachine('WEEK').ok);
-  assert.equal(g.runTimeMachine('NOPE').ok, false);
+  assert.ok(g.runTimeMachine('WEEK', { adCompleted: true }).ok);
+  assert.equal(g.runTimeMachine('NOPE', { adCompleted: true }).ok, false);
+});
+
+test('the open skip is free once a day, then needs a placement', () => {
+  const g = new Game({ seed: 113, warmUpDays: 0 });
+  g.market.minuteOfDay = 300; // before the open, so the skip is available
+  const opts = () => g.timeMachineOptions().find((o) => o.id === 'OPEN');
+  assert.equal(opts().free, true, 'the first one is free');
+  assert.ok(g.runTimeMachine('OPEN').ok);
+  g.market.minuteOfDay = 300;
+  assert.equal(opts().free, false, 'the free one is spent');
+  assert.match(g.runTimeMachine('OPEN').reason, /Watch the placement/);
+  assert.ok(g.runTimeMachine('OPEN', { adCompleted: true }).ok);
 });
 
 test('time skips carry the account forward, not around', () => {
@@ -763,7 +790,7 @@ test('time skips carry the account forward, not around', () => {
   g.openPosition({ sym: 'BLX', side: 'LONG', margin: 20000, leverage: 1 });
   const posBefore = g.account.positions.length;
   const dividendsBefore = g.account.stats.dividends;
-  g.runTimeMachine('DAY');
+  g.runTimeMachine('DAY', { adCompleted: true });
   assert.equal(g.account.positions.length, posBefore, 'the position survives the skip');
   assert.ok(g.account.stats.dividends > dividendsBefore, 'dividends paid during the skip');
   assert.ok(Object.keys(g.account.calendar).length > 0, 'the day was booked');
@@ -920,4 +947,73 @@ test('accents define both themes and the grid densities ascend', () => {
   assert.ok(GRID_DENSITY.low < GRID_DENSITY.normal);
   assert.ok(GRID_DENSITY.normal < GRID_DENSITY.high);
   assert.deepEqual(THEMES, ['dark', 'light', 'system']);
+});
+
+// ── rewarded ads ─────────────────────────────────────────────────────────
+import { AdGate, PLACEMENTS, COOLDOWN_MS } from '../src/engine/ads.js';
+
+const instantProvider = { show: async () => ({ completed: true }) };
+const skippedProvider = { show: async () => ({ completed: false }) };
+
+test('a fresh gate is ready, and a view starts the cooldown', async () => {
+  let now = 1e6;
+  const gate = new AdGate(instantProvider, () => now);
+  assert.equal(gate.check('SIM_DAY').ok, true, 'nothing has played yet');
+  assert.ok((await gate.show('SIM_DAY')).ok);
+  assert.equal(gate.check('SIM_DAY').ok, false);
+  assert.match(gate.check('SIM_DAY').reason, /Next ad in/);
+  now += COOLDOWN_MS + 1;
+  assert.equal(gate.check('SIM_DAY').ok, true);
+});
+
+test('a skipped ad grants nothing and does not count', async () => {
+  let now = 1e6;
+  const gate = new AdGate(skippedProvider, () => now);
+  const before = gate.remaining('SIM_DAY');
+  const res = await gate.show('SIM_DAY');
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /no reward/i);
+  assert.equal(gate.remaining('SIM_DAY'), before, 'a skip must not burn the allowance');
+  assert.equal(gate.lifetimeViews, 0);
+});
+
+test('placements have their own daily caps', async () => {
+  let now = 1e6;
+  const gate = new AdGate(instantProvider, () => now);
+  const cap = PLACEMENTS.SIM_WEEK.dailyCap;
+  for (let i = 0; i < cap; i++) {
+    now += COOLDOWN_MS + 1;
+    assert.ok((await gate.show('SIM_WEEK')).ok, `view ${i}`);
+  }
+  now += COOLDOWN_MS + 1;
+  const blocked = gate.check('SIM_WEEK');
+  assert.equal(blocked.ok, false);
+  assert.match(blocked.reason, /No more today/);
+  assert.equal(gate.check('SIM_DAY').ok, true, 'other placements keep their own budget');
+});
+
+test('the gate refuses an unknown placement and concurrent plays', async () => {
+  const gate = new AdGate(instantProvider, () => 1e6);
+  assert.equal(gate.check('NOT_A_PLACEMENT').ok, false);
+  gate.showing = 'SIM_DAY';
+  assert.match(gate.check('SIM_DAY').reason, /already playing/);
+  gate.showing = null;
+});
+
+test('ad state survives a save round trip', async () => {
+  const g = new Game({ seed: 401, warmUpDays: 0 });
+  g.ads.provider = instantProvider;
+  await g.ads.show('SIM_DAY');
+  const restored = Game.fromJSON(JSON.parse(JSON.stringify(g.toJSON())));
+  assert.equal(restored.ads.lifetimeViews, g.ads.lifetimeViews);
+  assert.equal(restored.ads.remaining('SIM_DAY'), g.ads.remaining('SIM_DAY'));
+});
+
+test('every placement is coherent', () => {
+  for (const [id, p] of Object.entries(PLACEMENTS)) {
+    assert.equal(p.id, id);
+    assert.ok(p.seconds >= 5 && p.seconds <= 60, `${id} duration`);
+    assert.ok(p.dailyCap >= 1 && p.dailyCap <= 20, `${id} cap`);
+    assert.ok(p.label, `${id} label`);
+  }
 });

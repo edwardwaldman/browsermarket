@@ -55,19 +55,29 @@ for (const [i, tab] of ['positions', 'orders', 'flow', 'pnl', 'feed', 'history',
   check(`dock tab renders: ${tab}`, await page.isVisible('#bottombody'));
 }
 
-for (const view of ['research', 'empire', 'trade']) {
+for (const view of ['research', 'trade']) {
   await page.click(`[data-view="${view}"]`);
   await page.waitForTimeout(500);
   check(`view renders: ${view}`, await page.isVisible(`#view-${view}`));
 }
 
-for (const m of ['portfolio', 'level', 'missions', 'collection', 'rewards', 'leaderboard', 'shop', 'settings', 'timemachine', 'scanner', 'sectors', 'fundhq', 'index', 'launchpad', 'badges', 'alerts', 'ledger']) {
+for (const m of ['portfolio', 'level', 'missions', 'collection', 'rewards', 'leaderboard', 'shop', 'settings', 'timemachine', 'desks', 'scanner', 'sectors', 'fundhq', 'index', 'launchpad', 'badges', 'alerts', 'ledger']) {
   await page.click(`[data-modal="${m}"]`);
   await page.waitForTimeout(180);
   const open = await page.isVisible('.modal');
   await page.keyboard.press('Escape');
   check(`modal opens: ${m}`, open);
 }
+
+// rebirth opens from the level sheet
+await page.click('[data-modal="level"]');
+await page.waitForTimeout(250);
+await page.evaluate(() => [...document.querySelectorAll('.bigrow')].find((b) => b.textContent.includes('REBIRTH')).click());
+await page.waitForTimeout(250);
+check('rebirth sheet opens', await page.evaluate(
+  () => document.querySelector('.modal-title')?.textContent === 'REBIRTH'));
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
 
 // the shortcuts sheet opens from within settings
 await page.click('[data-modal="settings"]');
@@ -152,6 +162,51 @@ check('order rate limit engages', await page.evaluate(() => {
 
 check('no chat assistant in the DOM', await page.evaluate(
   () => !document.querySelector('#assistant, #assistant-input, .assistant-log')));
+
+// ads replace payments
+check('shop unlocks are ad-gated, not priced', await page.evaluate(async () => {
+  document.querySelector('[data-modal="shop"]').click();
+  await new Promise((r) => setTimeout(r, 250));
+  const text = document.querySelector('.modal-body').textContent;
+  const priced = /\$\d/.test(text);
+  const watchable = [...document.querySelectorAll('.modal-body .btn')].some((b) => b.textContent.includes('WATCH'));
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  return watchable && !priced;
+}));
+
+check('watching a placement grants the unlock', await page.evaluate(async () => {
+  // Swap in an instant provider so the check does not wait out the timer.
+  game.ads.provider = { show: async () => ({ completed: true }) };
+  game.ads.lastShownAt = 0;
+  const res = await game.ads.show('SHOP_UNLOCK');
+  if (!res.ok) return false;
+  return game.claimShopItem('FEECUT', { adCompleted: true }).ok
+    && game.account.perks.feeDiscount > 0;
+}));
+
+check('every leverage tier is selectable', await page.evaluate(() => {
+  const levs = [...document.querySelectorAll('.lev')];
+  return levs.length === 6 && levs.every((b) => !b.classList.contains('locked') && !b.textContent.includes('🔒'));
+}));
+
+check('no empire tab', await page.evaluate(
+  () => !document.querySelector('[data-view="empire"], #view-empire')));
+
+check('brand returns to the trading floor', await page.evaluate(async () => {
+  document.querySelector('[data-view="research"]').click();
+  await new Promise((r) => setTimeout(r, 200));
+  document.querySelector('#brand-home').click();
+  await new Promise((r) => setTimeout(r, 200));
+  return !document.querySelector('#view-trade').hidden;
+}));
+
+check('body type is readable', await page.evaluate(() => {
+  const sizes = ['.assetrow-sym', '.statcard-value', '.tabbtn', '.ah-stat', '.setrow-title']
+    .map((s) => document.querySelector(s))
+    .filter(Boolean)
+    .map((el) => parseFloat(getComputedStyle(el).fontSize));
+  return sizes.length > 0 && Math.min(...sizes) >= 10;
+}));
 
 // price alerts round-trip through the chart
 check('price alert arms', await page.evaluate(() => {

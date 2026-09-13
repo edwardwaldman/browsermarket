@@ -21,8 +21,8 @@ npm start          # serves on http://localhost:8080
 Or just open `index.html` directly — it's plain ES modules and static assets.
 
 ```bash
-npm test           # 74 engine tests, zero dependencies
-npm run test:ui    # 53-check browser smoke test (needs Playwright, see tests/smoke.mjs)
+npm test           # 82 engine tests, zero dependencies
+npm run test:ui    # 60-check browser smoke test (needs Playwright, see tests/smoke.mjs)
 ```
 
 ## What's in it
@@ -49,9 +49,18 @@ liquidation lines drawn on the chart, and a crosshair readout.
 buy-pressure imbalance for every name.
 
 **Progression.** 30 levels, each paying cash or opening a desk — shorts at 3,
-limits at 5, the launchpad at 9, algo slots at 10, funds at 13, the scanner at
-15, futures at 16, the news wire at 20, options at 23, rebirth at 30. Missions,
-daily streaks, collectible drops and badges feed the XP curve.
+coins at 4, limits at 5, the launchpad at 9, algo slots at 10, funds at 13, the
+scanner at 15, futures at 16, the news wire at 20, options at 23, rebirth at 30.
+Missions, daily streaks, collectible drops and badges feed the XP curve.
+Leverage is **not** gated: every tier from 1x to 100x is available from the
+first trade, because it is a risk choice rather than a reward.
+
+**Nothing is for sale.** Every unlock that would normally sit behind a purchase
+— the permanent-edge upgrades, the extra algo slot, simulating a day or a week —
+is opened by watching a rewarded placement instead. `src/engine/ads.js` holds
+the gate: daily caps and a cooldown per placement, and a `provider` that is the
+single integration point for a real ad SDK. The built-in provider is an honest
+placeholder that says so on screen; a skipped view grants nothing.
 
 **Algo desks.** Six strategies you buy, fund and upgrade — momentum, mean
 reversion, market making, index arbitrage, news sentiment and yield harvesting.
@@ -73,10 +82,6 @@ mark, brackets fire, dividends pay and IPOs settle exactly as they would have.
 is coming — earnings, ex-dividend dates, lockup expiries, guidance and product
 events — that resolves into real news on the wire when its moment arrives. Plus
 sector performance and a movers board.
-
-**Empire.** Net worth, career rank, algo fleet, fund capital, options desk and
-your realised profit for the week, with tabs for desks, career, collection and
-rebirth.
 
 **Light and dark.** A full light theme alongside the dark one, or follow the
 operating system. Every element is squared off — no rounded corners anywhere.
@@ -150,6 +155,7 @@ src/
     calendar.js         scheduled events that resolve into news
     settings.js         preferences, themes, palettes and accents
     ratelimit.js        sliding-window limits on player actions
+    ads.js              rewarded-placement gating for every unlock
     options.js          Black-Scholes, the chain, expiry settlement
     indicators.js       SMA, EMA, RSI, MACD, Bollinger, VWAP, crossovers
     progression.js      levels, unlocks, missions, collectibles, rebirth
@@ -162,7 +168,8 @@ src/
     ticket.js           order ticket and options desk
     panels.js           positions, orders, flow, P&L, feed, history, news
     modals.js           every overlay
-    pages.js            research and empire views
+    pages.js            the research desk
+    adgate.js           the rewarded-placement overlay
     toast.js            toasts and celebration banners
   main.js               wiring and the render loop
 tests/engine.test.js    engine tests

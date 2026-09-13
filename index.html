@@ -14,15 +14,14 @@
 
   <!-- ── top bar ─────────────────────────────────────────────── -->
   <header class="topbar">
-    <div class="brand">
+    <button class="brand" id="brand-home" title="Back to the trading floor">
       <div class="brand-mark">BROWSER STOCK EXCHANGE</div>
       <div class="brand-sub">LIGHTWEIGHT MARKET SIMULATION</div>
-    </div>
+    </button>
 
     <nav class="viewnav" id="viewnav">
       <button class="viewtab is-active" data-view="trade"><span class="ico">▦</span>TRADE</button>
       <button class="viewtab" data-view="research"><span class="ico">◈</span>RESEARCH</button>
-      <button class="viewtab" data-view="empire"><span class="ico">⌂</span>EMPIRE<i class="dot" id="empire-dot"></i></button>
     </nav>
 
     <div class="statcards">
@@ -44,6 +43,7 @@
     <div class="toolstrip">
       <button class="tool" id="btn-speed" data-modal="timemachine" title="Time machine">⏩<i class="tool-tag" id="speed-tag">1x</i></button>
       <button class="tool" data-modal="missions" title="Missions">◎<i class="dot" id="mission-dot"></i></button>
+      <button class="tool" data-modal="desks" title="Algo desks">🤖</button>
       <button class="tool" data-modal="collection" title="Collection">🎟️</button>
       <button class="tool" data-modal="rewards" title="Free rewards">🎁</button>
       <button class="tool" data-modal="leaderboard" title="Leaderboard">🏆</button>
@@ -101,7 +101,6 @@
   </div>
 
   <div class="viewpage" id="view-research" hidden></div>
-  <div class="viewpage" id="view-empire" hidden></div>
 
   <!-- ── status bar ──────────────────────────────────────────── -->
   <footer class="statusbar">
@@ -116,6 +115,7 @@
   <div class="toasts" id="toasts"></div>
   <div class="celebration" id="celebration" hidden></div>
   <div class="modal-root" id="modal-root" hidden></div>
+  <div class="ad-root" id="ad-root" hidden></div>
   <div class="promo" id="promo" hidden></div>
 </div>
 

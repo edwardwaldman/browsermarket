@@ -6,11 +6,6 @@ export const UNLOCKS = {
   SHORTS: 'SHORTS',
   LIMIT: 'LIMIT ORDERS',
   BRACKETS: 'TP / SL',
-  LEV5: '5X LEVERAGE',
-  LEV10: '10X LEVERAGE',
-  LEV20: '20X LEVERAGE',
-  LEV50: '50X LEVERAGE',
-  LEV100: '100X LEVERAGE',
   ETF: 'LEVERAGED FUNDS',
   FUTURES: 'FUTURES DESK',
   OPTIONS: 'OPTIONS DESK',
@@ -32,38 +27,39 @@ export const LEVELS = [
   { lvl: 5, unlock: 'LIMIT' },
   { lvl: 6, unlock: 'BRACKETS' },
   { lvl: 7, cash: 5000 },
-  { lvl: 8, unlock: 'LEV5' },
+  { lvl: 8, cash: 8000 },
   { lvl: 9, unlock: 'IPO' },
   { lvl: 10, unlock: 'BOT1' },
   { lvl: 11, cash: 12000 },
-  { lvl: 12, unlock: 'LEV10' },
+  { lvl: 12, cash: 15000 },
   { lvl: 13, unlock: 'ETF' },
   { lvl: 14, cash: 20000 },
   { lvl: 15, unlock: 'SCANNER' },
   { lvl: 16, unlock: 'FUTURES' },
   { lvl: 17, unlock: 'BOT2' },
   { lvl: 18, cash: 45000 },
-  { lvl: 19, unlock: 'LEV20' },
+  { lvl: 19, cash: 60000 },
   { lvl: 20, unlock: 'NEWSWIRE' },
   { lvl: 21, cash: 90000 },
   { lvl: 22, unlock: 'BOT3' },
   { lvl: 23, unlock: 'OPTIONS' },
-  { lvl: 24, unlock: 'LEV50' },
+  { lvl: 24, cash: 180000 },
   { lvl: 25, cash: 250000 },
   { lvl: 26, unlock: 'BOT4' },
-  { lvl: 27, unlock: 'LEV100' },
+  { lvl: 27, cash: 450000 },
   { lvl: 28, cash: 600000 },
   { lvl: 29, cash: 1200000 },
   { lvl: 30, unlock: 'REBIRTH' },
 ];
 
+// Every tier is open from the start - leverage is a risk choice, not a reward.
 export const LEVERAGE_TIERS = [
   { x: 1, unlock: null },
-  { x: 5, unlock: 'LEV5' },
-  { x: 10, unlock: 'LEV10' },
-  { x: 20, unlock: 'LEV20' },
-  { x: 50, unlock: 'LEV50' },
-  { x: 100, unlock: 'LEV100' },
+  { x: 5, unlock: null },
+  { x: 10, unlock: null },
+  { x: 20, unlock: null },
+  { x: 50, unlock: null },
+  { x: 100, unlock: null },
 ];
 
 export function xpForLevel(level) {
@@ -172,9 +168,7 @@ export class Progression {
   }
 
   maxLeverage() {
-    let max = 1;
-    for (const t of LEVERAGE_TIERS) if (!t.unlock || this.has(t.unlock)) max = Math.max(max, t.x);
-    return max;
+    return LEVERAGE_TIERS[LEVERAGE_TIERS.length - 1].x;
   }
 
   botSlots() {

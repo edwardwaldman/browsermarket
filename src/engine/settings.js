@@ -35,7 +35,7 @@ export const DEFAULTS = {
   buyNearTop: false,
   fullNumbers: false,
   uiScale: 100,
-  dockHeight: 188,
+  dockHeight: 240,
 };
 
 export const TOGGLES = [

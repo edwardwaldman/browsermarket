@@ -10,6 +10,7 @@ import { Rng, clamp } from '../util/rng.js';
 import { Alerts } from './alerts.js';
 import { EventCalendar } from './calendar.js';
 import { RateLimiter } from './ratelimit.js';
+import { AdGate } from './ads.js';
 import { buildChain, markOption, CONTRACT_SIZE } from './options.js';
 
 export const SAVE_KEY = 'browsermarket.save.v1';
@@ -34,7 +35,7 @@ export const CODES = {
 
 export const SHOP = [
   {
-    id: 'STARTER', name: 'TRADER STARTER PACK', price: 250000, once: true,
+    id: 'STARTER', name: 'TRADER STARTER PACK', once: true,
     tag: 'ONE-TIME · PERMANENT ACCOUNT EDGE',
     perks: ['DAILY LEADING-STOCK PICK', '+25% DIVIDENDS', '0.4% DAILY INTEREST'],
     apply: (g) => {
@@ -44,19 +45,19 @@ export const SHOP = [
     },
   },
   {
-    id: 'FEECUT', name: 'PRIME BROKERAGE', price: 500000, once: true,
+    id: 'FEECUT', name: 'PRIME BROKERAGE', once: true,
     tag: 'PERMANENT · FEES',
     perks: ['-50% TRADING FEES', 'PRIORITY FILLS'],
     apply: (g) => { g.account.perks.feeDiscount += 0.5; },
   },
   {
-    id: 'LUCK', name: 'COLLECTOR LICENSE', price: 400000, once: true,
+    id: 'LUCK', name: 'COLLECTOR LICENSE', once: true,
     tag: 'PERMANENT · DROPS',
     perks: ['2X COLLECTIBLE DROP RATE', '+10% XP'],
     apply: (g) => { g.flags.luck = 2; },
   },
   {
-    id: 'DESK', name: 'EXTRA ALGO SLOT', price: 1200000, once: true,
+    id: 'DESK', name: 'EXTRA ALGO SLOT', once: true, placement: 'BOT_SLOT',
     tag: 'PERMANENT · EMPIRE',
     perks: ['+1 ALGO DESK SLOT'],
     apply: (g) => { g.flags.bonusSlots += 1; },
@@ -76,6 +77,7 @@ export class Game {
     this.alerts = new Alerts();
     this.calendar = new EventCalendar(new Rng(seed ^ 0x1d3b));
     this.limiter = new RateLimiter();
+    this.ads = new AdGate();
 
     this.trader = opts.trader || 'you';
     this.speed = 1;
@@ -262,7 +264,10 @@ export class Game {
         desc: sess.id === 'RTH' ? 'The session is already open.' : `${Math.round(toOpen)} market minutes from now.`,
         minutes: toOpen,
         free: this.timeMachine.skipsUsed < 1,
-        limit: this.timeMachine.skipsUsed < 1 ? '1 free per day' : 'Used today',
+        placement: 'SKIP_OPEN',
+        limit: this.timeMachine.skipsUsed < 1
+          ? '1 free per day, then watch a short placement'
+          : `Watch a placement · ${this.ads.remaining('SKIP_OPEN')} left today`,
         disabled: sess.id === 'RTH',
       },
       {
@@ -270,16 +275,20 @@ export class Game {
         title: 'Simulate 1 day',
         desc: '24 market hours in an instant.',
         minutes: 1440,
-        free: this.timeMachine.simsUsed < 2,
-        limit: `${Math.max(0, 2 - this.timeMachine.simsUsed)} of 2 left today`,
+        free: false,
+        placement: 'SIM_DAY',
+        limit: `Watch a placement · ${this.ads.remaining('SIM_DAY')} left today`,
       },
       {
         id: 'WEEK',
         title: 'Simulate 1 week',
         desc: 'Seven full days — dividends stack, IPOs fill.',
         minutes: 1440 * 7,
-        free: this.prog.level >= 12,
-        limit: this.prog.level >= 12 ? 'Unlocked' : 'Unlocks at level 12',
+        free: false,
+        placement: 'SIM_WEEK',
+        limit: this.prog.level >= 12
+          ? `Watch a placement · ${this.ads.remaining('SIM_WEEK')} left today`
+          : 'Unlocks at level 12',
         disabled: this.prog.level < 12,
       },
     ];
@@ -291,13 +300,19 @@ export class Game {
     return m < open ? open - m : 1440 - m + open;
   }
 
-  runTimeMachine(id) {
+  /**
+   * `adCompleted` is passed by the caller once the rewarded placement has
+   * played through; the daily free skip does not need one.
+   */
+  runTimeMachine(id, { adCompleted = false } = {}) {
     const limit = this.limiter.check('timeskip');
     if (!limit.ok) return { ok: false, reason: limit.reason };
     const option = this.timeMachineOptions().find((o) => o.id === id);
     if (!option) return { ok: false, reason: 'Unknown skip' };
     if (option.disabled) return { ok: false, reason: option.limit };
-    if (!option.free) return { ok: false, reason: `No skips left — ${option.limit}` };
+    if (!option.free && !adCompleted) {
+      return { ok: false, reason: 'Watch the placement to run this skip' };
+    }
     const minutes = Math.max(1, Math.round(option.minutes));
 
     const before = this.account.equity(this.market);
@@ -306,7 +321,7 @@ export class Game {
     const after = this.account.equity(this.market);
 
     this.limiter.take('timeskip');
-    if (id === 'OPEN') this.timeMachine.skipsUsed += 1;
+    if (id === 'OPEN' && !adCompleted) this.timeMachine.skipsUsed += 1;
     if (id === 'DAY') this.timeMachine.simsUsed += 1;
 
     const report = {
@@ -653,14 +668,17 @@ export class Game {
 
   // --- shop, codes, rebirth ----------------------------------------------
 
-  buyShopItem(id) {
+  /**
+   * Grant a shop unlock. Nothing is bought: the caller must have completed the
+   * item's rewarded placement first, and passes the result in.
+   */
+  claimShopItem(id, { adCompleted = false } = {}) {
     const limit = this.limiter.check('shop');
     if (!limit.ok) return { ok: false, reason: limit.reason };
     const item = SHOP.find((s) => s.id === id);
     if (!item) return { ok: false, reason: 'Unknown item' };
-    if (item.once && this.flags.purchased.includes(id)) return { ok: false, reason: 'Already owned' };
-    if (this.account.cash < item.price) return { ok: false, reason: 'Insufficient cash' };
-    this.account.cash -= item.price;
+    if (item.once && this.flags.purchased.includes(id)) return { ok: false, reason: 'Already unlocked' };
+    if (!adCompleted) return { ok: false, reason: 'Watch the placement to unlock this' };
     this.limiter.take('shop');
     this.flags.purchased.push(id);
     item.apply(this);
@@ -744,6 +762,7 @@ export class Game {
       dailyPick: this.dailyPick,
       volumeMilestone: this.volumeMilestone,
       botPendingPnl: this.botPendingPnl,
+      ads: this.ads.toJSON(),
       alerts: this.alerts.toJSON(),
       calendar: this.calendar.toJSON(),
       timeMachine: this.timeMachine,
@@ -765,6 +784,7 @@ export class Game {
     game.dailyPick = raw.dailyPick ?? null;
     game.volumeMilestone = raw.volumeMilestone ?? 0;
     game.botPendingPnl = raw.botPendingPnl ?? 0;
+    game.ads.load(raw.ads);
     game.alerts.load(raw.alerts);
     game.calendar.load(raw.calendar);
     game.timeMachine = { ...game.timeMachine, ...(raw.timeMachine || {}) };

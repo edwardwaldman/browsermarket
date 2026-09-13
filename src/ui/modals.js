@@ -5,11 +5,13 @@ import {
   money, moneyShort, price as fmtPrice, pct, signed, num, compact, clockTime,
 } from '../util/format.js';
 import { LEVELS, RARITIES, COLLECTIBLES, BADGES, totalXpForLevel, xpForLevel } from '../engine/progression.js';
-import { BOT_TYPES } from '../engine/bots.js';
+import { BOT_TYPES, upgradeCost, OFFLINE_EFFICIENCY } from '../engine/bots.js';
 import { SHOP, CODES } from '../engine/game.js';
+import { PLACEMENTS } from '../engine/ads.js';
 import { SECTORS } from '../data/instruments.js';
 import { settings, TOGGLES, UI_SCALES, SHORTCUTS, THEMES, ACCENTS, CANDLE_PALETTES, GRID_DENSITY } from '../engine/settings.js';
 import { sparkline } from './explorer.js';
+import { rankFor } from './pages.js';
 
 export class Modals {
   constructor({ root, game, onSelect, refresh }) {
@@ -116,6 +118,8 @@ export class Modals {
       </div>
       <div class="progressbar" style="margin-top:12px"><i style="width:${Math.min(100, (into / need) * 100).toFixed(1)}%"></i></div>
       <div class="ccard-sub">${Math.floor(into)} / ${need} XP to level ${prog.level + 1}</div>
+      <h4>CAREER</h4>
+      <div class="ccard-sub">Rank: <b>${esc(rankFor(prog.level, prog.prestige))}</b></div>
       <h4>UNLOCK TRACK</h4>
       <div class="rowlist">${LEVELS.map((l) => {
         const done = prog.level >= l.lvl;
@@ -125,6 +129,10 @@ export class Modals {
           <span class="pill ${done ? 'on' : ''}">${done ? 'CLAIMED' : 'LOCKED'}</span>
         </div>`;
       }).join('')}</div>`));
+    body.append(el('button', {
+      class: 'bigrow purple', text: '♾ REBIRTH',
+      onclick: () => this.open('rebirth'),
+    }));
   }
 
   view_missions(body) {
@@ -191,22 +199,37 @@ export class Modals {
   }
 
   view_shop(body) {
-    const { flags, account } = this.game;
-    body.append(html(`<div class="ccard-sub">Permanent account upgrades, bought with in-game cash.
-    Everything here keeps working while you are offline.</div><h4>PERMANENT EDGE</h4>`));
+    const { game } = this;
+    body.append(html(`<div class="ccard-sub">Permanent account upgrades. Nothing here costs money —
+      each one is unlocked by watching a short rewarded placement, and everything keeps
+      working while you are offline.</div><h4>PERMANENT EDGE</h4>`));
     const grid = el('div', { class: 'cardgrid' });
     for (const item of SHOP) {
-      const owned = flags.purchased.includes(item.id);
-      const afford = account.cash >= item.price;
-      grid.append(el('div', { class: cls('ccard', !afford && !owned && 'locked') }, [
+      const owned = game.flags.purchased.includes(item.id);
+      const placement = item.placement || 'SHOP_UNLOCK';
+      const left = game.ads.remaining(placement);
+      grid.append(el('div', { class: cls('ccard', owned && 'locked') }, [
         html(`<div class="ccard-title">✨ ${esc(item.name)}</div>
           <div class="ccard-sub">${esc(item.tag)}</div>
-          <div class="promo-perks" style="margin:9px 0">${item.perks.map((p) => `<div class="promo-perk full">${esc(p)}</div>`).join('')}</div>`),
+          <div class="promo-perks" style="margin:9px 0">${item.perks.map((p) => `<div class="promo-perk full">${esc(p)}</div>`).join('')}</div>
+          <div class="ccard-sub">${owned ? 'Unlocked' : `${left} placement${left === 1 ? '' : 's'} left today`}</div>`),
         el('button', {
-          class: cls('btn', owned ? '' : 'btn-primary'),
-          text: owned ? 'OWNED' : money(item.price, 0),
-          disabled: owned || !afford,
-          onclick: () => { this.game.buyShopItem(item.id); this.rerender(); this.refresh?.(); },
+          class: cls('btn', !owned && 'btn-primary'),
+          text: owned ? 'UNLOCKED' : '▶ WATCH TO UNLOCK',
+          disabled: owned,
+          onclick: async (e) => {
+            e.target.disabled = true;
+            const res = await this.onWatchAd?.(placement);
+            if (!res?.ok) {
+              e.target.disabled = false;
+              this.toast?.({ tone: 'bad', icon: '⚠', text: res?.reason || 'No reward' });
+              return;
+            }
+            const claim = game.claimShopItem(item.id, { adCompleted: true });
+            if (!claim.ok) this.toast?.({ tone: 'bad', icon: '⚠', text: claim.reason });
+            this.rerender();
+            this.refresh?.();
+          },
         }),
       ]));
     }
@@ -398,6 +421,136 @@ export class Modals {
     }));
   }
 
+  view_desks(body) {
+    const { game } = this;
+    const { bots, account } = game;
+    const wrap = el('div', { class: 'pagepanel-body', style: { display: 'grid', gap: '9px' } });
+    wrap.append(el('div', { class: 'statline' }, [
+      html(`<span>SLOTS<b>${bots.bots.length} / ${game.botSlots()}</b></span>
+        <span>CAPITAL<b>${moneyShort(bots.allocated())}</b></span>
+        <span>LIFETIME<b class="${bots.totalPnl >= 0 ? 'up' : 'down'}">${signed(bots.totalPnl)}</b></span>`),
+    ]));
+    wrap.append(el('div', {
+      class: 'ccard-sub',
+      text: `Desks trade the live tape and keep running while you are away at ${Math.round(OFFLINE_EFFICIENCY * 100)}% efficiency. Payouts land in cash at every session close.`,
+    }));
+
+    for (const bot of bots.bots) {
+      const def = BOT_TYPES[bot.type];
+      const cost = upgradeCost(bot.type, bot.level);
+      const card = el('div', { class: 'ccard botcard' });
+      card.append(el('div', { class: 'botcard-head' }, [
+        el('div', { class: 'boticon', style: { color: def.color }, text: def.icon }),
+        el('div', { class: 'grow' }, [
+          el('div', { class: 'ccard-title', text: `${def.name} · L${bot.level}` }),
+          el('div', { class: 'ccard-sub', text: bot.focus ? `Working ${bot.focus}` : 'Scanning for a setup' }),
+        ]),
+        el('button', {
+          class: cls('btn', 'btn-sm', account.cash >= cost && 'btn-blue'),
+          text: `UPGRADE ${moneyShort(cost)}`,
+          disabled: account.cash < cost,
+          onclick: () => { game.upgradeBot(bot.id); this.rerender(); this.refresh?.(); },
+        }),
+      ]));
+      card.append(el('div', { class: 'statline' }, [
+        html(`<span>CAPITAL<b>${moneyShort(bot.capital)}</b></span>
+          <span>TODAY<b class="${bot.pnlDay >= 0 ? 'up' : 'down'}">${signed(bot.pnlDay)}</b></span>
+          <span>LIFETIME<b class="${bot.pnlTotal >= 0 ? 'up' : 'down'}">${signed(bot.pnlTotal)}</b></span>
+          <span>FILLS<b>${bot.trades}</b></span>`),
+      ]));
+      if (bot.history.length > 2) {
+        const cum = [];
+        let acc = 0;
+        for (const v of bot.history) { acc += v; cum.push(acc); }
+        const svg = sparkline(cum, acc >= 0 ? 'up' : 'down', 300, 34);
+        svg.setAttribute('style', 'width:100%;height:34px');
+        svg.setAttribute('preserveAspectRatio', 'none');
+        card.append(svg);
+      }
+      const amount = el('input', {
+        placeholder: 'amount', inputmode: 'decimal',
+        style: { flex: '1', padding: '7px 9px', background: 'var(--sunken)', border: '1px solid var(--line)' },
+      });
+      card.append(el('div', { style: { display: 'flex', gap: '5px' } }, [
+        amount,
+        el('button', {
+          class: 'btn btn-sm', text: 'FUND',
+          onclick: () => { game.fundBot(bot.id, Math.abs(parseFloat(amount.value) || 0)); this.rerender(); this.refresh?.(); },
+        }),
+        el('button', {
+          class: 'btn btn-sm', text: 'WITHDRAW',
+          onclick: () => { game.fundBot(bot.id, -Math.abs(parseFloat(amount.value) || bot.capital)); this.rerender(); this.refresh?.(); },
+        }),
+        el('button', {
+          class: cls('btn', 'btn-sm', !bot.enabled && 'btn-red'), text: bot.enabled ? 'PAUSE' : 'RESUME',
+          onclick: () => { bot.enabled = !bot.enabled; this.rerender(); },
+        }),
+      ]));
+      wrap.append(card);
+    }
+
+    const available = Object.values(BOT_TYPES).filter((d) => !bots.bots.some((b) => b.type === d.id));
+    if (available.length) {
+      wrap.append(html('<h4 style="margin:6px 0 0">HIRE A DESK</h4>'));
+      const grid = el('div', { class: 'cardgrid' });
+      for (const def of available) {
+        const afford = account.cash >= def.cost;
+        const room = bots.bots.length < game.botSlots();
+        grid.append(el('div', { class: cls('ccard', (!afford || !room) && 'locked') }, [
+          html(`<div class="ccard-title">${def.icon} ${esc(def.name)}</div>
+            <div class="ccard-sub">${esc(def.blurb)}</div>
+            <div class="ccard-sub">Edge ${(def.edge * 6).toFixed(1)}%/day base · risk ${def.risk.toFixed(2)}x</div>`),
+          el('button', {
+            class: cls('btn', 'btn-sm', afford && room && 'btn-primary'),
+            text: room ? moneyShort(def.cost) : 'NO SLOT',
+            disabled: !afford || !room,
+            onclick: () => { game.buyBot(def.id); this.rerender(); this.refresh?.(); },
+          }),
+        ]));
+      }
+      wrap.append(grid);
+    }
+    body.append(wrap);
+  }
+
+  view_rebirth(body) {
+    const { game } = this;
+    const { account, market, prog } = game;
+    const nw = account.netWorth(market);
+    const reward = prog.rebirthReward(nw);
+    const canRebirth = prog.canRebirth(nw);
+    const wrap = el('div', { class: 'pagepanel-body' });
+    wrap.append(html(`
+      <div class="cardgrid">
+        <div class="ccard"><div class="ccard-sub">REBIRTHS</div><div style="font-size:22.4px">${prog.prestige}</div></div>
+        <div class="ccard"><div class="ccard-sub">PRESTIGE POINTS</div><div style="font-size:22.4px" class="up">${prog.prestigePoints}</div></div>
+        <div class="ccard"><div class="ccard-sub">NET WORTH</div><div style="font-size:22.4px">${moneyShort(nw)}</div></div>
+        <div class="ccard"><div class="ccard-sub">NEXT REBIRTH PAYS</div><div style="font-size:22.4px" class="${reward ? 'up' : 'muted'}">${reward} pts</div></div>
+      </div>
+      <h4>PERMANENT BONUSES PER POINT</h4>
+      <div class="statline">
+        <span>XP<b class="up">+5%</b></span>
+        <span>STARTING CASH<b class="up">+25%</b></span>
+        <span>ALGO YIELD<b class="up">+4%</b></span>
+        <span>FEES<b class="up">-2%</b></span>
+        <span>DIVIDENDS<b class="up">+3%</b></span>
+        <span>DROP LUCK<b class="up">+3%</b></span>
+      </div>
+      <div class="ccard-sub" style="margin-top:10px">
+        Rebirth closes every position, resets your level and cash, and pays prestige points based on
+        peak net worth. You keep your collection, badges, shop purchases and algo desks.
+        ${prog.has('REBIRTH') ? '' : 'Unlocks at level 30.'}
+      </div>`));
+    wrap.append(el('button', {
+      class: cls('btn', canRebirth && 'btn-primary'),
+      style: { marginTop: '10px', width: '100%' },
+      text: canRebirth ? `REBIRTH FOR ${reward} PRESTIGE` : 'REQUIREMENTS NOT MET',
+      disabled: !canRebirth,
+      onclick: () => { game.rebirth(); this.rerender(); this.refresh?.(); },
+    }));
+    body.append(wrap);
+  }
+
   view_shortcuts(body) {
     body.append(html(`<div class="rowlist">${SHORTCUTS.map(([key, what]) => `
       <div class="listrow"><span class="pill" style="min-width:64px;text-align:center">${esc(key)}</span>
@@ -408,7 +561,8 @@ export class Modals {
 
   view_timemachine(body) {
     body.append(html(`<div class="ccard-sub">Fast-forward your own market. Positions, dividends,
-      IPOs and news all play out exactly as they would have.</div><h4>SKIP AHEAD</h4>`));
+      IPOs and news all play out exactly as they would have. Skips are paid for by watching a
+      short rewarded placement, never with money.</div><h4>SKIP AHEAD</h4>`));
     const list = el('div');
     for (const opt of this.game.timeMachineOptions()) {
       list.append(el('div', { class: 'tmrow' }, [
@@ -418,12 +572,26 @@ export class Modals {
           el('div', { class: 'tmrow-desc', text: opt.limit }),
         ]),
         el('button', {
-          class: cls('tmbtn', opt.free && !opt.disabled && 'free'),
-          text: opt.disabled ? 'LOCKED' : opt.free ? 'RUN' : 'USED',
-          disabled: opt.disabled || !opt.free,
-          onclick: () => {
-            const res = this.game.runTimeMachine(opt.id);
-            if (!res.ok) return;
+          class: cls('tmbtn', !opt.disabled && 'free'),
+          text: opt.disabled ? 'LOCKED' : opt.free ? 'RUN FREE' : '▶ WATCH',
+          disabled: opt.disabled,
+          onclick: async (e) => {
+            if (opt.free) {
+              const res = this.game.runTimeMachine(opt.id);
+              if (!res.ok) this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason });
+              this.rerender();
+              this.refresh?.();
+              return;
+            }
+            e.target.disabled = true;
+            const ad = await this.onWatchAd?.(opt.placement);
+            if (!ad?.ok) {
+              e.target.disabled = false;
+              this.toast?.({ tone: 'bad', icon: '⚠', text: ad?.reason || 'No reward' });
+              return;
+            }
+            const res = this.game.runTimeMachine(opt.id, { adCompleted: true });
+            if (!res.ok) this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason });
             this.rerender();
             this.refresh?.();
           },
@@ -667,14 +835,14 @@ const TITLES = {
   missions: 'MISSIONS', collection: 'COLLECTION INDEX', badges: 'BADGES',
   rewards: 'FREE REWARDS', leaderboard: 'GLOBAL NET WORTH', shop: 'SHOP',
   timemachine: 'TIME MACHINE', shortcuts: 'KEYBOARD SHORTCUTS',
-  customize: 'TERMINAL CUSTOMIZATION',
+  customize: 'TERMINAL CUSTOMIZATION', desks: 'ALGO DESKS', rebirth: 'REBIRTH',
   settings: 'SETTINGS', alerts: 'ALERTS', scanner: 'MARKET SCANNER',
   sectors: 'SECTORS', fundhq: 'FUND HQ', index: 'INDEX DESK', launchpad: 'IPO LAUNCHPAD',
 };
 
 function stat(label, value, tone = '') {
   return `<div class="ccard"><div class="ccard-sub">${esc(label)}</div>
-    <div style="font-size:19px;margin-top:4px" class="${tone}">${value}</div></div>`;
+    <div style="font-size:22.4px;margin-top:4px" class="${tone}">${value}</div></div>`;
 }
 
 function html(markup) {

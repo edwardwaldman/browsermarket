@@ -159,17 +159,17 @@ export class Chart {
     if (!width || !height) return null;
     const bars = this.visible();
     if (!bars.length) return null;
-    const padL = 6;
-    const padR = 58;
-    const padT = 30;
-    const padB = 20;
+    const padL = 8;
+    const padR = 74;
+    const padT = 36;
+    const padB = 26;
     const hasSub = this.active.has('rsi') || this.active.has('macd');
-    const volH = this.active.has('vol') ? height * 0.13 : 0;
-    const subH = hasSub ? height * 0.2 : 0;
+    const volH = this.active.has('vol') ? height * 0.15 : 0;
+    const subH = hasSub ? height * 0.22 : 0;
     const mainH = height - padT - padB - volH - subH;
     const plotW = width - padL - padR;
     const step = plotW / bars.length;
-    const bw = Math.max(1.5, Math.min(14, step * 0.68));
+    const bw = Math.max(2, Math.min(18, step * 0.7));
     return { width, height, padL, padR, padT, padB, mainH, volH, subH, plotW, step, bw, bars };
   }
 
@@ -248,9 +248,9 @@ export class Chart {
       ctx.fillRect(padL + i * step + (step - bw) / 2, top + volH - h - 2, bw, h);
     }
     ctx.fillStyle = chrome().axis;
-    ctx.font = '8px ui-monospace, monospace';
+    ctx.font = '11px ui-monospace, monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`VOL  max ${compact(max)}`, padL + 2, top + 9);
+    ctx.fillText(`VOL  max ${compact(max)}`, padL + 2, top + 12);
   }
 
   drawOverlays(ctx, geo, bars, closes, yOf, xOf) {
@@ -318,15 +318,15 @@ export class Chart {
       ctx.stroke();
       ctx.restore();
       if (l.label) {
-        ctx.font = '8.5px ui-monospace, monospace';
-        const w = ctx.measureText(l.label).width + 10;
+        ctx.font = '11.5px ui-monospace, monospace';
+        const w = ctx.measureText(l.label).width + 14;
         ctx.fillStyle = chrome().panel;
-        ctx.fillRect(width - padR - w - 6, y - 8, w, 15);
+        ctx.fillRect(width - padR - w - 6, y - 10, w, 19);
         ctx.strokeStyle = l.color || chrome().entry;
-        ctx.strokeRect(width - padR - w - 6, y - 8, w, 15);
+        ctx.strokeRect(width - padR - w - 6, y - 10, w, 19);
         ctx.fillStyle = l.color || chrome().entry;
         ctx.textAlign = 'left';
-        ctx.fillText(l.label, width - padR - w - 1, y + 3);
+        ctx.fillText(l.label, width - padR - w + 1, y + 4);
       }
     }
   }
@@ -346,15 +346,15 @@ export class Chart {
       ctx.stroke();
       ctx.restore();
       const label = `🔔 ${fmtPrice(a.price)}`;
-      ctx.font = '8.5px ui-monospace, monospace';
-      const w = ctx.measureText(label).width + 12;
+      ctx.font = '11.5px ui-monospace, monospace';
+      const w = ctx.measureText(label).width + 16;
       ctx.fillStyle = chrome().panel;
-      ctx.fillRect(width - padR - w - 6, y - 8, w, 15);
+      ctx.fillRect(width - padR - w - 6, y - 10, w, 19);
       ctx.strokeStyle = COL.alert;
-      ctx.strokeRect(width - padR - w - 6, y - 8, w, 15);
+      ctx.strokeRect(width - padR - w - 6, y - 10, w, 19);
       ctx.fillStyle = COL.alert;
       ctx.textAlign = 'left';
-      ctx.fillText(label, width - padR - w, y + 3);
+      ctx.fillText(label, width - padR - w + 2, y + 4);
     }
   }
 
@@ -408,7 +408,7 @@ export class Chart {
       });
       ctx.stroke();
       ctx.fillStyle = '#f472b6';
-      ctx.font = '8px ui-monospace, monospace';
+      ctx.font = '11px ui-monospace, monospace';
       ctx.textAlign = 'left';
       ctx.fillText(`RSI ${vals.at(-1)?.toFixed(1) ?? '--'}`, padL + 2, top + 10);
     } else if (this.active.has('macd')) {
@@ -434,7 +434,7 @@ export class Chart {
       drawLine(m.line, '#22d3ee');
       drawLine(m.signal, '#f5c451');
       ctx.fillStyle = '#22d3ee';
-      ctx.font = '8px ui-monospace, monospace';
+      ctx.font = '11px ui-monospace, monospace';
       ctx.textAlign = 'left';
       ctx.fillText('MACD 12 26 9', padL + 2, top + 10);
     }
@@ -442,17 +442,17 @@ export class Chart {
 
   drawAxes(ctx, geo, hi, lo, yOf, xOf, bars) {
     const { width, height, padR, padB } = geo;
-    ctx.font = '9px ui-monospace, monospace';
+    ctx.font = '12px ui-monospace, monospace';
     ctx.fillStyle = chrome().axis;
     ctx.textAlign = 'left';
     for (let i = 0; i <= 5; i++) {
       const p = lo + ((hi - lo) * i) / 5;
-      ctx.fillText(fmtPrice(p), width - padR + 6, yOf(p) + 3);
+      ctx.fillText(fmtPrice(p), width - padR + 8, yOf(p) + 4);
     }
     ctx.textAlign = 'center';
     const labelEvery = Math.max(1, Math.floor(bars.length / 7));
     for (let i = 0; i < bars.length; i += labelEvery) {
-      ctx.fillText(clockTime(this.minuteOf(bars[i].t)), xOf(i), height - padB + 12);
+      ctx.fillText(clockTime(this.minuteOf(bars[i].t)), xOf(i), height - padB + 16);
     }
   }
 
@@ -472,11 +472,11 @@ export class Chart {
     ctx.stroke();
     ctx.restore();
     ctx.fillStyle = up ? pal.up : pal.down;
-    ctx.fillRect(width - padR + 2, y - 8, padR - 4, 16);
+    ctx.fillRect(width - padR + 2, y - 10, padR - 4, 20);
     ctx.fillStyle = chrome().panel;
-    ctx.font = 'bold 9.5px ui-monospace, monospace';
+    ctx.font = 'bold 12.5px ui-monospace, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(fmtPrice(last.c), width - padR + (padR - 2) / 2, y + 3.5);
+    ctx.fillText(fmtPrice(last.c), width - padR + (padR - 2) / 2, y + 4.5);
   }
 
   drawCrosshair(ctx, geo, bars, yOf, xOf) {
