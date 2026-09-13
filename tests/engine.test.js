@@ -2,7 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Rng, mulberry32, clamp } from '../src/util/rng.js';
-import { sma, ema, rsi, macd, bollinger, vwap, crossSignal } from '../src/engine/indicators.js';
+import {
+  sma, ema, rsi, macd, bollinger, vwap, crossSignal,
+  wma, rma, rollingMedian, highest, lowest, stdev, shift,
+} from '../src/engine/indicators.js';
+import {
+  validateFormula, computeCustom, describeDef, normaliseDef, blankDef,
+  IndicatorLibrary, MAX_SAVED, SOURCES, OPERATIONS,
+} from '../src/engine/custom.js';
 import { Market, aggregate, sessionAt, ar1Innovation, TF } from '../src/engine/market.js';
 import { Account, FEE_RATE } from '../src/engine/account.js';
 import { Progression, totalXpForLevel, xpForLevel, LEVERAGE_TIERS, LEVELS } from '../src/engine/progression.js';
@@ -1012,8 +1019,352 @@ test('ad state survives a save round trip', async () => {
 test('every placement is coherent', () => {
   for (const [id, p] of Object.entries(PLACEMENTS)) {
     assert.equal(p.id, id);
-    assert.ok(p.seconds >= 5 && p.seconds <= 60, `${id} duration`);
+    assert.ok(p.seconds >= 5 && p.seconds <= 180, `${id} duration`);
     assert.ok(p.dailyCap >= 1 && p.dailyCap <= 20, `${id} cap`);
     assert.ok(p.label, `${id} label`);
   }
+});
+
+// ── max sizing ───────────────────────────────────────────────────────────
+test('max sizing fills at every leverage tier', () => {
+  const m = new Market(501).warmUp(1);
+  for (const cash of [3836, 250, 12_000, 1_000_000]) {
+    for (const leverage of [1, 5, 10, 20, 50, 100]) {
+      const a = new Account(cash);
+      const margin = a.maxMargin(leverage);
+      assert.ok(margin > 0, `cash ${cash} at ${leverage}x produced no size`);
+      const res = a.open(m, { sym: 'OBBY', side: 'LONG', margin, leverage });
+      assert.ok(res.ok, `cash ${cash} at ${leverage}x was refused: ${res.reason}`);
+      assert.ok(a.cash >= -1e-9, `cash went negative: ${a.cash}`);
+    }
+  }
+});
+
+test('max sizing leaves almost nothing on the table', () => {
+  const a = new Account(3836);
+  for (const leverage of [1, 10, 50, 100]) {
+    const margin = a.maxMargin(leverage);
+    const spend = margin + margin * leverage * a.feeRate();
+    assert.ok(spend <= a.cash + 1e-9, `${leverage}x overspends`);
+    assert.ok(spend > a.cash - 0.05, `${leverage}x leaves ${(a.cash - spend).toFixed(2)} unused`);
+  }
+});
+
+test('a flat haircut would have failed above 5x', () => {
+  // Guards the actual bug: 0.5% off the top ignores the leverage-scaled fee.
+  const a = new Account(3836);
+  const flat = Math.floor(a.cash * 0.995);
+  const feeAt50 = flat * 50 * a.feeRate();
+  assert.ok(flat + feeAt50 > a.cash, 'the old sizing should overspend at 50x');
+  assert.ok(a.maxMargin(50) < flat, 'the fix must size smaller');
+});
+
+test('partial sizes stay a share of cash, and clamp when the fee bites', () => {
+  const a = new Account(1000);
+  assert.equal(a.maxMargin(1, 0.25), 250);
+  assert.equal(a.maxMargin(1, 0.5), 500);
+  // At 100x a full-cash quarter is still affordable, so it is not clamped.
+  assert.equal(a.maxMargin(100, 0.25), 250);
+  // But the full size is.
+  assert.ok(a.maxMargin(100, 1) < 1000);
+});
+
+test('max sizing handles an empty account', () => {
+  const a = new Account(0);
+  assert.equal(a.maxMargin(10), 0);
+  a.cash = -5;
+  assert.equal(a.maxMargin(10), 0, 'a negative balance must not produce a size');
+});
+
+// ── profit targets ───────────────────────────────────────────────────────
+import { DEFAULTS as SETTING_DEFAULTS, TARGET_PRESETS } from '../src/engine/settings.js';
+
+test('a percentage take profit closes a long in the green', () => {
+  const m = new Market(601).warmUp(1);
+  const a = new Account(50000);
+  const entry = m.get('OBBY').price;
+  const tp = entry * 1.1;                       // the ticket's "10%" for a long
+  a.open(m, { sym: 'OBBY', side: 'LONG', margin: 2000, leverage: 1, tp });
+  a.runBrackets(m);
+  assert.equal(a.positions.length, 1, 'must not fire before the level');
+  m.get('OBBY').price = tp * 1.001;
+  a.runBrackets(m);
+  assert.equal(a.positions.length, 0);
+  assert.equal(a.history[0].reason, 'TAKE PROFIT');
+  assert.ok(a.history[0].pnl > 0);
+});
+
+test('a percentage take profit on a short fires when the price falls', () => {
+  const m = new Market(602).warmUp(1);
+  const a = new Account(50000);
+  const entry = m.get('PWN').price;
+  const tp = entry * 0.9;                       // "10%" the other way
+  a.open(m, { sym: 'PWN', side: 'SHORT', margin: 2000, leverage: 1, tp });
+  m.get('PWN').price = entry * 1.05;
+  a.runBrackets(m);
+  assert.equal(a.positions.length, 1, 'a rising price must not take profit on a short');
+  m.get('PWN').price = tp * 0.999;
+  a.runBrackets(m);
+  assert.equal(a.positions.length, 0);
+  assert.ok(a.history[0].pnl > 0);
+});
+
+test('a percentage stop loss caps the damage on both sides', () => {
+  for (const [side, mult] of [['LONG', 0.95], ['SHORT', 1.05]]) {
+    const m = new Market(603).warmUp(1);
+    const a = new Account(50000);
+    const entry = m.get('OBBY').price;
+    a.open(m, { sym: 'OBBY', side, margin: 2000, leverage: 1, sl: entry * mult });
+    m.get('OBBY').price = entry * (side === 'LONG' ? 0.94 : 1.06);
+    a.runBrackets(m);
+    assert.equal(a.positions.length, 0, `${side} stop did not fire`);
+    assert.equal(a.history[0].reason, 'STOP LOSS');
+    assert.ok(a.history[0].pnl > -2000, `${side} lost more than the margin`);
+  }
+});
+
+test('target defaults are sane and the presets are usable', () => {
+  assert.equal(SETTING_DEFAULTS.autoTakeProfit, false, 'opt-in, not on by default');
+  assert.equal(SETTING_DEFAULTS.autoStopLoss, false);
+  assert.ok(SETTING_DEFAULTS.takeProfitPct > 0 && SETTING_DEFAULTS.takeProfitPct <= 100);
+  assert.ok(SETTING_DEFAULTS.stopLossPct > 0 && SETTING_DEFAULTS.stopLossPct < 100);
+  assert.ok(TARGET_PRESETS.length >= 4);
+  assert.ok(TARGET_PRESETS.every((v) => v > 0 && v <= 1000));
+  assert.deepEqual(TARGET_PRESETS, [...TARGET_PRESETS].sort((x, y) => x - y), 'presets ascend');
+});
+
+test('the reset placement is a long one and capped', () => {
+  const p = PLACEMENTS.RESET_ACCOUNT;
+  assert.ok(p, 'reset must have its own placement');
+  assert.equal(p.seconds, 120, 'a two minute view, as asked');
+  assert.ok(p.dailyCap <= 5);
+});
+
+// ── window functions ─────────────────────────────────────────────────────
+test('the new window functions agree with a hand calculation', () => {
+  const v = [1, 2, 3, 4, 5, 6];
+  assert.deepEqual(wma(v, 3).slice(2), [(1 + 4 + 9) / 6, (2 + 6 + 12) / 6, (3 + 8 + 15) / 6, (4 + 10 + 18) / 6]);
+  assert.deepEqual(highest(v, 3).slice(2), [3, 4, 5, 6]);
+  assert.deepEqual(lowest(v, 3).slice(2), [1, 2, 3, 4]);
+  assert.deepEqual(rollingMedian(v, 3).slice(2), [2, 3, 4, 5]);
+  assert.equal(rollingMedian([5, 1, 4, 2], 4)[3], 3, 'even windows average the middle pair');
+  // A constant series has zero dispersion and an unchanged Wilder average.
+  assert.equal(stdev([7, 7, 7, 7], 3)[3], 0);
+  assert.equal(rma([7, 7, 7, 7], 3)[3], 7);
+  assert.deepEqual(shift([1, 2, 3], 1), [null, 1, 2]);
+  assert.deepEqual(shift([1, 2, 3], -1), [2, 3, null]);
+  assert.deepEqual(shift([1, 2, 3], 0), [1, 2, 3]);
+});
+
+test('rollingMedian does not corrupt the series it reads', () => {
+  const v = [9, 1, 5, 3, 7];
+  rollingMedian(v, 3);
+  assert.deepEqual(v, [9, 1, 5, 3, 7], 'the input must not be sorted in place');
+});
+
+// ── custom indicators ────────────────────────────────────────────────────
+function fakeCandles(n = 140) {
+  const out = [];
+  let p = 100;
+  for (let i = 0; i < n; i++) {
+    const o = p;
+    p *= 1 + Math.sin(i / 6) * 0.008;
+    out.push({ t: i, o, h: Math.max(o, p) * 1.002, l: Math.min(o, p) * 0.998, c: p, v: 1000 + i * 3 });
+  }
+  return out;
+}
+
+test('a formula parses into terms and a warmup', () => {
+  const r = validateFormula('ema(close,12) - ema(close,26)');
+  assert.equal(r.ok, true);
+  assert.equal(r.terms, 7, 'close, 12, close, 26, two calls and the minus');
+  assert.equal(r.warmup, 26, 'the slower leg sets the warmup');
+});
+
+test('the parser rejects what it cannot evaluate', () => {
+  for (const bad of ['', 'ema(close)', 'foo(close,3)', 'close +', 'ema(bar,3)', '2 ** 3', 'sma(close,3))']) {
+    const r = validateFormula(bad);
+    assert.equal(r.ok, false, `"${bad}" should not parse`);
+    assert.ok(r.error && r.error.length > 4, `"${bad}" needs a readable reason`);
+  }
+});
+
+test('a formula indicator computes the same line as the primitives', () => {
+  const candles = fakeCandles();
+  const closes = candles.map((c) => c.c);
+  const direct = ema(closes, 12).map((v, i) => (v !== null && ema(closes, 26)[i] !== null ? v - ema(closes, 26)[i] : null));
+  const res = computeCustom({ mode: 'formula', formula: 'ema(close,12) - ema(close,26)' }, candles);
+  assert.equal(res.error, null);
+  assert.ok(Math.abs(res.values.at(-1) - direct.at(-1)) < 1e-9);
+  // Warmup shows up as leading nulls, never as NaN.
+  assert.ok(res.values.every((v) => v === null || Number.isFinite(v)));
+  assert.equal(res.values.length, candles.length);
+});
+
+test('nested calls survive the leading nulls of their inner series', () => {
+  const candles = fakeCandles();
+  const res = computeCustom({ mode: 'formula', formula: 'sma(ema(close,5),10)' }, candles);
+  assert.ok(Number.isFinite(res.values.at(-1)));
+  const firstDefined = res.values.findIndex((v) => v !== null);
+  assert.ok(firstDefined >= 10, 'an inner ema must push the first value out');
+});
+
+test('picker mode matches the operation it names', () => {
+  const candles = fakeCandles();
+  const closes = candles.map((c) => c.c);
+  const res = computeCustom({ mode: 'picker', op: 'sma', source: 'close', period: 20 }, candles);
+  assert.ok(Math.abs(res.values.at(-1) - sma(closes, 20).at(-1)) < 1e-9);
+  assert.equal(describeDef({ mode: 'picker', op: 'ema', source: 'hlc3', period: 9 }), 'EMA(HLC3, 9)');
+});
+
+test('every source and operation the builder offers actually computes', () => {
+  const candles = fakeCandles();
+  for (const src of SOURCES) {
+    for (const op of OPERATIONS) {
+      const res = computeCustom({ mode: 'picker', op: op.id, source: src.id, period: 14 }, candles);
+      assert.ok(res && !res.error, `${op.id}(${src.id}) failed`);
+      assert.ok(Number.isFinite(res.values.at(-1)), `${op.id}(${src.id}) produced no value`);
+    }
+  }
+});
+
+test('bands sit either side of the line', () => {
+  const candles = fakeCandles();
+  const envelope = computeCustom({ mode: 'picker', op: 'sma', period: 20, band: 'pct', bandValue: 2 }, candles);
+  const i = envelope.values.length - 1;
+  assert.ok(Math.abs(envelope.upper[i] / envelope.values[i] - 1.02) < 1e-9);
+  assert.ok(Math.abs(envelope.lower[i] / envelope.values[i] - 0.98) < 1e-9);
+  const sd = computeCustom({ mode: 'picker', op: 'sma', period: 20, band: 'stdev', bandValue: 2 }, candles);
+  assert.ok(sd.upper[i] > sd.values[i] && sd.lower[i] < sd.values[i]);
+});
+
+test('a plot offset moves the line without changing its shape', () => {
+  const candles = fakeCandles();
+  const flat = computeCustom({ mode: 'picker', op: 'sma', period: 10, offset: 0 }, candles);
+  const moved = computeCustom({ mode: 'picker', op: 'sma', period: 10, offset: 3 }, candles);
+  assert.equal(moved.values.at(-1), flat.values.at(-4));
+  assert.equal(moved.values.length, flat.values.length);
+});
+
+test('a definition is clamped into something drawable', () => {
+  const d = normaliseDef({
+    name: 'x'.repeat(80), period: 9999, offset: -400, width: 12,
+    color: 'javascript:alert(1)', band: 'nope', plot: 'nope', guides: ['a', 30, 70],
+  });
+  assert.ok(d.name.length <= 28);
+  assert.equal(d.period, 200);
+  assert.equal(d.offset, -50);
+  assert.equal(d.width, 4);
+  assert.ok(/^#[0-9a-f]{6}$/i.test(d.color), 'a bad colour never reaches the canvas');
+  assert.equal(d.band, 'off');
+  assert.equal(d.plot, 'overlay');
+  assert.deepEqual(d.guides, [30, 70]);
+});
+
+test('a broken formula reports instead of throwing', () => {
+  const res = computeCustom({ mode: 'formula', formula: 'ema(close' }, fakeCandles());
+  assert.ok(res.error, 'the chart needs a reason, not an exception');
+  assert.deepEqual(res.values, []);
+});
+
+test('the library saves, applies and deletes', () => {
+  const store = memoryStorage();
+  const lib = new IndicatorLibrary(store);
+  const a = lib.save({ ...blankDef(), name: 'ALPHA' });
+  assert.equal(a.ok, true);
+  assert.ok(a.def.id, 'saving assigns an id');
+  assert.equal(lib.applied.has(a.def.id), false, 'saving alone does not draw it');
+  lib.apply(a.def.id);
+  assert.deepEqual(lib.activeDefs().map((d) => d.name), ['ALPHA']);
+
+  // Re-saving the same id edits in place rather than piling up duplicates.
+  lib.save({ ...a.def, name: 'ALPHA TWO' });
+  assert.equal(lib.list.length, 1);
+  assert.equal(lib.list[0].name, 'ALPHA TWO');
+
+  // A fresh reader sees the same library, applied flags and all.
+  const reloaded = new IndicatorLibrary(store);
+  assert.equal(reloaded.list.length, 1);
+  assert.deepEqual(reloaded.activeDefs().map((d) => d.name), ['ALPHA TWO']);
+
+  lib.remove(a.def.id);
+  assert.equal(lib.list.length, 0);
+  assert.equal(lib.activeDefs().length, 0);
+});
+
+test('the library refuses a formula it cannot parse and caps its size', () => {
+  const lib = new IndicatorLibrary(memoryStorage());
+  assert.equal(lib.save({ ...blankDef(), mode: 'formula', formula: 'ema(close' }).ok, false);
+  for (let i = 0; i < MAX_SAVED; i++) lib.save({ ...blankDef(), name: `I${i}` });
+  assert.equal(lib.list.length, MAX_SAVED);
+  const over = lib.save({ ...blankDef(), name: 'ONE TOO MANY' });
+  assert.equal(over.ok, false);
+});
+
+function memoryStorage() {
+  const map = new Map();
+  return {
+    get length() { return map.size; },
+    key: (i) => [...map.keys()][i] ?? null,
+    getItem: (k) => (map.has(k) ? map.get(k) : null),
+    setItem: (k, v) => map.set(k, String(v)),
+    removeItem: (k) => map.delete(k),
+  };
+}
+
+// ── alerts ───────────────────────────────────────────────────────────────
+test('an alert fires once, lands in history and leaves the armed list', () => {
+  const g = new Game({ trader: 't', seed: 909 });
+  const ins = g.market.get('OBBY');
+  const res = g.addAlert('OBBY', ins.price * 1.02, ins.price);
+  assert.equal(res.ok, true);
+  assert.equal(g.alerts.pending.length, 1);
+  assert.equal(g.alerts.history.length, 0);
+
+  ins.price *= 1.05;
+  const fired = g.alerts.check(g.market);
+  assert.equal(fired.length, 1);
+  assert.equal(g.alerts.pending.length, 0, 'a fired alert stops being armed');
+  assert.equal(g.alerts.history.length, 1);
+  assert.ok(g.alerts.history[0].firedPrice > 0);
+
+  // A second pass must not re-fire it.
+  assert.equal(g.alerts.check(g.market).length, 0);
+  assert.equal(g.alerts.history.length, 1);
+});
+
+test('alerts refuse duplicates and survive a save round trip', () => {
+  const g = new Game({ trader: 't', seed: 77 });
+  const p = g.market.get('OBBY').price;
+  assert.equal(g.addAlert('OBBY', p * 1.03, p).ok, true);
+  assert.equal(g.addAlert('OBBY', p * 1.03, p).ok, false, 'the same level twice is a no-op');
+  g.market.get('OBBY').price = p * 1.05;
+  g.alerts.check(g.market);
+
+  const restored = Game.fromJSON(JSON.parse(JSON.stringify(g.toJSON())));
+  assert.equal(restored.alerts.history.length, 1, 'the bell history is part of the save');
+  restored.alerts.clearHistory();
+  assert.equal(restored.alerts.history.length, 0);
+});
+
+// ── wiping the account ───────────────────────────────────────────────────
+test('a wipe clears every key and blocks the saves that follow it', () => {
+  const store = memoryStorage();
+  store.setItem('unrelated.key', 'keep me');
+  const g = new Game({ trader: 't', seed: 4 });
+  assert.equal(g.save(store), true);
+  new IndicatorLibrary(store).save(blankDef());
+  store.setItem('browsermarket.favs', '["OBBY"]');
+  store.setItem('browsermarket.settings.v1', '{"theme":"light"}');
+
+  assert.equal(g.wipe(store), true);
+  for (let i = 0; i < store.length; i++) {
+    assert.ok(!store.key(i).startsWith('browsermarket.'), `${store.key(i)} survived the wipe`);
+  }
+  assert.equal(store.getItem('unrelated.key'), 'keep me', 'only our own keys go');
+
+  // The autosave timer and the beforeunload handler both fire after a wipe.
+  assert.equal(g.save(store), false, 'a wiped game must never write itself back');
+  assert.equal(store.getItem('browsermarket.save.v1'), null);
+  assert.equal(g.running, false, 'the loop stops so nothing can tick a save back in');
 });

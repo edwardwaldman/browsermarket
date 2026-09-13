@@ -36,13 +36,20 @@ export const DEFAULTS = {
   fullNumbers: false,
   uiScale: 100,
   dockHeight: 240,
+  autoTakeProfit: false,
+  takeProfitPct: 10,
+  autoStopLoss: false,
+  stopLossPct: 5,
 };
+
+/** Presets offered next to the target inputs. */
+export const TARGET_PRESETS = [2, 5, 10, 25, 50, 100];
 
 export const TOGGLES = [
   { id: 'sound', label: 'SOUND EFFECTS', desc: 'Clicks, order fills and alert dings.' },
   { id: 'music', label: 'MUSIC', desc: 'Background trading-floor tone.' },
   { id: 'notifications', label: 'NOTIFICATIONS', desc: 'Every pop-up, including your own fills and rewards, plus notification history.' },
-  { id: 'marketAlerts', label: 'MARKET ALERTS', desc: 'Momentum surges, hot tape, news and the bells. Off keeps the ticker and the NEWS tab — it just stops interrupting.' },
+  { id: 'marketAlerts', label: 'MARKET ALERTS', desc: 'Momentum surges, hot tape, news and the bells. Off keeps the ticker and the NEWS tab, it just stops interrupting.' },
   { id: 'tradeConfirm', label: 'TRADE CONFIRMATIONS', desc: 'BUY / SELL asks for a second press before sending the order.' },
   { id: 'buyNearTop', label: 'BUY BUTTON NEAR TOP', desc: 'Keeps BUY / SELL reachable on short screens. On by default on phones.' },
   { id: 'fullNumbers', label: 'FULL NUMBERS', desc: 'Show $1,234,567 everywhere instead of $1.2M. Above a trillion it still compacts.' },
@@ -54,7 +61,7 @@ export const SHORTCUTS = [
   ['SPACE', 'Pause or resume the market'],
   ['B / S', 'Switch the ticket to long or short'],
   ['ENTER', 'Submit the order ticket'],
-  ['1 – 6', 'Jump between chart timeframes'],
+  ['1 - 6', 'Jump between chart timeframes'],
   ['A', 'Arm a price alert on the chart'],
   ['T', 'Open the time machine'],
   ['ESC', 'Close overlays'],

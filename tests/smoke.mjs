@@ -189,6 +189,36 @@ check('every leverage tier is selectable', await page.evaluate(() => {
   return levs.length === 6 && levs.every((b) => !b.classList.contains('locked') && !b.textContent.includes('🔒'));
 }));
 
+check('max sizing fills at 50x', await page.evaluate(async () => {
+  game.account.cash = 3836;
+  const ticket = document.querySelector('#ticket');
+  [...document.querySelectorAll('.lev')].find((b) => b.textContent === '50X').click();
+  [...document.querySelectorAll('.quick')].find((b) => b.textContent === 'MAX').click();
+  await new Promise((r) => setTimeout(r, 250));
+  const label = document.querySelector('#ticket .bigbtn').textContent;
+  return !label.includes('NOT ENOUGH');
+}));
+
+check('auto take profit prefills the ticket', await page.evaluate(async () => {
+  const { settings } = await import('/src/engine/settings.js');
+  settings.set('autoTakeProfit', true);
+  settings.set('takeProfitPct', 12);
+  await new Promise((r) => setTimeout(r, 350));
+  const tp = [...document.querySelectorAll('#ticket input')].find((i) => i.placeholder === 'price or %');
+  const ok = tp && tp.value === '12%';
+  settings.set('autoTakeProfit', false);
+  return ok;
+}));
+
+check('reset is behind a placement', await page.evaluate(async () => {
+  document.querySelector('[data-modal="settings"]').click();
+  await new Promise((r) => setTimeout(r, 250));
+  const btn = [...document.querySelectorAll('.bigrow')].find((b) => b.textContent.includes('RESET ACCOUNT'));
+  const gated = btn && btn.textContent.includes('PLACEMENT');
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  return gated;
+}));
+
 check('no empire tab', await page.evaluate(
   () => !document.querySelector('[data-view="empire"], #view-empire')));
 
@@ -214,6 +244,140 @@ check('price alert arms', await page.evaluate(() => {
   return game.alerts.add('OBBY', px * 1.02, px).ok && game.alerts.has('OBBY');
 }));
 
+await page.waitForTimeout(900);
+check('the bell counts armed alerts, not toasts', await page.evaluate(() => {
+  const badge = document.querySelector('#alert-count');
+  return badge.textContent === String(game.alerts.pending.length) && !badge.hidden;
+}));
+
+check('the alerts modal lists what is armed', await page.evaluate(async () => {
+  document.querySelector('[data-modal="alerts"]').click();
+  await new Promise((r) => setTimeout(r, 120));
+  const text = document.querySelector('.modal-body').textContent;
+  return text.includes('ARMED') && text.includes('OBBY') && text.includes('ARM A NEW ALERT');
+}));
+
+check('an alert can be armed from the modal', await page.evaluate(async () => {
+  const before = game.alerts.pending.length;
+  const body = document.querySelector('.modal-body');
+  const [sym, price] = body.querySelectorAll('.alert-form input');
+  sym.value = 'OBBY';
+  sym.dispatchEvent(new Event('input', { bubbles: true }));
+  price.value = String(game.market.get('OBBY').price * 0.8);
+  body.querySelector('.alert-form .bigrow').click();
+  await new Promise((r) => setTimeout(r, 120));
+  return game.alerts.pending.length === before + 1;
+}));
+
+check('a fired alert moves into the history', await page.evaluate(async () => {
+  const px = game.market.get('OBBY').price;
+  game.alerts.add('OBBY', px * 1.0001, px);
+  game.market.get('OBBY').price = px * 1.05;
+  const fired = game.alerts.check(game.market);
+  return fired.length >= 1 && game.alerts.history.length >= 1
+    && !game.alerts.pending.some((a) => a.id === fired[0].id);
+}));
+
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+
+// the indicators dropdown must be dismissable
+const indBtn = page.locator('#charttools .ctool', { hasText: 'INDICATORS' });
+await indBtn.click();
+await page.waitForTimeout(150);
+check('the indicators menu opens', await page.evaluate(
+  () => !document.querySelector('.dropmenu')?.hidden));
+check('only one indicators menu exists', await page.evaluate(
+  () => document.querySelectorAll('.dropmenu').length === 1));
+
+await page.mouse.click(300, 760);
+await page.waitForTimeout(150);
+check('clicking outside closes the indicators menu', await page.evaluate(
+  () => document.querySelector('.dropmenu')?.hidden === true));
+
+await indBtn.click();
+await page.waitForTimeout(150);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+check('escape closes the indicators menu', await page.evaluate(
+  () => document.querySelector('.dropmenu')?.hidden === true));
+
+check('rebuilding the toolbar does not leak menus', await page.evaluate(async () => {
+  for (const key of ['1', '2', '3']) {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+  }
+  await new Promise((r) => setTimeout(r, 200));
+  return document.querySelectorAll('.dropmenu').length === 1;
+}));
+
+// quick buy and sell on the chart toolbar
+check('the chart has quick buy and sell buttons', await page.evaluate(
+  () => Boolean(document.querySelector('.quickbtn.buy') && document.querySelector('.quickbtn.sell'))));
+
+const quick = await page.evaluate(async () => {
+  // Clear the throttle the rate-limit check left behind and top the desk up.
+  game.limiter.hits.clear();
+  game.account.cash = Math.max(game.account.cash, 20000);
+  await new Promise((r) => setTimeout(r, 100));
+  const before = game.account.positions.length;
+  [...document.querySelectorAll('.ticket .quick')].find((b) => b.textContent === '25%')?.click();
+  await new Promise((r) => setTimeout(r, 250));
+  const label = document.querySelector('.quickbtn.buy').textContent;
+  document.querySelector('.quickbtn.buy').click();
+  await new Promise((r) => setTimeout(r, 350));
+  return {
+    ok: game.account.positions.length === before + 1,
+    label,
+    last: [...document.querySelectorAll('#toasts .toast')].at(-1)?.textContent ?? '',
+  };
+});
+check('quick buy opens a position at the ticket size', quick.ok, `${quick.label} · ${quick.last}`);
+
+// the indicator builder
+check('the builder opens from the indicators menu', await page.evaluate(async () => {
+  document.querySelector('#charttools .ctool.wide').click();
+  await new Promise((r) => setTimeout(r, 150));
+  const go = [...document.querySelectorAll('.dropitem')].find((b) => b.textContent.includes('INDICATOR BUILDER'));
+  if (!go) return false;
+  go.click();
+  await new Promise((r) => setTimeout(r, 250));
+  const body = document.querySelector('.modal-body');
+  return Boolean(body) && body.textContent.includes('SOURCE') && body.textContent.includes('MY LIBRARY');
+}));
+
+check('the formula tab validates live', await page.evaluate(async () => {
+  const tab = [...document.querySelectorAll('.bld-tabs .tf')].find((b) => b.textContent === 'FORMULA');
+  tab.click();
+  await new Promise((r) => setTimeout(r, 200));
+  const box = document.querySelector('.bld-formula');
+  const status = document.querySelector('.bld-status');
+  const good = status.classList.contains('good') && status.textContent.includes('terms');
+  box.value = 'ema(close';
+  box.dispatchEvent(new Event('input', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 100));
+  return good && document.querySelector('.bld-status').classList.contains('bad');
+}));
+
+check('a built indicator applies to the chart', await page.evaluate(async () => {
+  const box = document.querySelector('.bld-formula');
+  box.value = 'ema(close,12) - ema(close,26)';
+  box.dispatchEvent(new Event('input', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 150));
+  const apply = [...document.querySelectorAll('.bld-actions .bigrow')].find((b) => b.textContent.includes('APPLY'));
+  apply.click();
+  await new Promise((r) => setTimeout(r, 500));
+  return game.library.activeDefs().length === 1;
+}));
+
+check('the applied indicator is persisted', await page.evaluate(
+  () => JSON.parse(localStorage.getItem('browsermarket.indicators.v1')).applied.length === 1));
+
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+
+check('no em dash anywhere on screen', await page.evaluate(
+  () => !document.body.innerText.includes('—')));
+
 await page.evaluate(() => { game.save(); });
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(3000);
@@ -226,6 +390,24 @@ for (const [w, h] of [[390, 844], [768, 1024], [1280, 800]]) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   check(`no horizontal overflow at ${w}px`, overflow === 0, `${overflow}px`);
 }
+
+check('a wipe clears the save and the autosave cannot undo it', await page.evaluate(async () => {
+  game.save();
+  localStorage.setItem('browsermarket.favs', '["OBBY"]');
+  game.wipe();
+  // Exactly what fires between the wipe and the reload in the real flow.
+  game.save();
+  window.dispatchEvent(new Event('beforeunload'));
+  await new Promise((r) => setTimeout(r, 300));
+  const left = Object.keys(localStorage).filter((k) => k.startsWith('browsermarket.'));
+  return left.length === 0;
+}));
+
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(1500);
+check('the wiped account comes back fresh', await page.evaluate(
+  () => game.account.stats.trades === 0 && game.account.positions.length === 0
+    && game.prog.level === 1 && game.library.list.length === 0));
 
 check('no console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

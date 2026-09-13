@@ -11,6 +11,7 @@ export const PLACEMENTS = {
   SKIP_OPEN: { id: 'SKIP_OPEN', label: 'Skip to the open', seconds: 10, dailyCap: 8 },
   SHOP_UNLOCK: { id: 'SHOP_UNLOCK', label: 'Unlock a permanent edge', seconds: 30, dailyCap: 4 },
   BOT_SLOT: { id: 'BOT_SLOT', label: 'Open an extra algo slot', seconds: 30, dailyCap: 2 },
+  RESET_ACCOUNT: { id: 'RESET_ACCOUNT', label: 'Wipe the save and start over', seconds: 120, dailyCap: 3 },
 };
 
 export const COOLDOWN_MS = 20_000;
@@ -87,7 +88,7 @@ export class AdGate {
     if (!p) return { ok: false, reason: 'Unknown placement' };
     if (this.showing) return { ok: false, reason: 'An ad is already playing' };
     if (this.remaining(id) <= 0) {
-      return { ok: false, reason: `No more today — ${p.dailyCap} per day. Comes back tomorrow.` };
+      return { ok: false, reason: `No more today. ${p.dailyCap} per day. Comes back tomorrow.` };
     }
     const cd = this.cooldownLeft();
     if (cd > 0) {
@@ -107,7 +108,7 @@ export class AdGate {
     this.showing = id;
     try {
       const res = await this.provider.show(placement, onTick, signal);
-      if (!res?.completed) return { ok: false, reason: 'Ad skipped — no reward' };
+      if (!res?.completed) return { ok: false, reason: 'Ad skipped, no reward' };
       this.refresh();
       this.views[id] = (this.views[id] || 0) + 1;
       this.lifetimeViews += 1;

@@ -5,16 +5,25 @@ let seq = 1;
 export class Alerts {
   constructor() {
     this.list = [];
+    this.history = [];
     this.listeners = new Set();
   }
 
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   emit(e) { for (const fn of this.listeners) fn(e); }
 
+  /** Armed alerts still waiting to fire. */
+  get pending() {
+    return this.list.filter((a) => !a.fired);
+  }
+
   /** Direction is inferred from where the price sits when the alert is set. */
   add(sym, price, reference) {
     if (!(price > 0)) return { ok: false, reason: 'Pick a level on the chart' };
     if (this.list.length >= 24) return { ok: false, reason: 'Alert limit reached' };
+    if (this.list.some((a) => a.sym === sym && Math.abs(a.price - price) < price * 0.0005)) {
+      return { ok: false, reason: 'That level is already armed' };
+    }
     const alert = {
       id: `al${seq++}`,
       sym,
@@ -54,18 +63,27 @@ export class Alerts {
       const hit = a.above ? ins.price >= a.price : ins.price <= a.price;
       if (!hit) continue;
       a.fired = true;
+      a.firedAt = Date.now();
+      a.firedPrice = ins.price;
+      a.firedDay = market.day;
+      a.firedTick = market.tick;
       fired.push(a);
+      this.history.unshift(a);
+      this.history = this.history.slice(0, 30);
       this.emit({ type: 'alert-hit', alert: a, price: ins.price });
       this.list = this.list.filter((x) => x !== a);
     }
     return fired;
   }
 
-  toJSON() { return { list: this.list, seq }; }
+  clearHistory() { this.history = []; }
+
+  toJSON() { return { list: this.list, history: this.history, seq }; }
 
   load(raw) {
     if (!raw) return;
     this.list = raw.list ?? [];
+    this.history = raw.history ?? [];
     if (raw.seq) seq = raw.seq;
   }
 }

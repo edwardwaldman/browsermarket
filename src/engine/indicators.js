@@ -118,3 +118,88 @@ export function crossSignal(candles, period = 20) {
   }
   return null;
 }
+
+// --- window functions used by the indicator builder ----------------------
+
+export function wma(values, period) {
+  const out = new Array(values.length).fill(null);
+  const denom = (period * (period + 1)) / 2;
+  for (let i = period - 1; i < values.length; i++) {
+    let sum = 0;
+    for (let j = 0; j < period; j++) sum += values[i - period + 1 + j] * (j + 1);
+    out[i] = sum / denom;
+  }
+  return out;
+}
+
+/** Wilder smoothing, the average behind RSI and ATR. */
+export function rma(values, period) {
+  const out = new Array(values.length).fill(null);
+  let prev = null;
+  for (let i = 0; i < values.length; i++) {
+    if (prev === null) {
+      if (i >= period - 1) {
+        let sum = 0;
+        for (let j = i - period + 1; j <= i; j++) sum += values[j];
+        prev = sum / period;
+        out[i] = prev;
+      }
+    } else {
+      prev = (prev * (period - 1) + values[i]) / period;
+      out[i] = prev;
+    }
+  }
+  return out;
+}
+
+export function rollingMedian(values, period) {
+  const out = new Array(values.length).fill(null);
+  for (let i = period - 1; i < values.length; i++) {
+    const win = values.slice(i - period + 1, i + 1).sort((a, b) => a - b);
+    const mid = win.length >> 1;
+    out[i] = win.length % 2 ? win[mid] : (win[mid - 1] + win[mid]) / 2;
+  }
+  return out;
+}
+
+export function highest(values, period) {
+  const out = new Array(values.length).fill(null);
+  for (let i = period - 1; i < values.length; i++) {
+    let m = -Infinity;
+    for (let j = i - period + 1; j <= i; j++) m = Math.max(m, values[j]);
+    out[i] = m;
+  }
+  return out;
+}
+
+export function lowest(values, period) {
+  const out = new Array(values.length).fill(null);
+  for (let i = period - 1; i < values.length; i++) {
+    let m = Infinity;
+    for (let j = i - period + 1; j <= i; j++) m = Math.min(m, values[j]);
+    out[i] = m;
+  }
+  return out;
+}
+
+export function stdev(values, period) {
+  const out = new Array(values.length).fill(null);
+  const mean = sma(values, period);
+  for (let i = period - 1; i < values.length; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += (values[j] - mean[i]) ** 2;
+    out[i] = Math.sqrt(sum / period);
+  }
+  return out;
+}
+
+/** Shift a series forward (positive) or back (negative) by `n` bars. */
+export function shift(values, n) {
+  if (!n) return values;
+  const out = new Array(values.length).fill(null);
+  for (let i = 0; i < values.length; i++) {
+    const j = i - n;
+    if (j >= 0 && j < values.length) out[i] = values[j];
+  }
+  return out;
+}

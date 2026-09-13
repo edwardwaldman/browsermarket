@@ -11,6 +11,7 @@ import { Modals } from './ui/modals.js';
 import { ResearchPage } from './ui/pages.js';
 import { Toasts, Celebration, floatXp } from './ui/toast.js';
 import { settings } from './engine/settings.js';
+import { IndicatorLibrary } from './engine/custom.js';
 import { AdOverlay } from './ui/adgate.js';
 import { $, el, clear, cls, esc, on } from './util/dom.js';
 import {
@@ -55,6 +56,7 @@ function boot() {
 function startGame(g, resumed = false) {
   game = g;
   window.game = g; // handy in the console
+  game.library = new IndicatorLibrary();
 
   const report = resumed ? game.catchUp() : null;
 
@@ -76,6 +78,7 @@ function startGame(g, resumed = false) {
   setInterval(() => game.save(), 10000);
   window.addEventListener('beforeunload', () => game.save());
   document.addEventListener('visibilitychange', () => {
+    if (game.wiped) return;
     if (document.hidden) { game.save(); game.stop(); }
     else { game.catchUp(); game.start(); render(true); }
   });
@@ -148,6 +151,9 @@ function buildUi() {
   ui.liveBtn.hidden = true;
   $('.chartwrap').append(ui.liveBtn);
 
+  ui.modals.symbol = symbol;
+  ui.modals.previewCandles = () => game.market.get(symbol)?.candles(timeframe) ?? [];
+
   ui.ads = new AdOverlay($('#ad-root'), game.ads);
   ui.modals.onWatchAd = (placement) => ui.ads.play(placement);
   ui.modals.toast = (t) => ui.toasts.push(t);
@@ -179,6 +185,115 @@ function buildUi() {
   document.addEventListener('keydown', onKey);
 }
 
+/**
+ * The indicator menu is a single element parented to the body so it can
+ * escape the toolbar's overflow. It is created once and reused: rebuilding
+ * the toolbar (a timeframe change, an indicator toggle) used to leak a fresh
+ * copy into the document every time, and none of them could be dismissed.
+ */
+function indicatorMenu() {
+  if (ui.indMenu) return ui.indMenu;
+  const menu = el('div', { class: 'dropmenu', hidden: true });
+  document.body.append(menu);
+  ui.indMenu = menu;
+
+  const close = () => { menu.hidden = true; ui.indBtn?.classList.remove('is-active'); };
+  ui.closeIndicatorMenu = close;
+  // Dismiss on an outside click, on Escape, and on anything that moves the
+  // page out from under it.
+  document.addEventListener('pointerdown', (e) => {
+    if (menu.hidden) return;
+    if (menu.contains(e.target) || ui.indBtn?.contains(e.target)) return;
+    close();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  window.addEventListener('resize', close);
+  window.addEventListener('scroll', close, true);
+  return menu;
+}
+
+function fillIndicatorMenu() {
+  const menu = indicatorMenu();
+  clear(menu);
+  menu.append(el('div', { class: 'dropmenu-head', text: 'BUILT IN' }));
+  for (const ind of INDICATORS) {
+    const on = ui.chart.active.has(ind.id);
+    menu.append(el('button', {
+      class: cls('dropitem', on && 'is-active'),
+      onclick: () => { ui.chart.toggle(ind.id); fillIndicatorMenu(); renderChart(true); },
+    }, [
+      el('span', { class: 'dropitem-tick', text: on ? '✓' : '' }),
+      el('i', { class: 'dropitem-dot', style: { background: ind.color } }),
+      el('span', { class: 'grow', text: ind.label }),
+    ]));
+  }
+
+  const lib = game.library;
+  menu.append(el('div', { class: 'dropmenu-head', text: `MY INDICATORS · ${lib?.list.length ?? 0}` }));
+  if (!lib?.list.length) {
+    menu.append(el('div', { class: 'dropmenu-empty', text: 'None built yet' }));
+  } else {
+    for (const def of lib.list) {
+      const on = lib.applied.has(def.id);
+      menu.append(el('button', {
+        class: cls('dropitem', on && 'is-active'),
+        onclick: () => { lib.toggle(def.id); fillIndicatorMenu(); renderChart(true); },
+      }, [
+        el('span', { class: 'dropitem-tick', text: on ? '✓' : '' }),
+        el('i', { class: 'dropitem-dot', style: { background: def.color } }),
+        el('span', { class: 'grow', text: def.name }),
+      ]));
+    }
+  }
+  menu.append(el('button', {
+    class: 'dropitem dropitem-go',
+    onclick: () => { ui.closeIndicatorMenu?.(); ui.modals.open('builder'); },
+  }, [
+    el('span', { class: 'dropitem-tick', text: '✚' }),
+    el('span', { class: 'grow', text: 'INDICATOR BUILDER' }),
+  ]));
+  menu.append(el('button', {
+    class: 'dropitem dropitem-go',
+    onclick: () => { ui.closeIndicatorMenu?.(); clearIndicators(); },
+  }, [
+    el('span', { class: 'dropitem-tick', text: '✕' }),
+    el('span', { class: 'grow', text: 'CLEAR ALL' }),
+  ]));
+  return menu;
+}
+
+function clearIndicators() {
+  ui.chart.active = new Set(['vol']);
+  game.library?.clearApplied();
+  buildChartTools();
+  renderChart(true);
+}
+
+function toggleIndicatorMenu(anchor) {
+  const menu = fillIndicatorMenu();
+  if (!menu.hidden) { ui.closeIndicatorMenu(); return; }
+  menu.hidden = false;
+  ui.indBtn?.classList.add('is-active');
+  const r = anchor.getBoundingClientRect();
+  const w = menu.offsetWidth || 190;
+  menu.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, r.left))}px`;
+  menu.style.top = `${r.bottom + 4}px`;
+  menu.style.maxHeight = `${Math.max(160, window.innerHeight - r.bottom - 20)}px`;
+}
+
+/** One-press market orders at the size the ticket is already showing. */
+function quickTrade(side) {
+  const ins = game.market.get(symbol);
+  if (!ins) return;
+  const margin = ui.ticket.margin;
+  if (!(margin > 0)) { ui.toasts.push({ tone: 'bad', icon: '⚠', text: 'Set a size in the ticket first' }); return; }
+  const res = game.openPosition({ sym: symbol, side, margin, leverage: ui.ticket.leverage });
+  if (!res.ok) { ui.toasts.push({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+  ui.ticket.onTrade?.({ type: 'filled', result: res });
+  ui.ticket.update();
+  render(true);
+}
+
 function buildChartTools() {
   const bar = $('#charttools');
   clear(bar);
@@ -190,40 +305,24 @@ function buildChartTools() {
     }));
   }
   bar.append(el('div', { class: 'toolsep' }));
-  bar.append(el('button', {
-    class: 'ctool danger wide', text: 'CLR', title: 'Clear indicators',
-    onclick: () => { ui.chart.active = new Set(['vol']); buildChartTools(); renderChart(true); },
-  }));
 
-  const indicatorMenu = el('div', {
-    style: {
-      position: 'absolute', zIndex: '40', background: 'var(--panel-2)',
-      border: '1px solid var(--line-2)', padding: '6px', display: 'none', minWidth: '150px',
-      boxShadow: '0 14px 40px rgba(0,0,0,.6)',
-    },
+  // Quick trade: buy and sell without leaving the chart.
+  ui.quickBuy = el('button', {
+    class: 'quickbtn buy', text: '▲ BUY', title: 'Market buy at the ticket size',
+    onclick: () => quickTrade('LONG'),
   });
-  for (const ind of INDICATORS) {
-    indicatorMenu.append(el('button', {
-      class: cls('tf', ui.chart.active.has(ind.id) && 'is-active'),
-      style: { display: 'block', width: '100%', textAlign: 'left' },
-      text: `${ui.chart.active.has(ind.id) ? '✓ ' : '  '}${ind.label}`,
-      onclick: () => { ui.chart.toggle(ind.id); buildChartTools(); renderChart(true); },
-    }));
-  }
-  const indBtn = el('button', {
+  ui.quickSell = el('button', {
+    class: 'quickbtn sell', text: '▼ SELL', title: 'Market sell at the ticket size',
+    onclick: () => quickTrade('SHORT'),
+  });
+  bar.append(ui.quickBuy, ui.quickSell);
+  bar.append(el('div', { class: 'toolsep' }));
+
+  ui.indBtn = el('button', {
     class: 'ctool wide', text: 'INDICATORS ▾',
-    onclick: (e) => {
-      const open = indicatorMenu.style.display === 'block';
-      indicatorMenu.style.display = open ? 'none' : 'block';
-      if (!open) {
-        const r = e.currentTarget.getBoundingClientRect();
-        indicatorMenu.style.left = `${Math.max(8, r.left)}px`;
-        indicatorMenu.style.top = `${r.bottom + 4}px`;
-      }
-    },
+    onclick: (e) => toggleIndicatorMenu(e.currentTarget),
   });
-  document.body.append(indicatorMenu);
-  bar.append(indBtn);
+  bar.append(ui.indBtn);
 
   ui.alertBtn = el('button', {
     class: cls('ctool', ui.chart.alertMode && 'is-active'),
@@ -255,6 +354,7 @@ function buildChartTools() {
     class: 'ctool mobile-only', text: '🎫', title: 'Order ticket',
     onclick: () => $('#ticket').classList.toggle('mobile-open'),
   }));
+  if (!ui.indMenu?.hidden) fillIndicatorMenu();
 }
 
 function armAlert() {
@@ -348,6 +448,7 @@ function onKey(e) {
 function selectSymbol(sym) {
   if (!game.market.get(sym)) return;
   symbol = sym;
+  if (ui.modals) ui.modals.symbol = sym;
   ui.explorer.selected = sym;
   ui.explorer.renderList(true);
   ui.ticket.update();
@@ -429,8 +530,10 @@ function flashCash(amount) {
 }
 
 function updateAlertCount() {
-  const n = game.events.filter((x) => ['toast', 'celebrate', 'badge'].includes(x.type)).length;
-  $('#alert-count').textContent = String(Math.min(99, n));
+  const n = game.alerts.pending.length;
+  const badge = $('#alert-count');
+  badge.textContent = String(Math.min(99, n));
+  badge.hidden = n === 0;
 }
 
 // ── render ───────────────────────────────────────────────────────────────
@@ -438,6 +541,7 @@ function render(full = false) {
   lastRender = performance.now();
   renderHeader();
   renderStatus();
+  updateAlertCount();
   if (view === 'trade') {
     renderAssetHead();
     renderChart(full);
@@ -485,7 +589,7 @@ function renderStatus() {
   $('#status-clock').textContent = `${dayName(market.day)} DAY ${market.day} ${clockTime(market.minuteOfDay)}`;
   $('#status-wire').textContent = prog.has('NEWSWIRE')
     ? `WIRE LIVE · ${market.news.length} STORIES`
-    : '🔒 MARKET NEWS WIRE OFFLINE — UNLOCKS AT LEVEL 20';
+    : '🔒 MARKET NEWS WIRE OFFLINE · UNLOCKS AT LEVEL 20';
   const boost = prog.boostActive(market.tick);
   $('#status-tip').textContent = boost
     ? `🔥 ${boost.sym} ${boost.mult}X XP · ${boost.until - market.tick}m left`
@@ -508,7 +612,7 @@ function renderAssetHead() {
     ins.def.eps !== undefined ? ['EPS', money(ins.def.eps)] : null,
     ins.pe ? ['P/E', num(ins.pe, 1)] : null,
     ins.def.divYield ? ['DIV', `${(ins.def.divYield * 100).toFixed(2)}%/day`] : null,
-    ['52D', `${fmtPrice(ins.range52.lo)} – ${fmtPrice(ins.range52.hi)}`],
+    ['52D', `${fmtPrice(ins.range52.lo)} - ${fmtPrice(ins.range52.hi)}`],
     ['SPREAD', fmtPrice(game.market.spread(ins))],
   ].filter(Boolean);
 
@@ -549,10 +653,26 @@ function renderChart(full = false) {
   for (const o of game.account.orders.filter((x) => x.sym === symbol)) {
     lines.push({ price: o.limit ?? o.stop, color: '#f5c451', label: `${o.side} LIMIT ${fmtPrice(o.limit ?? o.stop)}`, dash: [6, 3] });
   }
+  ui.chart.custom = game.library?.activeDefs() ?? [];
   ui.chart.setData({ candles, markers, lines });
   ui.chart.render();
   if (ui.liveBtn) ui.liveBtn.hidden = ui.chart.isLive;
+  syncQuickTrade();
   renderLegend();
+}
+
+/** Label the chart's buy and sell buttons with the size they would send. */
+function syncQuickTrade() {
+  if (!ui.quickBuy) return;
+  const m = ui.ticket?.margin ?? 0;
+  const size = m > 0 ? ` ${moneyShort(m)}` : '';
+  ui.quickBuy.textContent = `▲ BUY${size}`;
+  ui.quickSell.textContent = `▼ SELL${size}`;
+  const shorts = game.prog.has('SHORTS');
+  ui.quickSell.disabled = !shorts;
+  ui.quickSell.title = shorts ? 'Market sell at the ticket size' : 'Shorts unlock at level 3';
+  ui.quickBuy.classList.toggle('is-idle', !(m > 0));
+  ui.quickSell.classList.toggle('is-idle', !(m > 0));
 }
 
 function renderLegend() {
@@ -565,6 +685,9 @@ function renderLegend() {
     const ind = INDICATORS.find((i) => i.id === id);
     if (!ind || ind.pane !== 'main') continue;
     rows.push(`<span class="legend-chip legend-row" style="color:${ind.color}">${ind.label}</span>`);
+  }
+  for (const def of ui.chart.customOverlay()) {
+    rows.push(`<span class="legend-chip legend-row" style="color:${def.color}">${esc(def.name)}</span>`);
   }
   if (sig) {
     rows.push(`<div class="signal-chip ${sig.side === 'BUY' ? 'up' : 'down'}">${sig.side === 'BUY' ? '▲' : '▼'} ${sig.side} SIGNAL @ ${fmtPrice(sig.price)} · ${sig.barsAgo} bars ago</div>`);
@@ -591,7 +714,7 @@ function showPromo() {
       <div class="promo-perk full">2 · PRESS BUY TO OPEN THE POSITION</div>
       <div class="promo-perk full">3 · CLOSE IT BELOW TO BANK THE P&L</div>
     </div>
-    <button class="promo-buy" id="promo-go">GOT IT — LET ME TRADE</button>
+    <button class="promo-buy" id="promo-go">GOT IT, LET ME TRADE</button>
     <div class="promo-note">Every market here is simulated. No real money is involved.</div>`;
   node.querySelector('#promo-close').onclick = () => { node.hidden = true; };
   node.querySelector('#promo-go').onclick = () => {

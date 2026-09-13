@@ -106,8 +106,8 @@ export const BADGES = [
   { id: 'LEVERED', name: 'Levered Up', desc: 'Open a position at 10x or more.' },
   { id: 'LIQUIDATED', name: 'Blown Up', desc: 'Get liquidated. It happens.' },
   { id: 'BIG_WIN', name: 'Size Matters', desc: 'Bank a single trade worth $10,000.' },
-  { id: 'SIX_FIGURES', name: 'Six Figures', desc: 'Reach $100,000 net worth.' },
-  { id: 'MILLIONAIRE', name: 'Seven Figures', desc: 'Reach $1,000,000 net worth.' },
+  { id: 'SIX_FIGURES', name: 'Six Figures', desc: 'Reach $100,000 portfolio value.' },
+  { id: 'MILLIONAIRE', name: 'Seven Figures', desc: 'Reach $1,000,000 portfolio value.' },
   { id: 'IPO_HIT', name: 'Allocation', desc: 'Get filled on an IPO.' },
   { id: 'BOT_OWNER', name: 'Automated', desc: 'Deploy an algo bot.' },
   { id: 'DIVIDEND', name: 'Coupon Clipper', desc: 'Collect $1,000 in dividends.' },
@@ -284,7 +284,7 @@ export class Progression {
 
   // --- rebirth ------------------------------------------------------------
 
-  /** Prestige points scale with the square root of lifetime peak net worth. */
+  /** Prestige points scale with the square root of lifetime peak portfolio value. */
   rebirthReward(netWorth) {
     const peak = Math.max(netWorth, this.lifetimePeak);
     if (peak < 1e6) return 0;

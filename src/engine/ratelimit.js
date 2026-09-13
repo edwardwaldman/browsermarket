@@ -1,6 +1,6 @@
 // Sliding-window rate limits on player actions.
 //
-// The whole game runs client-side, so these are not a security boundary —
+// The whole game runs client-side, so these are not a security boundary:
 // anyone can edit their own save. They exist to keep the terminal honest and
 // responsive: to stop a held-down key from queueing hundreds of fills, to keep
 // the tape and the render loop from being starved by a burst, and to make the
@@ -48,7 +48,7 @@ export class RateLimiter {
     return {
       ok: false,
       retryMs,
-      reason: `Too fast — ${max} ${label} per ${Math.round(windowMs / 1000)}s. Try again in ${Math.ceil(retryMs / 1000)}s.`,
+      reason: `Too fast. ${max} ${label} per ${Math.round(windowMs / 1000)}s. Try again in ${Math.ceil(retryMs / 1000)}s.`,
     };
   }
 

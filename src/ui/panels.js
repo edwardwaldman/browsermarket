@@ -325,7 +325,7 @@ export class BottomDock {
     const { market, prog } = this.game;
     if (!prog.has('NEWSWIRE')) {
       this.empty('🔒 Market news wire offline',
-        'The wire installs at level 20. Until then headlines still move prices — you just have to read it in the tape.');
+        'The wire installs at level 20. Until then headlines still move prices, you just have to read it in the tape.');
       return;
     }
     if (!market.news.length) {

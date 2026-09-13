@@ -51,7 +51,7 @@ export class Leaderboard {
     }
   }
 
-  /** Board including the player, sorted by net worth. */
+  /** Board including the player, sorted by portfolio value. */
   standings(playerName, playerNet, playerLevel) {
     const rows = this.rivals.map((r) => ({
       name: r.name, net: r.net, level: r.level, style: r.style, you: false,

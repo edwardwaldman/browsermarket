@@ -33,6 +33,10 @@ export class Ticket {
 
   get account() { return this.game.account; }
 
+  maxMarginFor(fraction = 1) {
+    return this.account.maxMargin(this.leverage, fraction);
+  }
+
   mount() {
     const r = this.refs;
     clear(this.root);
@@ -79,8 +83,7 @@ export class Ticket {
         this.quick = this.quick === q.f ? null : q.f;
         for (const b of r.quickRow.children) b.classList.remove('is-active');
         if (this.quick !== null) {
-          const cash = Math.max(0, this.account.cash);
-          this.margin = Math.floor(cash * q.f * (q.f === 1 ? 0.995 : 1));
+          this.margin = this.maxMarginFor(q.f);
           r.marginInput.value = String(this.margin);
           r.quickRow.children[QUICK.indexOf(q)].classList.add('is-active');
         }
@@ -88,8 +91,11 @@ export class Ticket {
       },
     })));
 
+    const manual = (input) => input.addEventListener('input', () => { delete input.dataset.auto; });
     r.tpInput = el('input', { type: 'text', inputmode: 'decimal', placeholder: 'price or %' });
     r.slInput = el('input', { type: 'text', inputmode: 'decimal', placeholder: 'price or %' });
+    manual(r.tpInput);
+    manual(r.slInput);
     r.brackets = el('div', { class: 'field2' }, [
       el('div', { class: 'field' }, [el('label', { text: 'TAKE PROFIT' }), r.tpInput]),
       el('div', { class: 'field' }, [el('label', { text: 'STOP LOSS' }), r.slInput]),
@@ -270,7 +276,7 @@ export class Ticket {
       (!affordable || !valid) && 'disabled');
     r.optionAction.disabled = !affordable || !valid;
     r.optionNote.textContent = affordable || !valid ? `${this.optionType === 'CALL' ? 'Calls' : 'Puts'} profit when ${this.getSymbol()} ${this.optionType === 'CALL' ? 'rises above' : 'falls below'} $${fmtPrice(breakeven)} by expiry.`
-      : `Needs ${money(cost + fee, 0)} — you have ${money(this.account.cash, 0)}`;
+      : `Needs ${money(cost + fee, 0)}, you have ${money(this.account.cash, 0)}`;
 
     const open = this.account.options.filter((o) => o.sym === this.getSymbol());
     const key = open.map((o) => `${o.id}:${o.qty}`).join('|');
@@ -357,6 +363,27 @@ export class Ticket {
     this._flashTimer = setTimeout(() => { n.hidden = true; }, 4000);
   }
 
+  /**
+   * Fill the bracket inputs from the auto-target settings, leaving anything
+   * the player typed alone. Percentages are resolved against the entry at
+   * submit time, so "10%" means 10% in your favour whichever way you are.
+   */
+  applyAutoTargets() {
+    const r = this.refs;
+    const sync = (input, enabled, pct) => {
+      if (!enabled) {
+        if (input.dataset.auto === '1') { input.value = ''; delete input.dataset.auto; }
+        return;
+      }
+      const untouched = input.value === '' || input.dataset.auto === '1';
+      if (!untouched || document.activeElement === input) return;
+      input.value = `${pct}%`;
+      input.dataset.auto = '1';
+    };
+    sync(r.tpInput, settings.get('autoTakeProfit'), settings.get('takeProfitPct'));
+    sync(r.slInput, settings.get('autoStopLoss'), settings.get('stopLossPct'));
+  }
+
   /** Resolve a bracket field that may hold either a price or a percentage. */
   resolveBracket(input, entry, kind) {
     const raw = String(input.value || '').trim();
@@ -399,6 +426,10 @@ export class Ticket {
       : this.game.openPosition(args);
 
     if (!res.ok) { this.flash(res.reason); return; }
+    for (const input of [this.refs.tpInput, this.refs.slInput]) {
+      if (input.dataset.auto === '1') continue;
+      input.value = '';
+    }
     this.onTrade?.({ type: 'filled', result: res });
     this.update();
   }
@@ -423,10 +454,11 @@ export class Ticket {
 
     r.brackets.hidden = !prog.has('BRACKETS');
     r.trailField.hidden = !prog.has('BRACKETS');
+    this.applyAutoTargets();
 
+    // Recomputed on every update so the size tracks both cash and leverage.
     if (this.quick !== null) {
-      const cash = Math.max(0, this.account.cash);
-      this.margin = Math.floor(cash * this.quick * (this.quick === 1 ? 0.995 : 1));
+      this.margin = this.maxMarginFor(this.quick);
       if (document.activeElement !== r.marginInput) r.marginInput.value = String(this.margin);
     }
 
@@ -460,7 +492,7 @@ export class Ticket {
     else if (this.account.cash < needed) {
       disabled = true;
       label = 'NOT ENOUGH CASH';
-      note = `Needs ${money(needed, 0)} including the fee — you have ${money(this.account.cash, 0)}`;
+      note = `Needs ${money(needed, 0)} including the fee, you have ${money(this.account.cash, 0)}`;
     } else if (this.type === 'LIMIT') {
       label = `PLACE ${short ? 'SHORT' : 'LONG'} LIMIT`;
     }
@@ -470,9 +502,9 @@ export class Ticket {
       note = `${short ? 'Short' : 'Long'} ${money(notional, 0)} of ${sym}`;
     } else if (!note) {
       const sess = this.game.market.session;
-      if (sess.id === 'AH') note = '🌙 After-hours session — thin volume';
-      else if (sess.id === 'CLOSED') note = '🌙 Overnight session — widest spreads';
-      else if (sess.id === 'PRE') note = '☀ Pre-market session — thin volume';
+      if (sess.id === 'AH') note = '🌙 After-hours session, thin volume';
+      else if (sess.id === 'CLOSED') note = '🌙 Overnight session, widest spreads';
+      else if (sess.id === 'PRE') note = '☀ Pre-market session, thin volume';
     }
 
     r.action.textContent = label;
