@@ -89,7 +89,7 @@ export class BottomDock {
         <td>${fmtQty(p.qty)} @ ${fmtPrice(p.avg)}</td>
         <td>${fmtPrice(price)}</td>
         <td>${liq}</td>
-        <td class="${pnl >= 0 ? 'up' : 'down'}">${signed(pnl)}<br><span class="muted" style="font-size:8.5px">${onMargin >= 0 ? '+' : ''}${onMargin.toFixed(2)}% on margin</span></td>
+        <td class="${pnl >= 0 ? 'up' : 'down'}">${signed(pnl)}<br><span class="muted" style="font-size:11.5px">${onMargin >= 0 ? '+' : ''}${onMargin.toFixed(2)}% on margin</span></td>
         <td style="text-align:right">
           <button class="minibtn" data-close="0.25">25%</button>
           <button class="minibtn" data-close="0.5">50%</button>
@@ -100,12 +100,12 @@ export class BottomDock {
       const mark = markOption(market, o);
       const pnl = (mark.price - o.premium) * CONTRACT_SIZE * o.qty;
       return `<tr data-opt="${o.id}">
-        <td><b>${o.sym}</b><br><span class="muted" style="font-size:8.5px">${o.type} ${fmtPrice(o.strike)}</span></td>
+        <td><b>${o.sym}</b><br><span class="muted" style="font-size:11.5px">${o.type} ${fmtPrice(o.strike)}</span></td>
         <td><span class="sidetag ${o.type === 'CALL' ? 'long' : 'short'}">${o.type}</span></td>
         <td>${o.qty} × ${CONTRACT_SIZE} @ ${fmtPrice(o.premium)}</td>
         <td>${fmtPrice(mark.price)}</td>
         <td class="muted">${mark.daysLeft ?? 0}d left</td>
-        <td class="${pnl >= 0 ? 'up' : 'down'}">${signed(pnl)}<br><span class="muted" style="font-size:8.5px">Δ ${(mark.delta ?? 0).toFixed(2)}</span></td>
+        <td class="${pnl >= 0 ? 'up' : 'down'}">${signed(pnl)}<br><span class="muted" style="font-size:11.5px">Δ ${(mark.delta ?? 0).toFixed(2)}</span></td>
         <td style="text-align:right">
           <button class="minibtn" data-optclose="0.5">50%</button>
           <button class="minibtn red" data-optclose="1">CLOSE</button>
@@ -140,7 +140,7 @@ export class BottomDock {
         tr.children[3].textContent = fmtPrice(mark.price);
         const cell = tr.children[5];
         cell.className = pnl >= 0 ? 'up' : 'down';
-        cell.innerHTML = `${signed(pnl)}<br><span class="muted" style="font-size:8.5px">Δ ${(mark.delta ?? 0).toFixed(2)}</span>`;
+        cell.innerHTML = `${signed(pnl)}<br><span class="muted" style="font-size:11.5px">Δ ${(mark.delta ?? 0).toFixed(2)}</span>`;
       });
       account.positions.forEach((p, i) => {
         const tr = tbody?.children[i];
@@ -150,7 +150,7 @@ export class BottomDock {
         tr.children[3].textContent = fmtPrice(price);
         const cell = tr.children[5];
         cell.className = pnl >= 0 ? 'up' : 'down';
-        cell.innerHTML = `${signed(pnl)}<br><span class="muted" style="font-size:8.5px">${onMargin >= 0 ? '+' : ''}${onMargin.toFixed(2)}% on margin</span>`;
+        cell.innerHTML = `${signed(pnl)}<br><span class="muted" style="font-size:11.5px">${onMargin >= 0 ? '+' : ''}${onMargin.toFixed(2)}% on margin</span>`;
       });
     }
   }
@@ -211,7 +211,7 @@ export class BottomDock {
     const tape = ins.tape.slice(0, 22).map((t) => `<div class="bookrow">
       <span class="${t.side === 'B' ? 'up' : 'down'}">${t.side === 'B' ? '▲' : '▼'} ${fmtPrice(t.p)}</span>
       <span class="muted">${compact(t.s)}</span>
-      <span class="muted" style="font-size:8.5px">${clockTime(market.minuteOfTick(t.t))}</span>
+      <span class="muted" style="font-size:11.5px">${clockTime(market.minuteOfTick(t.t))}</span>
     </div>`).join('');
     const buyShare = ((book.imbalance + 1) / 2) * 100;
     this.bodyNode.__key = null;

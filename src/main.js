@@ -8,9 +8,10 @@ import { Explorer } from './ui/explorer.js';
 import { Ticket } from './ui/ticket.js';
 import { BottomDock } from './ui/panels.js';
 import { Modals } from './ui/modals.js';
-import { ResearchPage, EmpirePage } from './ui/pages.js';
+import { ResearchPage } from './ui/pages.js';
 import { Toasts, Celebration, floatXp } from './ui/toast.js';
 import { settings } from './engine/settings.js';
+import { AdOverlay } from './ui/adgate.js';
 import { $, el, clear, cls, esc, on } from './util/dom.js';
 import {
   money, moneyShort, price as fmtPrice, pct, signed, num, compact, qty as fmtQty,
@@ -132,7 +133,6 @@ function buildUi() {
   });
 
   ui.research = new ResearchPage({ root: $('#view-research'), game, onSelect: (s) => { selectSymbol(s); setView('trade'); } });
-  ui.empire = new EmpirePage({ root: $('#view-empire'), game, refresh: () => render(true) });
 
   ui.chart.onArmAlert = (price) => {
     const ins = game.market.get(symbol);
@@ -148,9 +148,21 @@ function buildUi() {
   ui.liveBtn.hidden = true;
   $('.chartwrap').append(ui.liveBtn);
 
+  ui.ads = new AdOverlay($('#ad-root'), game.ads);
+  ui.modals.onWatchAd = (placement) => ui.ads.play(placement);
+  ui.modals.toast = (t) => ui.toasts.push(t);
   ui.modals.onReplayTutorial = () => { game.flags.tutorialDone = false; showPromo(); };
 
   buildChartTools();
+
+  $('#brand-home').addEventListener('click', () => {
+    ui.modals.close();
+    setView('trade');
+    ui.chart.goLive();
+    $('#explorer').classList.remove('mobile-open');
+    $('#ticket').classList.remove('mobile-open');
+    window.scrollTo(0, 0);
+  });
 
   $('#btn-theme').addEventListener('click', () => {
     const next = settings.cycleTheme();
@@ -305,7 +317,10 @@ function wireDockResize() {
 }
 
 function onKey(e) {
-  if (e.target.matches('input, textarea')) return;
+  // The target is not always an Element - a synthetic event can be dispatched
+  // straight at `document`, which has no matches().
+  const target = e.target;
+  if (target instanceof Element && target.matches('input, textarea')) return;
   const map = { b: 'LONG', s: 'SHORT' };
   const tfKeys = TF_ORDER;
   if (/^[1-6]$/.test(e.key)) {
@@ -348,9 +363,7 @@ function setView(next) {
   }
   $('#view-trade').hidden = next !== 'trade';
   $('#view-research').hidden = next !== 'research';
-  $('#view-empire').hidden = next !== 'empire';
   if (next === 'research') ui.research.render();
-  if (next === 'empire') ui.empire.render();
   if (next === 'trade') ui.chart.render();
 }
 
@@ -434,8 +447,6 @@ function render(full = false) {
     ui.explorer.renderList(full);
   } else if (view === 'research' && full) {
     ui.research.render();
-  } else if (view === 'empire' && full) {
-    ui.empire.render();
   }
 }
 
@@ -459,7 +470,6 @@ function renderHeader() {
     : 'MAX TRACK';
   $('#xp-fill').style.width = `${Math.min(100, (prog.xpIntoLevel / prog.xpForNext) * 100).toFixed(1)}%`;
   $('#mission-dot').hidden = prog.missions.every((m) => !m.done);
-  $('#empire-dot').hidden = game.bots.bots.length > 0 || !prog.has('BOT1');
 }
 
 function renderStatus() {
