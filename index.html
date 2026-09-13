@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>BSE — Browser Stock Exchange</title>
+<meta name="description" content="A browser trading simulator: stocks, funds, futures, IPOs, algo desks, leverage, shorting and rebirths." />
+<meta name="color-scheme" content="dark" />
+<link rel="stylesheet" href="styles/main.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0f18'/%3E%3Cpath d='M5 22l6-7 5 4 4-6 7 8' stroke='%2316d97d' stroke-width='2.5' fill='none' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E" />
+</head>
+<body>
+<div id="app" class="app">
+
+  <!-- ── top bar ─────────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">BSE</div>
+      <div class="brand-sub">BROWSER STOCK EXCHANGE</div>
+    </div>
+
+    <nav class="viewnav" id="viewnav">
+      <button class="viewtab is-active" data-view="trade"><span class="ico">▦</span>TRADE</button>
+      <button class="viewtab" data-view="research"><span class="ico">◈</span>RESEARCH</button>
+      <button class="viewtab" data-view="empire"><span class="ico">⌂</span>EMPIRE<i class="dot" id="empire-dot"></i></button>
+    </nav>
+
+    <div class="statcards">
+      <button class="statcard" id="card-portfolio" data-modal="portfolio">
+        <div class="statcard-top"><span class="statcard-label">PORTFOLIO VALUE</span><span class="statcard-delta" id="nw-delta">--</span></div>
+        <div class="statcard-value" id="nw-value">$0</div>
+      </button>
+      <button class="statcard" id="card-cash" data-modal="ledger">
+        <div class="statcard-top"><span class="statcard-label">AVAILABLE CASH</span></div>
+        <div class="statcard-value" id="cash-value">$0</div>
+      </button>
+      <button class="statcard statcard-level" id="card-level" data-modal="level">
+        <div class="statcard-top"><span class="statcard-label" id="level-label">LVL 1</span></div>
+        <div class="statcard-next" id="level-next">NEXT: --</div>
+        <div class="xpbar"><i id="xp-fill"></i></div>
+      </button>
+    </div>
+
+    <div class="toolstrip">
+      <button class="tool" id="btn-speed" data-modal="timemachine" title="Time machine">⏩<i class="tool-tag" id="speed-tag">1x</i></button>
+      <button class="tool" data-modal="missions" title="Missions">◎<i class="dot" id="mission-dot"></i></button>
+      <button class="tool" data-modal="collection" title="Collection">🎟️</button>
+      <button class="tool" data-modal="rewards" title="Free rewards">🎁</button>
+      <button class="tool" data-modal="leaderboard" title="Leaderboard">🏆</button>
+      <button class="tool" data-modal="badges" title="Badges">✨</button>
+      <button class="shopbtn" data-modal="shop">▣ SHOP</button>
+      <button class="tool" data-modal="alerts" title="Alerts">🔔<i class="badge-count" id="alert-count">0</i></button>
+      <button class="tool" data-modal="settings" title="Settings">⚙</button>
+    </div>
+  </header>
+
+  <!-- ── trade view ──────────────────────────────────────────── -->
+  <div class="workspace" id="view-trade">
+
+    <aside class="panel explorer" id="explorer">
+      <div class="panel-head">
+        <span class="panel-title">MARKET EXPLORER</span>
+        <span class="live-pill">● LIVE</span>
+      </div>
+      <div class="searchrow">
+        <span class="search-ico">⌕</span>
+        <input id="search" type="search" placeholder="Search ticker or name…" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="chiprow">
+        <button class="chip chip-green" data-modal="scanner">SCANNER</button>
+        <button class="chip chip-cyan" data-modal="sectors">SECTORS</button>
+        <button class="chip chip-purple" data-modal="fundhq">FUND HQ</button>
+        <button class="chip chip-blue" data-modal="index">INDEX</button>
+        <button class="chip chip-pink" data-modal="launchpad">LAUNCHPAD</button>
+      </div>
+      <div class="classtabs" id="classtabs"></div>
+      <div class="assetlist" id="assetlist"></div>
+    </aside>
+
+    <main class="center">
+      <section class="panel asset-head" id="asset-head"></section>
+
+      <section class="panel chartpanel">
+        <div class="charttools" id="charttools"></div>
+        <div class="chartwrap">
+          <canvas id="chart"></canvas>
+          <div class="chart-legend" id="chart-legend"></div>
+          <div class="chart-float" id="chart-float"></div>
+        </div>
+      </section>
+
+      <section class="panel bottompanel">
+        <div class="tabrow" id="bottomtabs"></div>
+        <div class="tabbody" id="bottombody"></div>
+      </section>
+    </main>
+
+    <aside class="panel ticket" id="ticket"></aside>
+  </div>
+
+  <div class="viewpage" id="view-research" hidden></div>
+  <div class="viewpage" id="view-empire" hidden></div>
+
+  <!-- ── status bar ──────────────────────────────────────────── -->
+  <footer class="statusbar">
+    <span class="status-session" id="status-session">● OPEN</span>
+    <span class="status-regime" id="status-regime">EXPANSION</span>
+    <span class="status-clock" id="status-clock">MON DAY 1 09:30 AM</span>
+    <span class="status-wire" id="status-wire">MARKET NEWS WIRE OFFLINE — UNLOCKS AT LEVEL 20</span>
+    <span class="status-spacer"></span>
+    <span class="status-tip" id="status-tip"></span>
+  </footer>
+
+  <div class="assistant" id="assistant">
+    <button class="assistant-orb" id="assistant-orb" aria-label="Open the assistant"></button>
+    <input id="assistant-input" placeholder="Ask the desk anything" autocomplete="off" />
+    <span class="assistant-hint">ENTER</span>
+    <button class="assistant-send" id="assistant-send" aria-label="Send">▸</button>
+  </div>
+  <div class="assistant-log" id="assistant-log" hidden></div>
+
+  <div class="toasts" id="toasts"></div>
+  <div class="celebration" id="celebration" hidden></div>
+  <div class="modal-root" id="modal-root" hidden></div>
+  <div class="promo" id="promo" hidden></div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

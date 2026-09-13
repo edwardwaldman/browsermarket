@@ -1,0 +1,504 @@
+// Canvas candlestick chart: candles, volume, overlays, sub-panes, markers,
+// position lines and a crosshair readout.
+
+import { sma, ema, rsi, macd, bollinger, vwap, crossSignal } from '../engine/indicators.js';
+import { price as fmtPrice, compact, clockTime } from '../util/format.js';
+import { settings } from '../engine/settings.js';
+
+const COL = {
+  grid: '#0f1724',
+  axis: '#5a6b81',
+  text: '#8fa3bd',
+  sma: '#4c7fe0',
+  ema: '#f5c451',
+  bb: 'rgba(168,85,247,.45)',
+  vwap: '#22d3ee',
+  entry: '#c3d2e6',
+  cross: '#3b4b63',
+  alert: '#22d3ee',
+};
+
+/** Candle colours follow the colourblind setting. */
+function palette() {
+  const p = settings.palette;
+  return { up: p.up, down: p.down, upFill: p.up, downFill: p.down };
+}
+
+const withAlpha = (hex, a) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+};
+
+export const INDICATORS = [
+  { id: 'sma20', label: 'SMA 20', pane: 'main', color: COL.sma },
+  { id: 'sma50', label: 'SMA 50', pane: 'main', color: '#8b5cf6' },
+  { id: 'ema9', label: 'EMA 9', pane: 'main', color: COL.ema },
+  { id: 'bb', label: 'BOLLINGER', pane: 'main', color: COL.bb },
+  { id: 'vwap', label: 'VWAP', pane: 'main', color: COL.vwap },
+  { id: 'vol', label: 'VOLUME', pane: 'vol', color: '#33415a' },
+  { id: 'rsi', label: 'RSI 14', pane: 'sub', color: '#f472b6' },
+  { id: 'macd', label: 'MACD', pane: 'sub', color: '#22d3ee' },
+];
+
+export class Chart {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.candles = [];
+    this.markers = [];
+    this.lines = [];
+    this.active = new Set(['sma20', 'vol']);
+    this.barCount = 90;
+    this.hover = null;
+    this.minuteOf = (t) => t % 1440;
+    this.onHover = null;
+    this.dpr = 1;
+    this.offset = 0;          // bars scrolled back from the live edge
+    this.alertMode = false;
+    this.onArmAlert = null;
+    this.alerts = [];
+
+    canvas.addEventListener('mousemove', (e) => this.handleMove(e));
+    canvas.addEventListener('mouseleave', () => { this.hover = null; this.render(); this.onHover?.(null); });
+    canvas.addEventListener('touchstart', (e) => this.handleMove(e.touches[0]), { passive: true });
+    canvas.addEventListener('touchmove', (e) => this.handleMove(e.touches[0]), { passive: true });
+    canvas.addEventListener('click', (e) => this.handleClick(e));
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      this.pan(e.deltaX || e.deltaY > 0 ? 2 : -2);
+    }, { passive: false });
+  }
+
+  toggle(id) {
+    if (this.active.has(id)) this.active.delete(id);
+    else this.active.add(id);
+    this.render();
+  }
+
+  zoom(delta) {
+    this.barCount = Math.max(24, Math.min(320, this.barCount + delta));
+    this.render();
+  }
+
+  setData({ candles, markers = [], lines = [], minuteOf }) {
+    this.candles = candles || [];
+    this.markers = markers;
+    this.lines = lines;
+    if (minuteOf) this.minuteOf = minuteOf;
+  }
+
+  visible() {
+    const end = Math.max(this.barCount, this.candles.length - this.offset);
+    return this.candles.slice(Math.max(0, end - this.barCount), end);
+  }
+
+  /** True when the view is pinned to the newest bar. */
+  get isLive() {
+    return this.offset <= 0;
+  }
+
+  pan(bars) {
+    const max = Math.max(0, this.candles.length - this.barCount);
+    this.offset = Math.max(0, Math.min(max, this.offset + bars));
+    this.render();
+  }
+
+  goLive() {
+    this.offset = 0;
+    this.render();
+  }
+
+  /** Convert a click's y position into a price, for arming alerts. */
+  priceAt(y) {
+    const geo = this.geometry();
+    if (!geo) return null;
+    const { padT, mainH } = geo;
+    const { hi, lo } = this.scale || {};
+    if (hi === undefined) return null;
+    return lo + ((padT + mainH - y) / mainH) * (hi - lo);
+  }
+
+  handleClick(e) {
+    if (!this.alertMode) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const price = this.priceAt(e.clientY - rect.top);
+    if (price === null || !(price > 0)) return;
+    this.alertMode = false;
+    this.onArmAlert?.(price);
+  }
+
+  handleMove(e) {
+    if (!e) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const geo = this.geometry();
+    if (!geo) return;
+    const i = Math.round((x - geo.padL - geo.bw / 2) / geo.step);
+    const bars = this.visible();
+    this.hover = i >= 0 && i < bars.length ? i : null;
+    this.render();
+    this.onHover?.(this.hover !== null ? bars[this.hover] : null);
+  }
+
+  geometry() {
+    const { width, height } = this.canvas.getBoundingClientRect();
+    if (!width || !height) return null;
+    const bars = this.visible();
+    if (!bars.length) return null;
+    const padL = 6;
+    const padR = 58;
+    const padT = 30;
+    const padB = 20;
+    const hasSub = this.active.has('rsi') || this.active.has('macd');
+    const volH = this.active.has('vol') ? height * 0.13 : 0;
+    const subH = hasSub ? height * 0.2 : 0;
+    const mainH = height - padT - padB - volH - subH;
+    const plotW = width - padL - padR;
+    const step = plotW / bars.length;
+    const bw = Math.max(1.5, Math.min(14, step * 0.68));
+    return { width, height, padL, padR, padT, padB, mainH, volH, subH, plotW, step, bw, bars };
+  }
+
+  resize() {
+    const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
+    const { width, height } = this.canvas.getBoundingClientRect();
+    if (!width || !height) return;
+    this.dpr = dpr;
+    this.canvas.width = Math.round(width * dpr);
+    this.canvas.height = Math.round(height * dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  render() {
+    const geo = this.geometry();
+    if (!geo) return;
+    this.resize();
+    const ctx = this.ctx;
+    const { width, height, padL, padR, padT, mainH, volH, subH, step, bw, bars } = geo;
+
+    ctx.clearRect(0, 0, width, height);
+
+    const closes = bars.map((c) => c.c);
+    let hi = -Infinity;
+    let lo = Infinity;
+    for (const c of bars) { hi = Math.max(hi, c.h); lo = Math.min(lo, c.l); }
+    for (const l of this.lines) {
+      if (l.price > lo * 0.9 && l.price < hi * 1.1) { hi = Math.max(hi, l.price); lo = Math.min(lo, l.price); }
+    }
+    for (const a of this.alerts) {
+      if (a.price > lo * 0.75 && a.price < hi * 1.25) { hi = Math.max(hi, a.price); lo = Math.min(lo, a.price); }
+    }
+    const pad = (hi - lo) * 0.08 || hi * 0.01 || 1;
+    hi += pad; lo -= pad;
+    this.scale = { hi, lo };
+    const yOf = (p) => padT + mainH - ((p - lo) / (hi - lo)) * mainH;
+    const xOf = (i) => padL + i * step + step / 2;
+
+    this.drawGrid(ctx, geo, hi, lo, yOf);
+    if (volH > 0) this.drawVolume(ctx, geo, bars);
+    this.drawOverlays(ctx, geo, bars, closes, yOf, xOf);
+    this.drawCandles(ctx, geo, bars, yOf, xOf, bw);
+    this.drawLines(ctx, geo, yOf);
+    this.drawAlerts(ctx, geo, yOf);
+    this.drawMarkers(ctx, geo, bars, yOf, xOf);
+    if (subH > 0) this.drawSubPane(ctx, geo, closes);
+    this.drawAxes(ctx, geo, hi, lo, yOf, xOf, bars);
+    this.drawLast(ctx, geo, bars, yOf);
+    if (this.hover !== null) this.drawCrosshair(ctx, geo, bars, yOf, xOf);
+  }
+
+  drawGrid(ctx, geo, hi, lo, yOf) {
+    const { width, padL, padR, padT, mainH } = geo;
+    ctx.strokeStyle = COL.grid;
+    ctx.lineWidth = 1;
+    const steps = 5;
+    for (let i = 0; i <= steps; i++) {
+      const p = lo + ((hi - lo) * i) / steps;
+      const y = Math.round(yOf(p)) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(padL, y);
+      ctx.lineTo(width - padR, y);
+      ctx.stroke();
+    }
+  }
+
+  drawVolume(ctx, geo, bars) {
+    const { padL, padT, mainH, volH, step, bw } = geo;
+    const top = padT + mainH;
+    const max = Math.max(...bars.map((c) => c.v), 1);
+    for (let i = 0; i < bars.length; i++) {
+      const c = bars[i];
+      const h = (c.v / max) * (volH - 4);
+      const pal = palette();
+      ctx.fillStyle = withAlpha(c.c >= c.o ? pal.up : pal.down, 0.3);
+      ctx.fillRect(padL + i * step + (step - bw) / 2, top + volH - h - 2, bw, h);
+    }
+    ctx.fillStyle = '#3b4a61';
+    ctx.font = '8px ui-monospace, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`VOL  max ${compact(max)}`, padL + 2, top + 9);
+  }
+
+  drawOverlays(ctx, geo, bars, closes, yOf, xOf) {
+    const line = (vals, color, w = 1.4, dash = null) => {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = w;
+      if (dash) ctx.setLineDash(dash);
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < vals.length; i++) {
+        if (vals[i] === null || vals[i] === undefined) { started = false; continue; }
+        const x = xOf(i);
+        const y = yOf(vals[i]);
+        if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    };
+    if (this.active.has('bb')) {
+      const b = bollinger(closes, 20, 2);
+      line(b.upper, COL.bb, 1);
+      line(b.lower, COL.bb, 1);
+      line(b.mid, 'rgba(168,85,247,.25)', 1, [3, 3]);
+    }
+    if (this.active.has('sma20')) line(sma(closes, 20), COL.sma, 1.5);
+    if (this.active.has('sma50')) line(sma(closes, 50), '#8b5cf6', 1.3);
+    if (this.active.has('ema9')) line(ema(closes, 9), COL.ema, 1.2);
+    if (this.active.has('vwap')) line(vwap(bars), COL.vwap, 1.2, [4, 3]);
+  }
+
+  drawCandles(ctx, geo, bars, yOf, xOf, bw) {
+    const pal = palette();
+    for (let i = 0; i < bars.length; i++) {
+      const c = bars[i];
+      const up = c.c >= c.o;
+      const x = xOf(i);
+      ctx.strokeStyle = up ? pal.up : pal.down;
+      ctx.fillStyle = up ? pal.upFill : pal.downFill;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(Math.round(x) + 0.5, yOf(c.h));
+      ctx.lineTo(Math.round(x) + 0.5, yOf(c.l));
+      ctx.stroke();
+      const yO = yOf(c.o);
+      const yC = yOf(c.c);
+      const top = Math.min(yO, yC);
+      const h = Math.max(1, Math.abs(yC - yO));
+      ctx.fillRect(x - bw / 2, top, bw, h);
+    }
+  }
+
+  drawLines(ctx, geo, yOf) {
+    const { width, padL, padR } = geo;
+    for (const l of this.lines) {
+      const y = Math.round(yOf(l.price)) + 0.5;
+      if (!Number.isFinite(y)) continue;
+      ctx.save();
+      ctx.strokeStyle = l.color || COL.entry;
+      ctx.setLineDash(l.dash || [5, 4]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padL, y);
+      ctx.lineTo(width - padR, y);
+      ctx.stroke();
+      ctx.restore();
+      if (l.label) {
+        ctx.font = '8.5px ui-monospace, monospace';
+        const w = ctx.measureText(l.label).width + 10;
+        ctx.fillStyle = 'rgba(14,21,33,.92)';
+        ctx.fillRect(width - padR - w - 6, y - 8, w, 15);
+        ctx.strokeStyle = l.color || COL.entry;
+        ctx.strokeRect(width - padR - w - 6, y - 8, w, 15);
+        ctx.fillStyle = l.color || COL.entry;
+        ctx.textAlign = 'left';
+        ctx.fillText(l.label, width - padR - w - 1, y + 3);
+      }
+    }
+  }
+
+  drawAlerts(ctx, geo, yOf) {
+    const { width, padL, padR } = geo;
+    for (const a of this.alerts) {
+      const y = Math.round(yOf(a.price)) + 0.5;
+      if (!Number.isFinite(y)) continue;
+      ctx.save();
+      ctx.strokeStyle = COL.alert;
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(padL, y);
+      ctx.lineTo(width - padR, y);
+      ctx.stroke();
+      ctx.restore();
+      const label = `🔔 ${fmtPrice(a.price)}`;
+      ctx.font = '8.5px ui-monospace, monospace';
+      const w = ctx.measureText(label).width + 12;
+      ctx.fillStyle = 'rgba(13,28,38,.95)';
+      ctx.fillRect(width - padR - w - 6, y - 8, w, 15);
+      ctx.strokeStyle = COL.alert;
+      ctx.strokeRect(width - padR - w - 6, y - 8, w, 15);
+      ctx.fillStyle = COL.alert;
+      ctx.textAlign = 'left';
+      ctx.fillText(label, width - padR - w, y + 3);
+    }
+  }
+
+  drawMarkers(ctx, geo, bars, yOf, xOf) {
+    if (!bars.length) return;
+    const first = bars[0].t;
+    const last = bars[bars.length - 1].t;
+    const span = bars.length > 1 ? bars[1].t - bars[0].t : 1;
+    for (const m of this.markers) {
+      if (m.t < first || m.t > last + span) continue;
+      const i = Math.min(bars.length - 1, Math.max(0, Math.round((m.t - first) / span)));
+      const c = bars[i];
+      const buy = m.side === 'BUY';
+      const y = buy ? yOf(c.l) + 8 : yOf(c.h) - 8;
+      ctx.fillStyle = buy ? palette().up : palette().down;
+      ctx.beginPath();
+      const x = xOf(i);
+      if (buy) { ctx.moveTo(x, y - 5); ctx.lineTo(x - 4, y + 2); ctx.lineTo(x + 4, y + 2); }
+      else { ctx.moveTo(x, y + 5); ctx.lineTo(x - 4, y - 2); ctx.lineTo(x + 4, y - 2); }
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  drawSubPane(ctx, geo, closes) {
+    const { width, padL, padR, padT, mainH, volH, subH } = geo;
+    const top = padT + mainH + volH;
+    ctx.strokeStyle = COL.grid;
+    ctx.beginPath();
+    ctx.moveTo(padL, top + 0.5);
+    ctx.lineTo(width - padR, top + 0.5);
+    ctx.stroke();
+    const xOf = (i) => padL + i * geo.step + geo.step / 2;
+
+    if (this.active.has('rsi')) {
+      const vals = rsi(closes, 14);
+      const y = (v) => top + subH - (v / 100) * (subH - 8) - 4;
+      ctx.strokeStyle = 'rgba(244,114,182,.25)';
+      ctx.setLineDash([3, 3]);
+      for (const lvl of [30, 70]) {
+        ctx.beginPath(); ctx.moveTo(padL, y(lvl)); ctx.lineTo(width - padR, y(lvl)); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.strokeStyle = '#f472b6';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      let started = false;
+      vals.forEach((v, i) => {
+        if (v === null) { started = false; return; }
+        if (!started) { ctx.moveTo(xOf(i), y(v)); started = true; } else ctx.lineTo(xOf(i), y(v));
+      });
+      ctx.stroke();
+      ctx.fillStyle = '#f472b6';
+      ctx.font = '8px ui-monospace, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`RSI ${vals.at(-1)?.toFixed(1) ?? '--'}`, padL + 2, top + 10);
+    } else if (this.active.has('macd')) {
+      const m = macd(closes);
+      const all = m.hist.filter((v) => v !== null);
+      const max = Math.max(...all.map(Math.abs), 1e-9);
+      const mid = top + subH / 2;
+      const y = (v) => mid - (v / max) * (subH / 2 - 6);
+      m.hist.forEach((v, i) => {
+        if (v === null) return;
+        ctx.fillStyle = withAlpha(v >= 0 ? palette().up : palette().down, 0.55);
+        ctx.fillRect(xOf(i) - geo.bw / 2, Math.min(mid, y(v)), geo.bw, Math.abs(y(v) - mid));
+      });
+      const drawLine = (vals, color) => {
+        ctx.strokeStyle = color; ctx.lineWidth = 1.2; ctx.beginPath();
+        let started = false;
+        vals.forEach((v, i) => {
+          if (v === null) { started = false; return; }
+          if (!started) { ctx.moveTo(xOf(i), y(v)); started = true; } else ctx.lineTo(xOf(i), y(v));
+        });
+        ctx.stroke();
+      };
+      drawLine(m.line, '#22d3ee');
+      drawLine(m.signal, '#f5c451');
+      ctx.fillStyle = '#22d3ee';
+      ctx.font = '8px ui-monospace, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText('MACD 12 26 9', padL + 2, top + 10);
+    }
+  }
+
+  drawAxes(ctx, geo, hi, lo, yOf, xOf, bars) {
+    const { width, height, padR, padB } = geo;
+    ctx.font = '9px ui-monospace, monospace';
+    ctx.fillStyle = COL.axis;
+    ctx.textAlign = 'left';
+    for (let i = 0; i <= 5; i++) {
+      const p = lo + ((hi - lo) * i) / 5;
+      ctx.fillText(fmtPrice(p), width - padR + 6, yOf(p) + 3);
+    }
+    ctx.textAlign = 'center';
+    const labelEvery = Math.max(1, Math.floor(bars.length / 7));
+    for (let i = 0; i < bars.length; i += labelEvery) {
+      ctx.fillText(clockTime(this.minuteOf(bars[i].t)), xOf(i), height - padB + 12);
+    }
+  }
+
+  drawLast(ctx, geo, bars, yOf) {
+    const { width, padR } = geo;
+    const last = bars[bars.length - 1];
+    if (!last) return;
+    const pal = palette();
+    const up = last.c >= last.o;
+    const y = yOf(last.c);
+    ctx.save();
+    ctx.strokeStyle = withAlpha(up ? pal.up : pal.down, 0.35);
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath();
+    ctx.moveTo(geo.padL, Math.round(y) + 0.5);
+    ctx.lineTo(width - padR, Math.round(y) + 0.5);
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = up ? pal.up : pal.down;
+    ctx.fillRect(width - padR + 2, y - 8, padR - 4, 16);
+    ctx.fillStyle = '#040a12';
+    ctx.font = 'bold 9.5px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(fmtPrice(last.c), width - padR + (padR - 2) / 2, y + 3.5);
+  }
+
+  drawCrosshair(ctx, geo, bars, yOf, xOf) {
+    const { width, height, padL, padR, padT, padB } = geo;
+    const c = bars[this.hover];
+    if (!c) return;
+    const x = xOf(this.hover);
+    ctx.save();
+    ctx.strokeStyle = COL.cross;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(Math.round(x) + 0.5, padT - 8);
+    ctx.lineTo(Math.round(x) + 0.5, height - padB);
+    ctx.stroke();
+    const y = yOf(c.c);
+    ctx.beginPath();
+    ctx.moveTo(padL, Math.round(y) + 0.5);
+    ctx.lineTo(width - padR, Math.round(y) + 0.5);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Text for the legend row above the chart. */
+  readout() {
+    const bars = this.visible();
+    const c = this.hover !== null ? bars[this.hover] : bars[bars.length - 1];
+    if (!c) return null;
+    const chg = c.c - c.o;
+    return {
+      o: c.o, h: c.h, l: c.l, c: c.c, v: c.v,
+      chg, chgPct: (chg / c.o) * 100,
+      time: clockTime(this.minuteOf(c.t)),
+    };
+  }
+
+  signal() {
+    return crossSignal(this.candles, 20);
+  }
+}
