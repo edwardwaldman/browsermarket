@@ -18,7 +18,7 @@ const launch = process.env.CHROMIUM_PATH
 const checks = [];
 const check = (name, ok, detail = '') => {
   checks.push({ name, ok, detail });
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`);
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ` · ${detail}` : ''}`);
 };
 
 const browser = await chromium.launch(launch);
