@@ -35,6 +35,10 @@ export const DEFAULTS = {
   buyNearTop: false,
   fullNumbers: false,
   uiScale: 100,
+  /* What the size buttons on the phone order form mean. Editable, because a
+     player who always risks 5% should not have to type it every time. 100 is
+     kept as the last one and reads as MAX. */
+  sizePresets: [10, 25, 50, 100],
   dockHeight: 240,
   autoTakeProfit: false,
   takeProfitPct: 10,
@@ -164,7 +168,23 @@ function migrate(values) {
   if (!CANDLE_PALETTES[values.candlePalette]) values.candlePalette = 'classic';
   if (!ACCENTS[values.accent]) values.accent = 'blue';
   if (!(values.chartGrid in GRID_DENSITY)) values.chartGrid = 'normal';
+  values.sizePresets = cleanPresets(values.sizePresets);
   return values;
+}
+
+/**
+ * Four percentages, each between 1 and 100, ascending. A stored value that is
+ * junk, the wrong length, or from a future version falls back rather than
+ * reaching the order form, where a NaN would size a trade.
+ */
+export function cleanPresets(raw) {
+  const fallback = [10, 25, 50, 100];
+  if (!Array.isArray(raw)) return fallback;
+  const out = raw
+    .map((n) => Math.round(Number(n)))
+    .filter((n) => Number.isFinite(n) && n >= 1 && n <= 100);
+  if (out.length !== 4) return fallback;
+  return out;
 }
 
 function load() {

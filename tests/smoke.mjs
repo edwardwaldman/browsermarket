@@ -496,20 +496,28 @@ check('pressing buy expands the trade sheet', await page.evaluate(() => {
 
 check('the sheet has the market order form', await page.evaluate(() => {
   const t = document.querySelector('.msheet').textContent;
-  return ['MARKET', 'LIMIT', 'Buy', 'Short', 'Balance', '25%', '100%'].every((x) => t.includes(x))
-    && Boolean(document.querySelector('.mamount-input') && document.querySelector('.mslider'));
+  return ['MARKET', 'LIMIT', 'Buy', 'Short', 'Balance', '25%', 'MAX'].every((x) => t.includes(x))
+    && Boolean(document.querySelector('.mamount-input') && document.querySelector('.msizes'));
+}));
+
+check('size is four tappable buttons, not a slider', await page.evaluate(() => {
+  if (document.querySelector('.mslider')) return false;
+  const sizes = [...document.querySelectorAll('.msize')];
+  // 44 is Apple's touch floor; these are rendered pixels, after the 80% zoom.
+  return sizes.length === 4 && sizes.every((b) => b.getBoundingClientRect().height >= 34);
 }));
 
 const sized = await page.evaluate(async () => {
   game.limiter.hits.clear();
   game.account.cash = 20000;
-  const tick = [...document.querySelectorAll('.mtick')].find((t) => t.textContent === '50%');
+  const tick = [...document.querySelectorAll('.msize')].find((t) => t.textContent === '50%');
   tick.click();
   await new Promise((r) => setTimeout(r, 200));
-  return { amount: document.querySelector('.mamount-input').value, slider: document.querySelector('.mslider').value };
+  const on = document.querySelector('.msize.is-active');
+  return { amount: document.querySelector('.mamount-input').value, on: on ? on.textContent : '' };
 });
-check('a percentage tick sizes the order', Number(sized.amount) > 0 && sized.slider === '50',
-  `${sized.amount} at ${sized.slider}%`);
+check('a percentage button sizes the order', Number(sized.amount) > 0 && sized.on === '50%',
+  `${sized.amount} at ${sized.on}`);
 
 check('the sheet fills an order', await page.evaluate(async () => {
   // An order in a name already held adds to that position rather than making
@@ -525,6 +533,44 @@ check('a percentage keeps meaning that share of the cash left', await page.evalu
   const shown = Number(document.querySelector('.mamount-input').value);
   const want = game.account.maxMargin(1, 0.5);
   return Math.abs(shown - want) < 1;
+}));
+
+check('the size buttons can be edited and the edit sticks', await page.evaluate(async () => {
+  const edit = document.querySelector('.msizes-edit');
+  edit.click();
+  await new Promise((r) => setTimeout(r, 150));
+  const fields = [...document.querySelectorAll('.msize-input')];
+  if (fields.length !== 4) return false;
+  fields[0].value = '5';
+  fields[0].dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 150));
+  document.querySelector('.msizes-edit').click();
+  await new Promise((r) => setTimeout(r, 150));
+  const labels = [...document.querySelectorAll('.msize')].map((b) => b.textContent);
+  const saved = JSON.parse(localStorage.getItem('browsermarket.settings.v1') || '{}');
+  return labels[0] === '5%' && saved.sizePresets?.[0] === 5;
+}));
+
+check('a nonsense percentage is refused rather than stored', await page.evaluate(async () => {
+  document.querySelector('.msizes-edit').click();
+  await new Promise((r) => setTimeout(r, 150));
+  const field = document.querySelector('.msize-input');
+  field.value = '900';
+  field.dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 150));
+  const kept = JSON.parse(localStorage.getItem('browsermarket.settings.v1') || '{}').sizePresets?.[0];
+  document.querySelector('.msizes-edit').click();
+  await new Promise((r) => setTimeout(r, 150));
+  return kept === 5;
+}));
+
+check('an edited button still sizes the order', await page.evaluate(async () => {
+  game.limiter.hits.clear();
+  const five = [...document.querySelectorAll('.msize')].find((b) => b.textContent === '5%');
+  five.click();
+  await new Promise((r) => setTimeout(r, 200));
+  const shown = Number(document.querySelector('.mamount-input').value);
+  return Math.abs(shown - game.account.maxMargin(1, 0.05)) < 1;
 }));
 
 check('the sell side locks until shorts unlock', await page.evaluate(() => {
@@ -556,7 +602,7 @@ check('take profit and stop loss are in the phone order form', await page.evalua
 check('a bracket preset states what it is worth in money', await page.evaluate(async () => {
   game.limiter.hits.clear();
   game.account.cash = Math.max(game.account.cash, 20000);
-  [...document.querySelectorAll('.mtick')].find((t) => t.textContent === '50%').click();
+  [...document.querySelectorAll('.msize')].find((t) => t.textContent === '50%').click();
   await new Promise((r) => setTimeout(r, 200));
   const [tpRow, slRow] = document.querySelectorAll('.mbracket .mpresets');
   [...tpRow.children].find((b) => b.textContent === '10%').click();
@@ -675,8 +721,9 @@ check('the drawer lists the tools as text, not emoji', await page.evaluate(() =>
 check('the drawer names the account state at its foot', await page.evaluate(() => {
   const section = document.querySelector('.mmenu-section');
   const rows = [...document.querySelectorAll('.mmenu-row')].map((b) => b.textContent.trim());
+  const cta = document.querySelector('.mmenu-cta');
   return Boolean(section) && /not signed in|@/i.test(section.textContent)
-    && rows.some((t) => /sign in|manage account/i.test(t));
+    && (rows.some((t) => /manage account/i.test(t)) || Boolean(cta));
 }));
 
 check('the owner row is hidden from a non-owner', await page.evaluate(
@@ -769,6 +816,28 @@ check('the age and terms box links both documents', await page.evaluate(() => {
   return hrefs.some((h) => h.includes('terms')) && hrefs.some((h) => h.includes('privacy'));
 }));
 
+check('the drawer offers a coloured sign-up button, not another grey row', await page.evaluate(async () => {
+  // The gate is up, so the menu button is clicked directly rather than tapped.
+  document.querySelector('#btn-mobile-menu').click();
+  await new Promise((r) => setTimeout(r, 350));
+  const cta = document.querySelector('.mmenu-signup');
+  const alt = document.querySelector('.mmenu-signin');
+  if (!cta || !alt) return false;
+  const fill = getComputedStyle(cta).backgroundColor;
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  const flat = /rgba\(0,\s*0,\s*0,\s*0\)|transparent/.test(fill);
+  return !flat && Boolean(accent) && /log in/i.test(alt.textContent)
+    && cta.getBoundingClientRect().height >= 40;
+}));
+
+await page.evaluate(async () => {
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await new Promise((r) => setTimeout(r, 350));
+});
+check('closing the drawer leaves the gate standing', await page.evaluate(
+  () => document.querySelector('#modal-root').hidden === true
+    && document.querySelector('#auth-root').hidden === false));
+
 const fill = async (email, pw, confirm) => page.evaluate(([e, p1, p2]) => {
   const [emailInput] = document.querySelectorAll('.auth-field input.auth-input');
   const passes = document.querySelectorAll('.auth-pass input');
@@ -798,6 +867,20 @@ check('mismatched passwords are caught before the network', await page.evaluate(
   await new Promise((r) => setTimeout(r, 250));
   return window.__authCalls.length === before
     && /do not match/i.test(document.querySelector('.auth-note').textContent);
+}));
+
+check('a rejected form shakes the fields that are wrong', await page.evaluate(
+  () => [...document.querySelectorAll('.auth-pass')].every((w) => w.classList.contains('shake'))));
+
+check('the shake is dropped for anyone who asked not to be moved', await page.evaluate(async () => {
+  document.documentElement.setAttribute('data-motion', 'reduced');
+  await new Promise((r) => setTimeout(r, 60));
+  const wrap = document.querySelector('.auth-pass.shake');
+  const s = getComputedStyle(wrap);
+  const still = s.animationName === 'none' || s.animationDuration === '0s';
+  const marked = s.outlineStyle === 'solid' && s.outlineWidth !== '0px';
+  document.documentElement.removeAttribute('data-motion');
+  return Boolean(wrap) && still && marked;
 }));
 
 await fill('player@example.com', 'correcthorse1', 'correcthorse1');

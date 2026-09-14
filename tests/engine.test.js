@@ -1946,3 +1946,30 @@ test('the age on the consent line matches what the terms require', () => {
   assert.ok(Number.isInteger(LEGAL.minAge));
   assert.ok(LEGAL.minAge >= 13, 'never below the floor the terms set');
 });
+
+// ── size presets ─────────────────────────────────────────────────────────
+import { cleanPresets } from '../src/engine/settings.js';
+
+test('the size presets start at four sensible percentages', () => {
+  assert.deepEqual(SETTING_DEFAULTS.sizePresets, [10, 25, 50, 100]);
+});
+
+test('an edited set of size presets is kept as given', () => {
+  assert.deepEqual(cleanPresets([5, 10, 20, 75]), [5, 10, 20, 75]);
+  // Order is the player's business, not ours.
+  assert.deepEqual(cleanPresets([100, 1, 50, 2]), [100, 1, 50, 2]);
+  assert.deepEqual(cleanPresets(['25', '50.4', 75, 100]), [25, 50, 75, 100]);
+});
+
+test('a junk set of size presets never reaches the order form', () => {
+  const fallback = [10, 25, 50, 100];
+  // A NaN here would size a trade, so anything unusable falls all the way back
+  // rather than being patched hole by hole.
+  assert.deepEqual(cleanPresets(undefined), fallback);
+  assert.deepEqual(cleanPresets('10,25'), fallback);
+  assert.deepEqual(cleanPresets([5, 'x', 200]), fallback);
+  assert.deepEqual(cleanPresets([0, 25, 50, 100]), fallback, 'zero percent is not an order');
+  assert.deepEqual(cleanPresets([10, 25, 50, 101]), fallback, 'over the balance is not an order');
+  assert.deepEqual(cleanPresets([10, 25, 50]), fallback, 'the row holds four');
+  assert.deepEqual(cleanPresets([10, 25, 50, 75, 100]), fallback);
+});

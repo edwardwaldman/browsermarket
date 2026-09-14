@@ -1150,9 +1150,18 @@ function openMobileMenu() {
   }));
 
   if (auth?.configured && !auth.signedIn) {
-    list.append(row('Sign in or create an account', {
-      onclick: () => go(() => ui.authBox.show({ blocking: false })),
-    }));
+    // The one entry here that is an action rather than a destination, so it is
+    // the one that looks like a button instead of another row of the list.
+    list.append(el('div', { class: 'mmenu-cta' }, [
+      el('button', {
+        class: 'mmenu-signup', text: 'Sign up',
+        onclick: () => go(() => ui.authBox.show({ blocking: false, step: 'signup' })),
+      }),
+      el('button', {
+        class: 'mmenu-signin', text: 'Already have an account? Log in',
+        onclick: () => go(() => ui.authBox.show({ blocking: false, step: 'login' })),
+      }),
+    ]));
   } else {
     list.append(row('Manage account', { onclick: () => go(() => ui.modals.open('account')) }));
   }

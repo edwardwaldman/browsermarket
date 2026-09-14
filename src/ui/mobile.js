@@ -9,8 +9,7 @@
 import { el, clear, cls } from '../util/dom.js';
 import { money, price as fmtPrice, qty as fmtQty, pct, signed } from '../util/format.js';
 import { LEVERAGE_TIERS } from '../engine/progression.js';
-
-const STEPS = [0, 25, 50, 75, 100];
+import { settings } from '../engine/settings.js';
 
 export class MobileTrade {
   constructor({ bar, sheet, game, getSymbol, onTrade, onSymbolPick, toast, openModal, onLayoutChange }) {
@@ -33,6 +32,7 @@ export class MobileTrade {
     this.fraction = null;     // set by the slider, cleared by typing
     this.showLeverage = false;
     this.showBrackets = false;
+    this.editingSizes = false;
     this.refs = {};
     this.mountBar();
     this.mountSheet();
@@ -106,13 +106,22 @@ export class MobileTrade {
       r.symChip,
     ]);
 
-    r.slider = el('input', {
-      type: 'range', class: 'mslider', min: '0', max: '100', step: '1', value: '0',
-      oninput: () => this.setFraction(Number(r.slider.value) / 100),
+    /**
+     * SIZE IS BUTTONS, NOT A SLIDER.
+     *
+     * A range input on a phone is a thing you drag with the same thumb that is
+     * covering it, and it lands on 47% when you wanted 50. Four taps replace
+     * it, and the four are editable, because a player who always risks 5%
+     * should not have to type it on every order. EDIT swaps them for number
+     * fields; the values are saved with the rest of the settings.
+     */
+    r.presetRow = el('div', { class: 'msizes' });
+    r.presetEdit = el('button', {
+      class: 'msizes-edit',
+      onclick: () => { this.editingSizes = !this.editingSizes; this.buildPresets(); },
     });
-    const ticks = el('div', { class: 'mticks' }, STEPS.map((s) => el('button', {
-      class: 'mtick', text: `${s}%`, onclick: () => this.setFraction(s / 100),
-    })));
+    const sizeRow = el('div', { class: 'msize-row' }, [r.presetRow, r.presetEdit]);
+    this.buildPresets();
 
     r.levRow = el('div', { class: 'mlev', hidden: true });
     for (const tier of LEVERAGE_TIERS) {
@@ -189,7 +198,7 @@ export class MobileTrade {
     r.panel = el('div', { class: 'msheet' }, [
       head,
       el('div', { class: 'msheet-body' }, [
-        seg, amountRow, r.slider, ticks, r.levRow,
+        seg, amountRow, sizeRow, r.levRow,
         balanceRow, metaRow, r.limitField, r.brackets,
         r.submit, r.note, r.preview,
         el('div', { class: 'mpositions-head', text: 'YOUR POSITIONS' }),
@@ -199,6 +208,45 @@ export class MobileTrade {
 
     this.sheet.append(r.scrim, r.panel);
     this.sheet.hidden = true;
+  }
+
+  /**
+   * Rebuilt rather than patched, because the row is four buttons in one mode
+   * and four number fields in the other, and a swap is clearer than a set of
+   * toggles over shared nodes.
+   */
+  buildPresets() {
+    const r = this.refs;
+    if (!r.presetRow) return;
+    clear(r.presetRow);
+    const presets = settings.get('sizePresets');
+    r.presetEdit.textContent = this.editingSizes ? 'DONE' : 'EDIT';
+    r.presetEdit.classList.toggle('is-on', Boolean(this.editingSizes));
+
+    presets.forEach((value, i) => {
+      if (this.editingSizes) {
+        const input = el('input', {
+          class: 'msize-input', type: 'text', inputmode: 'numeric', value: String(value),
+        });
+        input.addEventListener('change', () => {
+          const next = presets.slice();
+          const n = Math.round(Number(String(input.value).replace(/[^0-9]/g, '')));
+          next[i] = Number.isFinite(n) && n >= 1 && n <= 100 ? n : value;
+          input.value = String(next[i]);
+          settings.set('sizePresets', next);
+          this.buildPresets();
+        });
+        r.presetRow.append(input);
+        return;
+      }
+      const active = this.fraction !== null && Math.abs(this.fraction * 100 - value) < 0.01;
+      r.presetRow.append(el('button', {
+        class: cls('msize', active && 'is-active'),
+        // 100% is the whole balance, which every trading screen calls MAX.
+        text: value >= 100 ? 'MAX' : `${value}%`,
+        onclick: () => this.setFraction(value / 100),
+      }));
+    });
   }
 
   // --- state --------------------------------------------------------------
@@ -348,14 +396,8 @@ export class MobileTrade {
       r.amount.value = this.margin > 0 ? String(round2(this.margin)) : '';
     }
 
-    // The slider tracks the amount whichever way it was set.
-    const ceiling = this.account.maxMargin(this.leverage, 1);
-    const shown = this.fraction !== null
-      ? this.fraction * 100
-      : (ceiling > 0 ? Math.min(100, (this.margin / ceiling) * 100) : 0);
-    if (document.activeElement !== r.slider) r.slider.value = String(Math.round(shown));
-
     r.balance.textContent = money(this.account.cash, 0);
+    if (!this.editingSizes) this.buildPresets();
 
     const notional = this.margin * this.leverage;
     const mult = ins.kind === 'FUTURE' ? (ins.def.mult || 1) : 1;

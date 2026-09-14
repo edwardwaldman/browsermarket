@@ -103,6 +103,7 @@ export class AuthBox {
           e.preventDefault();
           if (isSignup && !terms.input.checked) {
             note.textContent = 'Confirm your age and accept the terms first.';
+            shake(terms.input.parentElement);
             return;
           }
           globalThis.location.href = this.auth.googleUrl({
@@ -162,15 +163,28 @@ export class AuthBox {
       note.textContent = '';
       this.email = email.value.trim();
 
-      if (!looksLikeEmail(this.email)) { note.textContent = 'That does not look like an email address.'; return; }
+      if (!looksLikeEmail(this.email)) {
+        note.textContent = 'That does not look like an email address.';
+        shake(email);
+        return;
+      }
 
       if (isSignup) {
         const bad = passwordProblem(pass.input.value);
-        if (bad) { note.textContent = `${bad}.`; return; }
-        if (pass.input.value !== confirm.input.value) { note.textContent = 'The two passwords do not match.'; return; }
-        if (!terms.input.checked) { note.textContent = 'Confirm your age and accept the terms to continue.'; return; }
+        if (bad) { note.textContent = `${bad}.`; shake(pass.wrap); return; }
+        if (pass.input.value !== confirm.input.value) {
+          note.textContent = 'The two passwords do not match.';
+          shake(pass.wrap, confirm.wrap);
+          return;
+        }
+        if (!terms.input.checked) {
+          note.textContent = 'Confirm your age and accept the terms to continue.';
+          shake(terms.input.parentElement);
+          return;
+        }
       } else if (!pass.input.value) {
         note.textContent = 'Enter your password.';
+        shake(pass.wrap);
         return;
       }
 
@@ -190,6 +204,7 @@ export class AuthBox {
 
       if (!res.ok) {
         note.textContent = res.reason;
+        shake(email, pass.wrap);
         // An address that already exists is a wrong turn, not a failure.
         if (res.existing) {
           this.step = 'login';
@@ -275,6 +290,7 @@ export class AuthBox {
     go.onclick = async () => {
       if (!terms.input.checked) {
         note.textContent = 'Confirm your age and accept the terms to continue.';
+        shake(terms.input.parentElement);
         return;
       }
       go.disabled = true;
@@ -317,6 +333,22 @@ export class AuthBox {
         onclick: async () => { await this.auth.signOut(); this.blocking = false; this.finish(); },
       }),
     ]));
+  }
+}
+
+/**
+ * A refusal you can feel. The message under the form says what is wrong, but
+ * on a phone the thumb is over the button and the eye is on it, so the field
+ * that needs fixing moves to say so. Cleared on the way in, or a second
+ * failure would not replay the animation.
+ */
+function shake(...nodes) {
+  for (const n of nodes) {
+    if (!n) continue;
+    n.classList.remove('shake');
+    // Reading offsetWidth forces the style to settle so the class re-applies.
+    void n.offsetWidth;
+    n.classList.add('shake');
   }
 }
 
