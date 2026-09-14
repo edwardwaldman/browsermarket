@@ -49,8 +49,13 @@ export class MobileTrade {
       el('span', { class: 'mbtn-label', text: 'BUY' }),
       el('span', { class: 'mbtn-sub' }),
     ]);
+    // SHORT, NOT SELL. Both buttons open a NEW position - this one borrows the
+    // stock and sells it, which is a short. "Sell" reads as closing something
+    // you already hold, and a player with nothing open who presses it expecting
+    // to sell out has instead opened a leveraged bet against the market. The
+    // desktop ticket has always said SHORT; the phone was the odd one out.
     r.barSell = el('button', { class: 'mbtn sell', onclick: () => this.expand('SHORT') }, [
-      el('span', { class: 'mbtn-label', text: 'SELL' }),
+      el('span', { class: 'mbtn-label', text: 'SHORT' }),
       el('span', { class: 'mbtn-sub' }),
     ]);
     r.barBuySub = r.barBuy.querySelector('.mbtn-sub');
@@ -87,7 +92,7 @@ export class MobileTrade {
     ]);
 
     r.segBuy = el('button', { class: 'mseg-btn buy', text: 'Buy', onclick: () => this.setSide('LONG') });
-    r.segSell = el('button', { class: 'mseg-btn sell', text: 'Sell', onclick: () => this.setSide('SHORT') });
+    r.segSell = el('button', { class: 'mseg-btn sell', text: 'Short', onclick: () => this.setSide('SHORT') });
     const seg = el('div', { class: 'mseg' }, [r.segBuy, r.segSell]);
 
     r.amount = el('input', {
@@ -418,7 +423,9 @@ export class MobileTrade {
     r.bracketToggle.classList.toggle('is-locked', !hasBrackets);
     r.brackets.hidden = !this.showBrackets || !hasBrackets;
 
-    const word = this.side === 'LONG' ? 'BUY' : 'SELL';
+    // The submit button agrees with the side that is selected: a segment reading
+    // SHORT over a button reading SELL is two names for one action.
+    const word = this.side === 'LONG' ? 'BUY' : 'SHORT';
     r.submit.className = cls('msubmit', this.side === 'LONG' ? 'buy' : 'sell');
     r.submit.textContent = gate.ok ? `${word} ${ins.sym}` : '🔒 LOCKED';
     r.submit.disabled = !gate.ok;
