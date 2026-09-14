@@ -12,6 +12,9 @@ import { MobileTrade } from './ui/mobile.js';
 import { ResearchPage } from './ui/pages.js';
 import { Toasts, Celebration, floatXp } from './ui/toast.js';
 import { settings } from './engine/settings.js';
+import { Auth } from './engine/auth.js';
+import { AuthBox } from './ui/authbox.js';
+import { SUPABASE, accountsConfigured, SIGNUP_AFTER_MS } from './config.js';
 import { IndicatorLibrary } from './engine/custom.js';
 import { AdOverlay } from './ui/adgate.js';
 import { $, el, clear, cls, esc, on } from './util/dom.js';
@@ -56,7 +59,8 @@ function boot() {
 
 function startGame(g, resumed = false) {
   game = g;
-  window.game = g; // handy in the console
+  window.game = g; // handy in the console, and in the browser smoke test
+  window.ui = ui;
   game.library = new IndicatorLibrary();
 
   const report = resumed ? game.catchUp() : null;
@@ -80,7 +84,9 @@ function startGame(g, resumed = false) {
   // pressing it, and it stood between somebody who came to trade and the trade.
   // The card is still reachable from Settings for anyone who wants the tour.
 
-  setInterval(() => game.save(), 10000);
+  setInterval(() => { game.save(); markCloudDirty(); pushCloudSave(); }, 10000);
+  startSignupGate();
+  if (ui.auth?.signedIn) afterSignIn();
   window.addEventListener('beforeunload', () => game.save());
   document.addEventListener('visibilitychange', () => {
     if (game.wiped) return;
@@ -173,6 +179,21 @@ function buildUi() {
 
   ui.modals.symbol = symbol;
   ui.modals.previewCandles = () => game.market.get(symbol)?.candles(timeframe) ?? [];
+
+  ui.auth = new Auth({ url: SUPABASE.url, anonKey: SUPABASE.anonKey });
+  ui.authBox = new AuthBox({
+    root: $('#auth-root'),
+    auth: ui.auth,
+    toast: (t) => ui.toasts.push(t),
+    onSignedIn: () => afterSignIn(),
+  });
+  ui.modals.auth = ui.auth;
+  ui.modals.onSignIn = () => ui.authBox.show({ blocking: false });
+  ui.modals.onSignOut = async () => {
+    await ui.auth.signOut();
+    ui.toasts.push({ tone: 'info', icon: '👋', text: 'Signed out. This desk stays on this device.' });
+    ui.modals.rerender();
+  };
 
   ui.ads = new AdOverlay($('#ad-root'), game.ads, game.store);
   ui.ads.onStore = (cat) => { ui.modals.storeCat = cat; ui.modals.open('store'); };
@@ -767,6 +788,139 @@ function hideUndoBar() {
   clearTimeout(node.__timer);
   node.hidden = true;
   clear(node);
+}
+
+
+// ── accounts and cloud saves ─────────────────────────────────────────────
+
+/**
+ * THE SIGN-UP GATE.
+ *
+ * Counted in time the tab was actually visible, so a page left open in a
+ * background tab overnight does not come back to a wall. With no project
+ * configured the gate never fires at all and the game stays exactly what it
+ * was: a local save in a browser.
+ */
+let playedMs = 0;
+let lastGateTick = Date.now();
+
+function startSignupGate() {
+  if (!accountsConfigured) return;
+  lastGateTick = Date.now();
+  setInterval(() => {
+    const now = Date.now();
+    if (!document.hidden) playedMs += now - lastGateTick;
+    lastGateTick = now;
+    if (ui.auth.signedIn || ui.authBox.open) return;
+    if (playedMs < SIGNUP_AFTER_MS) return;
+    ui.authBox.show({
+      blocking: true,
+      reason: 'Your desk is only on this device so far. Make a free account to keep it.',
+    });
+  }, 1000);
+}
+
+/**
+ * WHOSE SAVE WINS.
+ *
+ * Signing in on a device that has already been played on is the one case
+ * where progress can be lost, so neither side is thrown away without being
+ * asked. Only when one side is plainly empty does it resolve itself.
+ */
+async function afterSignIn() {
+  cloudDirty = true;
+  try { await ui.auth.fetchProfile(); } catch { /* shown on the next load */ }
+  const pulled = await ui.auth.pullSave();
+  if (!pulled.ok) {
+    ui.toasts.push({ tone: 'bad', icon: '⚠', text: `Cloud save unavailable: ${pulled.reason}` });
+    return;
+  }
+  const remote = pulled.save;
+  const localPlayed = game.account.stats.trades > 0 || game.market.day > 8;
+
+  if (!remote) { pushCloudSave(); return; }
+  if (!localPlayed) { adoptCloudSave(remote); return; }
+  showSaveChoice(remote);
+}
+
+/**
+ * Written to the local save and reloaded, rather than swapped in live.
+ * Re-running the boot path would leave the old game's listeners, intervals and
+ * DOM handlers behind it, and a save restore is exactly the moment not to be
+ * clever about state.
+ */
+function adoptCloudSave(remote) {
+  if (!remote?.payload || !Game.fromJSON(remote.payload)) {
+    ui.toasts.push({ tone: 'bad', icon: '⚠', text: 'That cloud save could not be read' });
+    return;
+  }
+  game.wiped = true;               // stop the autosave racing the reload
+  game.stop();
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(remote.payload));
+  } catch {
+    ui.toasts.push({ tone: 'bad', icon: '⚠', text: 'This browser will not let the game save' });
+    return;
+  }
+  location.reload();
+}
+
+function showSaveChoice(remote) {
+  const root = $('#auth-root');
+  const money0 = (n) => `$${Math.round(n || 0).toLocaleString()}`;
+  const localNw = game.account.netWorth(game.market);
+
+  const pick = (fn) => { root.hidden = true; clear(root); fn(); };
+
+  clear(root);
+  root.append(
+    el('div', { class: 'auth-scrim' }),
+    el('div', { class: 'auth-card' }, [
+      el('div', { class: 'auth-head' }, [el('div', { class: 'auth-title', text: 'TWO DESKS' })]),
+      el('p', { class: 'auth-copy', text: 'This device and your account both have progress. Keeping one replaces the other, so pick the one you want.' }),
+      el('button', {
+        class: 'auth-choice',
+        onclick: () => pick(() => { pushCloudSave(); ui.toasts.push({ tone: 'good', icon: '✓', text: 'This device now wins' }); }),
+      }, [
+        el('b', { text: 'KEEP THIS DEVICE' }),
+        el('small', { text: `Level ${game.prog.level} · ${money0(localNw)} · ${game.account.stats.trades} trades` }),
+      ]),
+      el('button', {
+        class: 'auth-choice',
+        onclick: () => pick(() => adoptCloudSave(remote)),
+      }, [
+        el('b', { text: 'KEEP THE CLOUD DESK' }),
+        el('small', {
+          text: `Level ${remote.level ?? '?'} · ${money0(remote.net_worth)} · saved ${
+            remote.client_saved_at ? new Date(remote.client_saved_at).toLocaleString() : 'at an unknown time'}`,
+        }),
+      ]),
+    ]),
+  );
+  root.hidden = false;
+}
+
+let cloudDirty = false;
+let cloudPushing = false;
+let lastCloudPush = 0;
+
+function markCloudDirty() { cloudDirty = true; }
+
+/** Throttled: a save every half minute is plenty for a game that autosaves. */
+async function pushCloudSave(force = false) {
+  if (!ui.auth?.signedIn || game.wiped) return;
+  if (cloudPushing) return;
+  if (!force && !cloudDirty) return;
+  if (!force && Date.now() - lastCloudPush < 30_000) return;
+  cloudPushing = true;
+  cloudDirty = false;
+  lastCloudPush = Date.now();
+  const res = await ui.auth.pushSave(game.toJSON(), {
+    netWorth: game.account.netWorth(game.market),
+    level: game.prog.level,
+  });
+  cloudPushing = false;
+  if (!res.ok) cloudDirty = true;   // try again on the next pass
 }
 
 function syncQuickTrade() {

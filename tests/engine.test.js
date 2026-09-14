@@ -17,6 +17,9 @@ import { BotDesk, BOT_TYPES, upgradeCost } from '../src/engine/bots.js';
 import { Leaderboard } from '../src/engine/leaderboard.js';
 import { Game, SHOP, REWIND_WINDOW } from '../src/engine/game.js';
 import {
+  Auth, LEGAL, CODE_LENGTH, looksLikeEmail, normaliseEmail,
+} from '../src/engine/auth.js';
+import {
   Store, PASSES, CAPITAL_PACKS, CONSUMABLES, VIP_TIERS,
   cashFor, vipPointsFor, vipLevelFor, vipProgress, findItem,
   unconfiguredProvider, devGrantProvider,
@@ -1549,4 +1552,231 @@ test('the store and the rewind quota ride along in the save', async () => {
   assert.equal(back.store.vipPoints, g.store.vipPoints);
   assert.equal(back.rewindsUsed, 1);
   assert.equal(back.account.vipDiscount, back.store.vipFeeDiscount());
+});
+
+// ── accounts ─────────────────────────────────────────────────────────────
+function fakeFetch(routes) {
+  const calls = [];
+  const fn = async (url, init = {}) => {
+    const path = url.replace(/^https?:\/\/[^/]+/, '');
+    calls.push({ path, method: init.method || 'POST', headers: init.headers, body: init.body ? JSON.parse(init.body) : null });
+    const key = Object.keys(routes).find((k) => path.startsWith(k));
+    const handler = routes[key];
+    if (!handler) return { ok: false, status: 404, text: async () => JSON.stringify({ msg: 'no route' }) };
+    const res = typeof handler === 'function' ? await handler(calls.at(-1)) : handler;
+    return {
+      ok: (res.status ?? 200) < 400,
+      status: res.status ?? 200,
+      text: async () => (res.body === undefined ? '' : JSON.stringify(res.body)),
+    };
+  };
+  fn.calls = calls;
+  return fn;
+}
+
+const SESSION = {
+  access_token: 'tok', refresh_token: 'ref',
+  expires_at: Math.floor(Date.now() / 1000) + 3600,
+  user: { id: 'u1', email: 'player@example.com' },
+};
+
+function newAuth(routes, storage = memoryStorage()) {
+  return new Auth({ url: 'https://x.supabase.co', anonKey: 'anon', storage, fetch: fakeFetch(routes) });
+}
+
+test('an unconfigured build has no accounts and never pretends otherwise', async () => {
+  const auth = new Auth({ url: '', anonKey: '', storage: memoryStorage() });
+  assert.equal(auth.configured, false);
+  assert.equal(auth.signedIn, false);
+  const res = await auth.sendCode('player@example.com');
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /not configured/i);
+});
+
+test('an obvious typo is caught before a round trip', async () => {
+  assert.equal(looksLikeEmail('player@example.com'), true);
+  for (const bad of ['', 'player', 'player@', '@example.com', 'a b@c.com', 'player@example']) {
+    assert.equal(looksLikeEmail(bad), false, `${bad} should not pass`);
+  }
+  assert.equal(normaliseEmail('  Player@Example.COM '), 'player@example.com');
+
+  const auth = newAuth({ '/auth/v1/otp': { body: {} } });
+  const res = await auth.sendCode('nope');
+  assert.equal(res.ok, false);
+  assert.equal(auth.fetch.calls.length, 0, 'a typo must not cost a request');
+});
+
+test('sending a code asks the server to create the user if needed', async () => {
+  const auth = newAuth({ '/auth/v1/otp': { body: {} } });
+  const res = await auth.sendCode('  Player@Example.com ');
+  assert.equal(res.ok, true);
+  assert.equal(res.email, 'player@example.com');
+  const call = auth.fetch.calls[0];
+  assert.equal(call.body.email, 'player@example.com', 'the address is normalised before it is sent');
+  assert.equal(call.body.create_user, true);
+  assert.equal(call.headers.apikey, 'anon');
+});
+
+test('a code cannot be verified without accepting the terms', async () => {
+  const auth = newAuth({ '/auth/v1/verify': { body: SESSION } });
+  const res = await auth.verifyCode('player@example.com', '123456', { acceptedTerms: false });
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /accept the terms/i);
+  assert.equal(auth.fetch.calls.length, 0, 'and no session is even requested');
+  assert.equal(auth.signedIn, false);
+});
+
+test('a code of the wrong length is rejected before it is sent', async () => {
+  const auth = newAuth({ '/auth/v1/verify': { body: SESSION } });
+  for (const bad of ['', '1', '12345', '1234567']) {
+    const res = await auth.verifyCode('player@example.com', bad, { acceptedTerms: true });
+    assert.equal(res.ok, false, `${bad} should not be sent`);
+  }
+  assert.equal(auth.fetch.calls.length, 0);
+  assert.equal(CODE_LENGTH, 6);
+});
+
+test('a good code signs in and records both consents', async () => {
+  const auth = newAuth({
+    '/auth/v1/verify': { body: SESSION },
+    '/rest/v1/profiles': { body: [{ id: 'u1' }] },
+    '/rest/v1/consent_events': { body: [] },
+  });
+  const res = await auth.verifyCode('player@example.com', '1 2 3 4 5 6', { acceptedTerms: true, marketing: true });
+  assert.equal(res.ok, true, 'spaces in a pasted code should not break it');
+  assert.equal(auth.signedIn, true);
+  assert.equal(auth.email, 'player@example.com');
+
+  const profile = auth.fetch.calls.find((c) => c.path.startsWith('/rest/v1/profiles'));
+  assert.equal(profile.body.marketing_opt_in, true);
+  assert.equal(profile.body.terms_version, LEGAL.termsVersion);
+  assert.equal(profile.body.privacy_version, LEGAL.privacyVersion);
+
+  const events = auth.fetch.calls.find((c) => c.path.startsWith('/rest/v1/consent_events'));
+  assert.deepEqual(events.body.map((e) => e.kind).sort(), ['marketing_opt_in', 'privacy', 'terms']);
+});
+
+test('marketing defaults to off and is logged as an opt out when it is', async () => {
+  const auth = newAuth({
+    '/auth/v1/verify': { body: SESSION },
+    '/rest/v1/profiles': { body: [{ id: 'u1' }] },
+    '/rest/v1/consent_events': { body: [] },
+  });
+  await auth.verifyCode('player@example.com', '123456', { acceptedTerms: true });
+  const profile = auth.fetch.calls.find((c) => c.path.startsWith('/rest/v1/profiles'));
+  assert.equal(profile.body.marketing_opt_in, false);
+  assert.equal(profile.body.marketing_opt_in_at, null);
+  const events = auth.fetch.calls.find((c) => c.path.startsWith('/rest/v1/consent_events'));
+  assert.ok(events.body.some((e) => e.kind === 'marketing_opt_out'));
+});
+
+test('a wrong code says so without stranding a session', async () => {
+  const auth = newAuth({ '/auth/v1/verify': { status: 403, body: { msg: 'Token has expired' } } });
+  const res = await auth.verifyCode('player@example.com', '000000', { acceptedTerms: true });
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /wrong or has expired/i);
+  assert.equal(auth.signedIn, false);
+  assert.equal(auth.session, null);
+});
+
+test('a consent write that fails does not strand a session that exists', async () => {
+  const auth = newAuth({
+    '/auth/v1/verify': { body: SESSION },
+    '/rest/v1/profiles': { status: 500, body: { msg: 'down' } },
+  });
+  const res = await auth.verifyCode('player@example.com', '123456', { acceptedTerms: true });
+  assert.equal(res.ok, true, 'the session is real even if the consent write failed');
+  assert.equal(auth.signedIn, true);
+});
+
+test('a session survives a reload, and signing out clears it', async () => {
+  const storage = memoryStorage();
+  const auth = newAuth({
+    '/auth/v1/verify': { body: SESSION },
+    '/rest/v1/profiles': { body: [] },
+    '/rest/v1/consent_events': { body: [] },
+    '/auth/v1/logout': { body: {} },
+  }, storage);
+  await auth.verifyCode('player@example.com', '123456', { acceptedTerms: true });
+
+  const reloaded = newAuth({}, storage);
+  assert.equal(reloaded.signedIn, true);
+  assert.equal(reloaded.email, 'player@example.com');
+
+  await auth.signOut();
+  assert.equal(auth.signedIn, false);
+  assert.equal(newAuth({}, storage).signedIn, false, 'and the stored session is gone');
+});
+
+test('an expiring token is refreshed before it is used', async () => {
+  const storage = memoryStorage();
+  storage.setItem('browsermarket.session.v1', JSON.stringify({
+    ...SESSION, expires_at: Math.floor(Date.now() / 1000) + 5,
+  }));
+  const auth = newAuth({
+    '/auth/v1/token': { body: { access_token: 'fresh', refresh_token: 'ref2', expires_in: 3600, user: SESSION.user } },
+    '/rest/v1/cloud_saves': { body: [] },
+  }, storage);
+  await auth.pullSave();
+  assert.ok(auth.fetch.calls.some((c) => c.path.startsWith('/auth/v1/token')), 'it has to refresh first');
+  assert.equal(auth.session.access_token, 'fresh');
+  const read = auth.fetch.calls.find((c) => c.path.startsWith('/rest/v1/cloud_saves'));
+  assert.equal(read.headers.authorization, 'Bearer fresh');
+});
+
+test('a refresh token the server rejects drops the session instead of looping', async () => {
+  const storage = memoryStorage();
+  storage.setItem('browsermarket.session.v1', JSON.stringify({
+    ...SESSION, expires_at: Math.floor(Date.now() / 1000) - 10,
+  }));
+  const auth = newAuth({ '/auth/v1/token': { status: 400, body: { msg: 'Invalid Refresh Token' } } }, storage);
+  let signedOut = false;
+  auth.on((e) => { if (e.type === 'signed-out') signedOut = true; });
+  const res = await auth.pullSave();
+  assert.equal(res.ok, false);
+  assert.equal(auth.signedIn, false);
+  assert.equal(signedOut, true);
+});
+
+test('a save is pushed with the meta the picker needs, scoped to the user', async () => {
+  const storage = memoryStorage();
+  storage.setItem('browsermarket.session.v1', JSON.stringify(SESSION));
+  const auth = newAuth({ '/rest/v1/cloud_saves': { body: [{ revision: 4 }] } }, storage);
+  const res = await auth.pushSave({ hello: 'world' }, { netWorth: 12345.67, level: 9 });
+  assert.equal(res.ok, true);
+  assert.equal(res.revision, 4);
+  const call = auth.fetch.calls[0];
+  assert.equal(call.body.user_id, 'u1');
+  assert.equal(call.body.net_worth, 12346, 'rounded, because it is a display figure');
+  assert.equal(call.body.level, 9);
+  assert.match(call.headers.prefer, /merge-duplicates/);
+  assert.equal(call.headers.authorization, 'Bearer tok');
+});
+
+test('a dead network reads as a connection problem, not a crash', async () => {
+  const storage = memoryStorage();
+  storage.setItem('browsermarket.session.v1', JSON.stringify(SESSION));
+  const auth = new Auth({
+    url: 'https://x.supabase.co', anonKey: 'anon', storage,
+    fetch: async () => { throw new TypeError('Failed to fetch'); },
+  });
+  const res = await auth.pullSave();
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /reach the server/i);
+  assert.equal(auth.signedIn, true, 'a flaky network must not sign you out');
+});
+
+test('cloud calls refuse when there is no session at all', async () => {
+  const auth = newAuth({});
+  for (const call of [auth.pullSave(), auth.pushSave({}), auth.deleteAccountData()]) {
+    assert.equal((await call).ok, false);
+  }
+  assert.equal((await auth.setMarketing(true)).ok, false);
+  assert.equal(auth.fetch.calls.length, 0);
+});
+
+test('the legal versions the client records are real and dated', () => {
+  assert.match(LEGAL.termsVersion, /^\d{4}-\d{2}-\d{2}$/);
+  assert.match(LEGAL.privacyVersion, /^\d{4}-\d{2}-\d{2}$/);
+  assert.ok(LEGAL.termsUrl.endsWith('.html') && LEGAL.privacyUrl.endsWith('.html'));
 });

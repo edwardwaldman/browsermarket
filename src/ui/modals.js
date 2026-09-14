@@ -8,6 +8,7 @@ import { LEVELS, RARITIES, COLLECTIBLES, BADGES, totalXpForLevel, xpForLevel } f
 import { BOT_TYPES, upgradeCost, OFFLINE_EFFICIENCY } from '../engine/bots.js';
 import { SHOP, CODES } from '../engine/game.js';
 import { PLACEMENTS } from '../engine/ads.js';
+import { LEGAL } from '../engine/auth.js';
 import {
   CATEGORIES, PASSES, CAPITAL_PACKS, CONSUMABLES, VIP_TIERS,
   cashFor, vipPointsFor, vipProgress,
@@ -351,6 +352,8 @@ export class Modals {
         return sw;
       })(),
     ]));
+    this.settingsAccount(body);
+
     body.append(el('button', {
       class: 'bigrow', style: { borderColor: 'rgba(255,77,106,.35)', color: 'var(--down)', background: 'rgba(255,77,106,.1)' },
       text: '▶ RESET ACCOUNT · WATCH A 2 MINUTE PLACEMENT',
@@ -850,6 +853,88 @@ export class Modals {
     }).join('')}</div>`));
   }
 
+
+
+  /**
+   * The account block in Settings. Signed out it is an invitation; signed in
+   * it is the place every promise made at sign-up can actually be kept:
+   * turning marketing email off, deleting the cloud copy, signing out.
+   */
+  settingsAccount(body) {
+    const auth = this.auth;
+    body.append(el('h4', { text: 'ACCOUNT' }));
+
+    if (!auth?.configured) {
+      body.append(html(`<div class="ccard-sub">Accounts are not configured on this build.
+        Your desk is saved in this browser only: clearing site data clears it, and
+        it does not follow you to another device.</div>`));
+      return;
+    }
+
+    if (!auth.signedIn) {
+      body.append(html(`<div class="ccard-sub">Your desk is saved in this browser only.
+        An account keeps it on every device you play on.</div>`));
+      body.append(el('button', {
+        class: 'bigrow', text: '✉ SIGN IN OR CREATE AN ACCOUNT',
+        onclick: () => { this.close(); this.onSignIn?.(); },
+      }));
+      return;
+    }
+
+    const marketingOn = Boolean(auth.profile?.marketing_opt_in);
+    body.append(html(`<div class="ccard-sub">Signed in as <b>${esc(auth.email || '')}</b>.
+      Your desk syncs to this account automatically.</div>`));
+
+    body.append(el('div', { class: 'setrow' }, [
+      el('div', { class: 'setrow-body' }, [
+        el('div', { class: 'setrow-title', text: 'PRODUCT EMAIL' }),
+        el('div', { class: 'setrow-desc', text: 'News, new features and offers. Off does not stop account email such as sign-in codes.' }),
+      ]),
+      (() => {
+        const sw = el('button', { class: cls('switch', marketingOn && 'on'), text: marketingOn ? 'ON' : 'OFF' });
+        sw.onclick = async () => {
+          const next = !sw.classList.contains('on');
+          sw.disabled = true;
+          const res = await auth.setMarketing(next);
+          sw.disabled = false;
+          if (!res.ok) { this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+          sw.className = cls('switch', next && 'on');
+          sw.textContent = next ? 'ON' : 'OFF';
+        };
+        return sw;
+      })(),
+    ]));
+
+    body.append(el('div', { class: 'legal-links' }, [
+      el('a', { class: 'auth-link', href: LEGAL.termsUrl, target: '_blank', rel: 'noopener', text: 'Terms of Service' }),
+      el('a', { class: 'auth-link', href: LEGAL.privacyUrl, target: '_blank', rel: 'noopener', text: 'Privacy Policy' }),
+    ]));
+
+    body.append(el('button', {
+      class: 'bigrow plain', text: '↪ SIGN OUT',
+      onclick: () => this.onSignOut?.(),
+    }));
+
+    const del = el('button', {
+      class: 'bigrow plain', text: '☁ DELETE MY CLOUD SAVE',
+      onclick: async () => {
+        if (!del.dataset.armed) {
+          del.dataset.armed = '1';
+          del.textContent = 'PRESS AGAIN TO DELETE THE CLOUD COPY';
+          return;
+        }
+        del.disabled = true;
+        const res = await auth.deleteAccountData();
+        del.disabled = false;
+        delete del.dataset.armed;
+        del.textContent = '☁ DELETE MY CLOUD SAVE';
+        this.toast?.(res.ok
+          ? { tone: 'good', icon: '✓', text: 'Cloud save deleted. This device keeps its own copy.' }
+          : { tone: 'bad', icon: '⚠', text: res.reason });
+      },
+    });
+    body.append(del);
+  }
 
   // --- the store ----------------------------------------------------------
 
