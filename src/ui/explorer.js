@@ -2,7 +2,8 @@
 
 import { el, clear, cls } from '../util/dom.js';
 import { price as fmtPrice, pct, compact } from '../util/format.js';
-import { ASSET_CLASSES } from '../data/instruments.js';
+import { ASSET_CLASSES, VOLATILE_MIN_VOL } from '../data/instruments.js';
+import { DEFAULT_SYMBOL } from '../config.js';
 import { settings } from '../engine/settings.js';
 
 const CLASS_FILTER = {
@@ -58,7 +59,7 @@ export class Explorer {
     this.assetClass = 'STOCKS';
     this.query = '';
     this.favourites = new Set(loadFavourites());
-    this.selected = 'OBBY';
+    this.selected = DEFAULT_SYMBOL;
     this.rows = new Map();
 
     searchNode.addEventListener('input', () => {
@@ -90,6 +91,14 @@ export class Explorer {
     } else if (this.assetClass === 'PLAYER') {
       const held = new Set(game.account.positions.map((p) => p.sym));
       list = market.list((i) => held.has(i.sym));
+    } else if (this.assetClass === 'VOLATILE') {
+      // The wildest first, since that is the whole reason for the tab.
+      list = market.list((i) => (i.def.vol ?? 0) >= VOLATILE_MIN_VOL)
+        .sort((a, b) => (b.def.vol ?? 0) - (a.def.vol ?? 0));
+      if (this.query) {
+        list = list.filter((i) => i.sym.includes(this.query) || i.name.toUpperCase().includes(this.query));
+      }
+      return list;
     } else if (this.assetClass === 'COLLECT') {
       list = [];
     } else {

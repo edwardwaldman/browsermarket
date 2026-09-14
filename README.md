@@ -172,7 +172,7 @@ The simulation is a factor model stepped once per game minute (500 ms at 1x,
 so a trading day is about 12 minutes):
 
 ```
-return = β·market + sector + trend + meanReversion + idiosyncratic + newsShock
+return = β|market + sector + trend + meanReversion + idiosyncratic + newsShock
 ```
 
 - **Market factor.** A persistent AR(1) process scaled by the current regime.
@@ -266,6 +266,31 @@ the page replays the time you were away: the market keeps moving, resting
 orders can fill, brackets can trigger and your algo desks keep earning. Export
 or wipe your save from Settings.
 
+
+## Owner panel
+
+`owner.html` is a separate page, deliberately. Account administration needs no
+game state, and a copy of it inside the terminal would drift from the one on
+its own URL.
+
+It hides itself from a non-owner as a courtesy, but that is not the gate. Every
+read and write it makes is checked again by a row level security policy against
+the account's own `is_admin` flag, so forcing the page open returns a refusal
+from the database rather than a payout.
+
+Owners are data, not code: `public.admin_emails` holds the list, the signup hook
+reads it, and adding a second owner is an insert. That table has RLS on and no
+policies at all, so the client cannot read who has power.
+
+**Grants are rows, never a write into somebody's save.** An owner inserts a
+grant; that player's client claims it on next load and the trigger stamps the
+claim while putting every other column back, so a claim cannot enlarge itself.
+A bad grant cannot corrupt a save, and every one is recorded against the owner
+who sent it.
+
+The desk tools that unlock features stay inside the game, because they act on a
+save the owner page does not have. They are a convenience rather than a
+privilege: this is a single player game and anybody could edit their own save.
 
 ## Accounts and cloud saves
 

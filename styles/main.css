@@ -95,11 +95,24 @@ input { background: none; border: none; outline: none; }
 .tabnum { font-variant-numeric: tabular-nums; }
 
 /* ── app frame ───────────────────────────────────────────────────────── */
+/*
+ * THE EFFECTIVE ZOOM, IN ONE PLACE.
+ *
+ * `--ui-scale` is the player's own setting, written inline on :root. This
+ * composes a device factor on top, so the phone default is 80% while the
+ * setting still means what it says: pick 120% there and you get 0.96.
+ *
+ * The height has to be divided back out. Inside `zoom: 0.8`, `height: 100dvh`
+ * computes the full screen and then renders at 80% of it, which left a fifth
+ * of the screen empty below the status bar at every scale under 100%.
+ */
+:root { --zoom: var(--ui-scale); }
+
 .app {
-  zoom: var(--ui-scale);
+  zoom: var(--zoom);
   display: grid;
   grid-template-rows: auto 1fr auto;
-  height: 100dvh;
+  height: calc(100dvh / var(--zoom));
   gap: var(--gut);
   padding: var(--gut);
 }
@@ -567,7 +580,15 @@ table.grid tr:hover td { background: var(--panel-2); }
 .celebration {
   position: fixed; inset: 0; display: grid; place-items: center; z-index: 70; pointer-events: none;
 }
-.celebration-inner { text-align: center; animation: pop 2.4s ease-out forwards; }
+.celebration-inner {
+  text-align: center; animation: pop 2.4s ease-out forwards;
+  /* IT HAS TO BE READABLE OVER CANDLES.
+     This was gradient text on nothing, so an offline bonus landed on top of a
+     red and green chart and could barely be made out. It gets a surface. */
+  padding: 20px 28px; max-width: min(520px, calc(100vw - 32px));
+  background: var(--panel); border: 1px solid var(--line-2);
+  box-shadow: 0 24px 70px var(--shadow);
+}
 .celebration-inner { text-shadow: 0 0 34px rgba(76, 155, 255, .4); }
 .celebration-inner.gold { text-shadow: 0 0 34px rgba(245, 196, 81, .35); }
 .celebration-title {
@@ -1065,27 +1086,43 @@ table.grid tr:hover td { background: var(--panel-2); }
   border: 1px solid var(--line-2); border-radius: 0; margin-left: auto;
 }
 
-/* The phone menu sheet. See openMobileMenu. */
-.mmenu-scrim { position: absolute; inset: 0; background: rgba(0,0,0,.6); }
+/*
+ * THE PHONE MENU DRAWER. See openMobileMenu.
+ *
+ * From the right, full height, text rows. A bottom sheet put the first item
+ * under the thumb and the last one off the top; a drawer reads top down like
+ * the list it is.
+ */
+.mmenu-scrim {
+  position: absolute; inset: 0; background: var(--scrim);
+  opacity: 0; transition: opacity .18s ease;
+}
+.modal-root.is-open .mmenu-scrim { opacity: 1; }
 .mmenu {
-  position: absolute; left: 0; right: 0; bottom: 0; max-height: 76dvh;
-  display: flex; flex-direction: column;
-  background: var(--panel); border-top: 1px solid var(--line-2);
+  position: absolute; top: 0; right: 0; bottom: 0;
+  width: min(300px, 82vw); display: flex; flex-direction: column;
+  background: var(--panel); border-left: 1px solid var(--line-2);
+  box-shadow: -18px 0 50px var(--shadow);
+  transform: translateX(100%); transition: transform .2s cubic-bezier(.2, .8, .3, 1);
+  padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
 }
-.mmenu-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 14px; border-bottom: 1px solid var(--line);
-  font-size: 12px; letter-spacing: 1.4px; color: var(--dim-2);
-}
-.mmenu-list { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.modal-root.is-open .mmenu { transform: translateX(0); }
+.mmenu-list { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 6px 0; flex: 1; }
 .mmenu-row {
-  display: flex; align-items: center; gap: 12px; width: 100%;
-  padding: 14px; border: 0; border-bottom: 1px solid var(--line);
-  background: transparent; color: var(--text);
-  font-size: 13.5px; letter-spacing: .8px; text-align: left;
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 15px 20px; border: 0; border-bottom: 1px solid var(--line);
+  background: transparent; border-radius: 0;
+  font-size: 15.5px; color: var(--text);
 }
-.mmenu-ico { width: 22px; font-size: 16px; text-align: center; flex: none; }
+.mmenu-row:last-child { border-bottom: 0; }
+.mmenu-row:active { background: var(--raise); }
+.mmenu-hint { flex: none; font-size: 13px; color: var(--dim-2); }
+.mmenu-section {
+  padding: 22px 20px 8px; font-size: 10.5px; letter-spacing: 1.4px;
+  color: var(--dim-2); text-transform: uppercase; word-break: break-all;
+  border-top: 1px solid var(--line-2); margin-top: 6px;
+}
 
 .mbar { display: none; }
 .msheet-root { display: none; }
@@ -1259,6 +1296,10 @@ table.grid tr:hover td { background: var(--panel-2); }
   }
   .mpos-actions button.red { color: var(--down); border-color: var(--down); }
 
+  /* Eighty per cent on a phone. The same layout, more of it on screen, which
+     is what zooming the browser out to 80% was doing by hand. */
+  :root { --zoom: calc(var(--ui-scale) * 0.8); }
+
   /* Strip the trade view back to a price and a chart. */
   body.sheet-open { overflow: hidden; }
 
@@ -1268,7 +1309,7 @@ table.grid tr:hover td { background: var(--panel-2); }
      scrim. Everything that is a label rather than the product gets out of the
      way while the form is open: the account cards, the status bar and the
      pinned buttons the sheet came from. */
-  body.sheet-open .app { height: calc(100dvh - var(--sheet-h, 50dvh)); }
+  body.sheet-open .app { height: calc((100dvh - var(--sheet-h, 50dvh)) / var(--zoom)); }
   body.sheet-open .statcards,
   body.sheet-open .statusbar,
   body.sheet-open .mbar { display: none; }
@@ -1301,10 +1342,26 @@ table.grid tr:hover td { background: var(--panel-2); }
   /* The chart's own buy and sell would duplicate the pinned bar. */
   .quickbtn { display: none; }
 
+  /* NOTHING SITS ON THE CANDLES UNLESS A FINGER IS ON THEM.
+     The header already carries the symbol, the price and the change, so a
+     standing OHLC line, an indicator chip and a signal chip were three labels
+     covering the thing they were labelling. */
+  .chart-legend { display: none; }
+  .chart-legend.is-live {
+    display: block; left: 8px; top: 6px;
+    background: var(--panel); border: 1px solid var(--line-2);
+    padding: 5px 8px; max-width: calc(100% - 16px);
+  }
+  .chart-legend.is-live .legend-chip,
+  .chart-legend.is-live .signal-chip { display: none; }
+  .chart-legend.is-live .legend-ohlc {
+    font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
   /* Keyboard hints mean nothing on a touch screen. */
   .status-tip, .status-regime { display: none; }
   .statusbar { flex-wrap: nowrap; overflow: hidden; }
-  .app { height: 100dvh; min-height: 0; padding-bottom: 0; }
+  .app { min-height: 0; padding-bottom: 0; }
   .workspace { min-height: 0; }
   .center { grid-template-rows: auto minmax(0, 1fr); gap: 6px; }
   .chartpanel { min-height: 0; }
@@ -1336,7 +1393,15 @@ table.grid tr:hover td { background: var(--panel-2); }
   .viewnav { display: none; }
   .mobile-menu { display: inline-flex; }
   .statusbar { padding-bottom: calc(78px + env(safe-area-inset-bottom)); }
-  .toasts { bottom: calc(86px + env(safe-area-inset-bottom)); }
+  /* TOASTS HAVE TO OUTRANK THE SHEET THEY REPORT ON.
+     These were z-index 60 against the trade sheet's 70, pinned to the bottom,
+     which is precisely where the sheet sits. Every fill confirmation rendered
+     behind the form that placed the order. */
+  .toasts {
+    z-index: 80; left: 8px; right: 8px; width: auto;
+    top: auto; bottom: calc(86px + env(safe-area-inset-bottom));
+  }
+  body.sheet-open .toasts { top: 8px; bottom: auto; }
   .promo { bottom: calc(84px + env(safe-area-inset-bottom)); }
   .explorer.mobile-open { inset: 56px 8px calc(80px + env(safe-area-inset-bottom)) 8px; width: auto; }
 }
@@ -1466,7 +1531,7 @@ table.grid tr:hover td { background: var(--panel-2); }
   .st-cat { flex: none; padding: 9px 12px; }
   .st-grid { grid-template-columns: minmax(0, 1fr); }
   .undobar { bottom: calc(84px + env(safe-area-inset-bottom)); left: 8px; right: 8px; transform: none; max-width: none; }
-  body.sheet-open .undobar { display: none; }
+  body.sheet-open .undobar { z-index: 79; top: 64px; bottom: auto; }
 }
 
 /* ── sign in ──────────────────────────────────────────────────────────── */
@@ -1496,7 +1561,6 @@ table.grid tr:hover td { background: var(--panel-2); }
   width: 100%;
 }
 .auth-input:focus { border-color: var(--accent); }
-.auth-code { letter-spacing: 9px; font-size: 22px; text-align: center; font-variant-numeric: tabular-nums; }
 .auth-go {
   width: 100%; height: 50px; border-radius: 0; border: 1px solid var(--accent);
   background: var(--accent); color: #fff; font-size: 15px; font-weight: 700; letter-spacing: 1px;
@@ -1553,3 +1617,91 @@ table.grid tr:hover td { background: var(--panel-2); }
   .mbracket-note[hidden] { display: none; }
   .mrow-note.down { color: var(--down); }
 }
+
+/* ── the sign-up form ─────────────────────────────────────────────────── */
+.auth-card h2.auth-title {
+  font-size: 26px; font-weight: 700; letter-spacing: -.2px; margin: 0;
+  text-align: center; width: 100%;
+}
+.auth-card .auth-head { position: relative; }
+.auth-card .auth-head .modal-close { position: absolute; right: 0; top: 0; }
+.auth-switch {
+  display: flex; gap: 6px; justify-content: center; align-items: baseline;
+  font-size: 14px; color: var(--dim); margin-bottom: 16px; flex-wrap: wrap;
+}
+.auth-swap { color: var(--accent-ink); font-size: 14px; border-radius: 0; }
+.auth-swap:hover { text-decoration: underline; }
+.auth-oauth {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  height: 52px; border: 1px solid var(--line-2); background: var(--panel-2);
+  color: var(--text); text-decoration: none; font-size: 16px; margin-bottom: 18px;
+}
+.auth-oauth:hover { background: var(--raise); }
+.auth-oauth b { font-weight: 600; }
+.auth-or {
+  display: flex; align-items: center; gap: 12px; margin: 18px 0;
+  color: var(--dim-2); font-size: 11px; letter-spacing: 1.4px;
+}
+.auth-or::before, .auth-or::after { content: ''; flex: 1; height: 1px; background: var(--line-2); }
+.auth-pass { position: relative; display: block; }
+.auth-pass .auth-input { padding-right: 46px; }
+.auth-eye {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 38px; height: 38px; border-radius: 0; font-size: 15px;
+  color: var(--dim-2); opacity: .7;
+}
+.auth-eye:hover, .auth-eye.is-on { opacity: 1; color: var(--text); }
+.auth-card .auth-go {
+  height: 54px; font-size: 16px; font-weight: 600; letter-spacing: 0; margin-top: 14px;
+}
+.auth-card .auth-check { font-size: 13.5px; }
+.auth-card .auth-checks { margin: 16px 0 4px; }
+
+/* ── the owner panel ──────────────────────────────────────────────────── */
+.own-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 7px; }
+.own-btn {
+  height: 42px; border: 1px solid var(--line-2); border-radius: 0;
+  background: var(--panel-2); color: var(--text); font-size: 12.5px; letter-spacing: .6px;
+}
+.own-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
+.own-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 9px; }
+.own-form .mfield { display: grid; gap: 4px; }
+.own-form .mfield[hidden] { display: none; }
+.own-form .mfield span { font-size: 11px; letter-spacing: 1.2px; color: var(--dim-2); }
+.own-form input, .own-select {
+  height: 42px; padding: 0 10px; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 0; color: var(--text); font-size: 14px; font-family: inherit; outline: none;
+}
+.own-form input:focus, .own-select:focus { border-color: var(--accent); }
+.own-select[hidden] { display: none; }
+.own-id {
+  font-size: 11.5px; color: var(--dim-2); font-family: ui-monospace, monospace;
+  overflow: hidden; text-overflow: ellipsis; max-width: 210px; white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .auth-card h2.auth-title { font-size: 22px; }
+  .auth-oauth { height: 48px; }
+  .own-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* ── the ticker is the way into the universe ──────────────────────────── */
+.ah-caret { margin-left: 6px; color: var(--dim-2); font-size: .72em; }
+.ah-sym { border-radius: 0; text-align: left; }
+
+@media (max-width: 760px) {
+  .ah-sym { padding: 2px 4px; margin-left: -4px; }
+  .ah-sym:active { background: var(--raise); }
+
+  /* Full screen, because picking from a list of everything on a phone is the
+     whole task for as long as it lasts, not a panel floating over another. */
+  .explorer.mobile-open.is-full {
+    inset: 0; width: auto; max-width: none; z-index: 75;
+    border: 0; box-shadow: none;
+  }
+  .explorer.mobile-open.is-full .panel-head { padding-top: env(safe-area-inset-top); }
+  .explorer.mobile-open.is-full .assetlist { padding-bottom: env(safe-area-inset-bottom); }
+  .explorer.mobile-open.is-full .explorer-close { display: inline-flex; }
+}
+.explorer-close { display: none; margin-left: auto; font-size: 18px; color: var(--dim); border-radius: 0; }
+.explorer-close:hover { color: var(--text); }

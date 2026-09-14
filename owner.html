@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Owner | Browser Stock Exchange</title>
+<link rel="stylesheet" href="styles/main.css" />
+<link rel="stylesheet" href="legal/legal.css" />
+<style>
+  /* Its own page, so it borrows the terminal's tokens and not its layout. */
+  body { background: var(--bg); color: var(--text); font-family: var(--mono); }
+  .own-wrap { max-width: 900px; margin: 0 auto; padding: 28px 16px 80px; }
+  .own-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  .own-head h1 { font-size: 22px; letter-spacing: 1.4px; margin: 0; }
+  .own-head a { color: var(--accent-ink); font-size: 13px; }
+  .own-who { font-size: 13px; color: var(--dim-2); margin-bottom: 22px; word-break: break-all; }
+  .own-card {
+    background: var(--panel); border: 1px solid var(--line); padding: 16px; margin-bottom: 14px;
+  }
+  .own-card h2 { font-size: 13px; letter-spacing: 1.4px; color: var(--dim-2); margin: 0 0 12px; font-weight: 400; }
+  .own-msg { font-size: 13px; margin-top: 10px; line-height: 1.6; }
+  .own-msg.bad { color: var(--down); }
+  .own-msg.good { color: var(--up); }
+  .own-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .own-table th, .own-table td {
+    border-bottom: 1px solid var(--line); padding: 9px 8px; text-align: left; vertical-align: middle;
+  }
+  .own-table th { color: var(--dim-2); font-weight: 400; letter-spacing: 1px; font-size: 11px; }
+  .own-gate { max-width: 420px; margin: 60px auto; }
+</style>
+</head>
+<body>
+<div class="own-wrap" id="root">
+  <div class="own-head">
+    <h1>OWNER PANEL</h1>
+    <a href="index.html">back to the terminal</a>
+  </div>
+  <div class="own-who" id="who">Checking your account…</div>
+  <div id="body"></div>
+</div>
+
+<script>
+  window.BROWSERMARKET_CONFIG = Object.assign({
+    supabaseUrl: 'https://eudbhuarqbjxmumtseay.supabase.co',
+    supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZGJodWFycWJqeG11bXRzZWF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzNDUwNzYsImV4cCI6MjEwNDkyMTA3Nn0.lr5x1x32EHvK2rQgdZYma-gxLCAKlVkiExYyHGVb9Tg',
+  }, window.BROWSERMARKET_CONFIG || {});
+</script>
+<script type="module" src="src/ui/ownerpage.js"></script>
+</body>
+</html>

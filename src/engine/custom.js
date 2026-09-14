@@ -177,7 +177,7 @@ export const FUNC_HELP = [
   ['vwap()', 'volume weighted average price'],
   ['shift(x, n)', 'move a series n bars forward'],
   ['abs(x)', 'absolute value'],
-  ['max(a, b) · min(a, b)', 'pick the larger or smaller'],
+  ['max(a, b) | min(a, b)', 'pick the larger or smaller'],
 ];
 
 class ParseError extends Error {}

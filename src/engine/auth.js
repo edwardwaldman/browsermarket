@@ -5,12 +5,19 @@
 // client would cost more than it saved. If you later want the SDK, everything
 // below is behind this one class and nothing else imports fetch.
 //
-// Sign-in is a six digit code sent to an email address. No passwords: there is
-// nothing to leak, nothing to reuse from another breach, and nothing for the
-// player to forget. The token pair lives in localStorage, which is the right
-// trade for a save-game service and the wrong one for a bank.
+// Sign-in is an email and a password, or Google. The token pair lives in
+// localStorage, which is the right trade for a save-game service and the wrong
+// one for a bank.
+//
+// The Google button is only offered when the project actually has the provider
+// switched on, which /auth/v1/settings reports. Showing a button that opens a
+// Supabase error page is worse than not showing it.
 
 export const LEGAL = {
+  /* The Terms set 13 as the floor and the local digital age of consent where
+     that is higher. 16 is the number that satisfies both without asking
+     somebody to work out which applies to them. */
+  minAge: 16,
   termsVersion: '2026-09-14',
   privacyVersion: '2026-09-14',
   termsUrl: 'legal/terms.html',
@@ -18,9 +25,25 @@ export const LEGAL = {
 };
 
 const KEY = 'browsermarket.session.v1';
+const PENDING_KEY = 'browsermarket.consent.pending.v1';
 
-/** Codes are six digits. Anything else is a typo, not a request worth making. */
+/** Codes are six digits. Kept for the link-and-code path Supabase still uses. */
 export const CODE_LENGTH = 6;
+
+/** Supabase's own floor is 6. Eight is the smallest number worth defending. */
+export const MIN_PASSWORD = 8;
+
+/**
+ * Deliberately not a maze of character classes. Length beats punctuation, and
+ * a rule nobody can satisfy sends people to "Password1!" every time.
+ */
+export function passwordProblem(value) {
+  const s = String(value ?? '');
+  if (s.length < MIN_PASSWORD) return `Use at least ${MIN_PASSWORD} characters`;
+  if (s.length > 72) return 'That is longer than 72 characters';
+  if (!/[^0-9]/.test(s)) return 'Use something other than only digits';
+  return null;
+}
 
 /**
  * Deliberately loose. The authority on whether an address exists is whether
@@ -242,6 +265,158 @@ export class Auth {
     return !this.profile?.terms_accepted_at;
   }
 
+
+  // --- password ----------------------------------------------------------
+
+  /**
+   * Which sign-in methods this project actually has switched on. Cached for
+   * the session: it does not change while somebody is looking at the form, and
+   * the form should not wait on a round trip to draw itself.
+   */
+  async providers() {
+    if (this._providers) return this._providers;
+    if (!this.configured) return { google: false };
+    try {
+      const s = await this.call('/auth/v1/settings', { method: 'GET' });
+      this._providers = { google: Boolean(s?.external?.google) };
+    } catch {
+      // Unreachable is not the same as disabled, but the button cannot work
+      // either way, so it stays hidden rather than guessing.
+      this._providers = { google: false };
+    }
+    return this._providers;
+  }
+
+  /**
+   * Where Supabase should send somebody back to after a round trip. Guarded,
+   * because this runs under the test runner too, where there is no location
+   * and an unguarded read takes the whole sign-up down with it.
+   */
+  redirectTo(loc = globalThis.location) {
+    if (!loc?.origin) return '';
+    return `${loc.origin}${loc.pathname || '/'}`;
+  }
+
+  /**
+   * Start the Google round trip. The consents are stashed first, because the
+   * browser is about to leave the page and whatever was ticked has to survive
+   * the trip and be recorded on the way back in.
+   */
+  googleUrl(consents = {}) {
+    this.stashConsents(consents);
+    const params = new URLSearchParams({ provider: 'google' });
+    const back = this.redirectTo();
+    if (back) params.set('redirect_to', back);
+    return `${this.url}/auth/v1/authorize?${params}`;
+  }
+
+  stashConsents(consents) {
+    try {
+      this.storage?.setItem(PENDING_KEY, JSON.stringify({
+        acceptedTerms: Boolean(consents.acceptedTerms),
+        marketing: Boolean(consents.marketing),
+        at: Date.now(),
+      }));
+    } catch { /* private mode */ }
+  }
+
+  takeStashedConsents() {
+    try {
+      const raw = JSON.parse(this.storage?.getItem(PENDING_KEY) || 'null');
+      this.storage?.removeItem(PENDING_KEY);
+      // An hour is longer than any round trip and short enough that a stale
+      // tick from last week never counts as this week's agreement.
+      if (!raw || Date.now() - raw.at > 3600_000) return null;
+      return raw;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Create an account. Whether a session comes back depends on whether the
+   * project asks for email confirmation, so both are handled: a session means
+   * straight in, no session means go and check your inbox.
+   */
+  async signUp(rawEmail, password, consents = {}) {
+    const email = normaliseEmail(rawEmail);
+    if (!looksLikeEmail(email)) return { ok: false, reason: 'That does not look like an email address' };
+    const bad = passwordProblem(password);
+    if (bad) return { ok: false, reason: bad };
+    if (!consents.acceptedTerms) {
+      return { ok: false, reason: 'You have to confirm your age and accept the terms' };
+    }
+
+    let data;
+    try {
+      data = await this.call('/auth/v1/signup', {
+        body: {
+          email,
+          password,
+          options: this.redirectTo() ? { email_redirect_to: this.redirectTo() } : undefined,
+        },
+      });
+    } catch (err) {
+      if (err.status === 422 || /already/i.test(err.message)) {
+        return { ok: false, reason: 'That address already has an account. Log in instead.', existing: true };
+      }
+      return { ok: false, reason: err.message };
+    }
+
+    if (!data?.access_token) {
+      // Confirmation is on. The consents ride along in storage until the
+      // confirmation link brings them back.
+      this.stashConsents(consents);
+      return { ok: true, confirm: true, email };
+    }
+
+    this.adoptTokens(data);
+    try { await this.recordConsents(consents); } catch { /* retried on next load */ }
+    return { ok: true, user: this.user };
+  }
+
+  /** Sign in to an account that already exists. */
+  async signIn(rawEmail, password) {
+    const email = normaliseEmail(rawEmail);
+    if (!looksLikeEmail(email)) return { ok: false, reason: 'That does not look like an email address' };
+    if (!password) return { ok: false, reason: 'Enter your password' };
+
+    let data;
+    try {
+      data = await this.call('/auth/v1/token?grant_type=password', { body: { email, password } });
+    } catch (err) {
+      if (err.status === 400) return { ok: false, reason: 'That email and password do not match' };
+      return { ok: false, reason: err.message };
+    }
+    if (!data?.access_token) return { ok: false, reason: 'The server did not return a session' };
+    this.adoptTokens(data);
+    return { ok: true, user: this.user };
+  }
+
+  /** Send a reset link, for the password everybody eventually forgets. */
+  async sendReset(rawEmail) {
+    const email = normaliseEmail(rawEmail);
+    if (!looksLikeEmail(email)) return { ok: false, reason: 'That does not look like an email address' };
+    try {
+      await this.call('/auth/v1/recover', { body: { email } });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, reason: err.message };
+    }
+  }
+
+  /** One place that turns a token response into the stored session. */
+  adoptTokens(data) {
+    this.session = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      expires_at: data.expires_at || Math.floor(Date.now() / 1000) + (data.expires_in || 3600),
+      user: data.user || null,
+    };
+    this.write();
+    this.emit('signed-in');
+  }
+
   async signOut() {
     if (this.session?.access_token) {
       try { await this.call('/auth/v1/logout', { auth: true }); } catch { /* the token dies anyway */ }
@@ -373,6 +548,91 @@ export class Auth {
       });
       const row = Array.isArray(rows) ? rows[0] : null;
       return { ok: true, revision: row?.revision ?? null };
+    } catch (err) {
+      return { ok: false, reason: err.message };
+    }
+  }
+
+  // --- owner controls -----------------------------------------------------
+
+  /**
+   * Whether this account is an owner. Read from the profile, which is read
+   * from a table only the server can write, so the answer cannot be faked by
+   * editing anything the browser can reach. It gates what the panel shows;
+   * what the panel can *do* is gated again by row level security, because a
+   * check in the browser is a suggestion.
+   */
+  get isAdmin() { return Boolean(this.profile?.is_admin); }
+
+  /** Everyone playing, newest first. Owners only, enforced by policy. */
+  async listPlayers(limit = 60) {
+    if (!this.signedIn) return { ok: false, reason: 'Not signed in' };
+    try {
+      const rows = await this.call(
+        `/rest/v1/profiles?select=id,display_name,is_admin,created_at,marketing_opt_in&order=created_at.desc&limit=${limit}`,
+        { method: 'GET', auth: true },
+      );
+      return { ok: true, players: Array.isArray(rows) ? rows : [] };
+    } catch (err) {
+      return { ok: false, reason: err.message };
+    }
+  }
+
+  /**
+   * Hand something to an account. Never writes their save: a grant row is
+   * added and their own client claims it, so a bad write cannot destroy
+   * somebody's progress and there is a record of every one.
+   */
+  async grant({ userId, kind, amount = null, item = null, note = null }) {
+    if (!this.signedIn) return { ok: false, reason: 'Not signed in' };
+    if (!userId) return { ok: false, reason: 'Pick an account first' };
+    if (!['cash', 'rewinds', 'pass', 'vip'].includes(kind)) {
+      return { ok: false, reason: 'That is not something that can be granted' };
+    }
+    try {
+      const rows = await this.call('/rest/v1/grants', {
+        auth: true,
+        body: {
+          user_id: userId, kind, amount, item, note,
+          granted_by: this.user.id,
+        },
+        headers: { prefer: 'return=representation' },
+      });
+      return { ok: true, grant: Array.isArray(rows) ? rows[0] : null };
+    } catch (err) {
+      // The policy refuses rather than the UI, which is the point.
+      return { ok: false, reason: err.status === 403 || err.status === 401
+        ? 'The server refused that. This account is not an owner.'
+        : err.message };
+    }
+  }
+
+  /** Grants waiting for this player. */
+  async pendingGrants() {
+    if (!this.signedIn) return [];
+    try {
+      const rows = await this.call(
+        `/rest/v1/grants?user_id=eq.${this.user.id}&claimed_at=is.null&select=*&order=created_at.asc`,
+        { method: 'GET', auth: true },
+      );
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Mark one claimed. The trigger puts every other column back to what it was
+   * and stamps the time itself, so this cannot be used to enlarge a grant on
+   * the way past.
+   */
+  async claimGrant(id) {
+    if (!this.signedIn) return { ok: false, reason: 'Not signed in' };
+    try {
+      await this.call(`/rest/v1/grants?id=eq.${id}`, {
+        method: 'PATCH', auth: true, body: { claimed_at: new Date().toISOString() },
+      });
+      return { ok: true };
     } catch (err) {
       return { ok: false, reason: err.message };
     }

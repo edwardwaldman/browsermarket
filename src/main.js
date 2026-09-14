@@ -14,7 +14,8 @@ import { Toasts, Celebration, floatXp } from './ui/toast.js';
 import { settings } from './engine/settings.js';
 import { Auth } from './engine/auth.js';
 import { AuthBox } from './ui/authbox.js';
-import { SUPABASE, accountsConfigured, SIGNUP_AFTER_MS } from './config.js';
+import { SUPABASE, accountsConfigured, SIGNUP_AFTER_MS, DEFAULT_SYMBOL } from './config.js';
+import { findItem as findStoreItem } from './engine/store.js';
 import { IndicatorLibrary } from './engine/custom.js';
 import { AdOverlay } from './ui/adgate.js';
 import { $, el, clear, cls, esc, on } from './util/dom.js';
@@ -25,7 +26,7 @@ import {
 
 const ui = {};
 let game = null;
-let symbol = 'OBBY';
+let symbol = DEFAULT_SYMBOL;
 let timeframe = 'm5';
 let view = 'trade';
 let muted = false;
@@ -74,7 +75,7 @@ function startGame(g, resumed = false) {
   if (report && report.ticks > 30) {
     ui.celebration.show({
       title: 'WHILE YOU WERE OUT',
-      sub: `${report.days.toFixed(1)} trading days · account ${signed(report.equityDelta)}`,
+      sub: `${report.days.toFixed(1)} trading days | account ${signed(report.equityDelta)}`,
       icon: '🌙',
     });
   }
@@ -170,7 +171,7 @@ function buildUi() {
     onTrade: (e) => ui.ticket.onTrade?.(e),
     onSymbolPick: () => {
       ui.mobile.collapse();
-      $('#explorer').classList.add('mobile-open');
+      openSymbolPicker();
     },
     toast: (t) => ui.toasts.push(t),
     openModal: (id) => { ui.mobile.collapse(); ui.modals.open(id); },
@@ -208,7 +209,7 @@ function buildUi() {
     setView('trade');
     ui.chart.goLive();
     ui.mobile.collapse();
-    $('#explorer').classList.remove('mobile-open');
+    closeSymbolPicker();
     $('#ticket').classList.remove('mobile-open');
     window.scrollTo(0, 0);
   });
@@ -228,6 +229,8 @@ function buildUi() {
     const next = settings.cycleTheme();
     ui.toasts.push({ tone: 'info', icon: '◐', text: `Theme: ${next}` });
   });
+
+  $('#explorer-close')?.addEventListener('click', closeSymbolPicker);
 
   wireDockResize();
 
@@ -283,7 +286,7 @@ function fillIndicatorMenu() {
   }
 
   const lib = game.library;
-  menu.append(el('div', { class: 'dropmenu-head', text: `MY INDICATORS · ${lib?.list.length ?? 0}` }));
+  menu.append(el('div', { class: 'dropmenu-head', text: `MY INDICATORS | ${lib?.list.length ?? 0}` }));
   if (!lib?.list.length) {
     menu.append(el('div', { class: 'dropmenu-empty', text: 'None built yet' }));
   } else {
@@ -491,7 +494,7 @@ function onKey(e) {
     ui.ticket.submit();
   } else if (e.key === 'Escape') {
     ui.mobile.collapse();
-    $('#explorer').classList.remove('mobile-open');
+    closeSymbolPicker();
     $('#ticket').classList.remove('mobile-open');
   } else if (e.key === ' ') {
     e.preventDefault();
@@ -504,7 +507,7 @@ function selectSymbol(sym) {
   if (!game.market.get(sym)) return;
   symbol = sym;
   // On a phone the explorer is a full-screen sheet; picking a name dismisses it.
-  $('#explorer').classList.remove('mobile-open');
+  closeSymbolPicker();
   if (ui.modals) ui.modals.symbol = sym;
   ui.explorer.selected = sym;
   ui.explorer.renderList(true);
@@ -554,7 +557,7 @@ function handleEvent(e) {
       render(true);
       break;
     case 'regime':
-      ui.toasts.push({ tone: 'info', icon: '🌐', text: `Regime shift · ${REGIMES[e.regime].label}` });
+      ui.toasts.push({ tone: 'info', icon: '🌐', text: `Regime shift | ${REGIMES[e.regime].label}` });
       break;
     case 'pnl-flash':
       flashCash(e.amount);
@@ -603,6 +606,7 @@ function render(full = false) {
   renderHeader();
   renderStatus();
   updateAlertCount();
+  syncOwnerEntry();
   if (view === 'trade') {
     ui.mobile.update();
     renderAssetHead();
@@ -614,6 +618,24 @@ function render(full = false) {
   } else if (view === 'research' && full) {
     ui.research.render();
   }
+}
+
+/**
+ * The owner route appears only once the profile says so. It is a convenience,
+ * not the gate: the gate is the row level security policy on every write the
+ * panel makes.
+ */
+function syncOwnerEntry() {
+  const strip = $('.toolstrip');
+  if (!strip) return;
+  const existing = $('#btn-owner');
+  if (!isOwner()) { existing?.remove(); return; }
+  if (existing) return;
+  const btn = el('button', {
+    class: 'tool', title: 'Owner panel', text: '🛠', id: 'btn-owner',
+    onclick: () => window.open('owner.html', '_blank'),
+  });
+  strip.insertBefore(btn, $('[data-modal="settings"]', strip));
 }
 
 function renderHeader() {
@@ -647,18 +669,18 @@ function renderStatus() {
   const open = sess.id === 'RTH';
   const realSeconds = (market.sessionCountdown * MS_PER_TICK) / 1000 / game.speed;
   const s = $('#status-session');
-  s.textContent = `● ${open ? 'OPEN' : sess.label} · ${open ? 'closes' : 'next'} ${duration(realSeconds)}`;
+  s.textContent = `● ${open ? 'OPEN' : sess.label} | ${open ? 'closes' : 'next'} ${duration(realSeconds)}`;
   s.className = cls('status-session', !open && 'closed');
   $('#status-regime').textContent = REGIMES[market.regime].label;
   $('#status-regime').style.color = REGIMES[market.regime].color;
   $('#status-clock').textContent = `${dayName(market.day)} DAY ${market.day} ${clockTime(market.minuteOfDay)}`;
   $('#status-wire').textContent = prog.has('NEWSWIRE')
-    ? `WIRE LIVE · ${market.news.length} STORIES`
-    : '🔒 MARKET NEWS WIRE OFFLINE · UNLOCKS AT LEVEL 20';
+    ? `WIRE LIVE | ${market.news.length} STORIES`
+    : '🔒 MARKET NEWS WIRE OFFLINE | UNLOCKS AT LEVEL 20';
   const boost = prog.boostActive(market.tick);
   $('#status-tip').textContent = boost
-    ? `🔥 ${boost.sym} ${boost.mult}X XP · ${boost.until - market.tick}m left`
-    : (game.dailyPick ? `★ DAILY PICK · ${game.dailyPick.sym}` : 'SPACE pauses · B long · S short · ENTER submits');
+    ? `🔥 ${boost.sym} ${boost.mult}X XP | ${boost.until - market.tick}m left`
+    : (game.dailyPick ? `★ DAILY PICK | ${game.dailyPick.sym}` : 'SPACE pauses | B long | S short | ENTER submits');
 }
 
 function renderAssetHead() {
@@ -684,7 +706,7 @@ function renderAssetHead() {
   const markup = `
     <div class="ah-top">
       <div>
-        <div class="ah-sym">${esc(ins.sym)}<span class="kindbadge">${esc(ins.kind)}</span></div>
+        <button class="ah-sym" id="ah-pick">${esc(ins.sym)}<span class="kindbadge">${esc(ins.kind)}</span><span class="ah-caret">▾</span></button>
         <div class="ah-name">${esc(ins.name)}</div>
       </div>
       <div class="ah-price">
@@ -692,12 +714,34 @@ function renderAssetHead() {
         <div class="ah-chg ${chg >= 0 ? 'up' : 'down'}">${pct(chg)}</div>
       </div>
       <div class="ah-right">
-        ${boost ? `<span class="boost-pill">🔥 ${esc(boost.sym)} ${boost.mult}X XP · ${boost.until - game.market.tick}m</span>` : ''}
-        <span class="mission-pill">◎ ${esc(symbol)} M${game.prog.missionTier} · ${Math.min(mission?.progress ?? 0, mission?.target ?? 0)}/${mission?.target ?? 0}</span>
+        ${boost ? `<span class="boost-pill">🔥 ${esc(boost.sym)} ${boost.mult}X XP | ${boost.until - game.market.tick}m</span>` : ''}
+        <span class="mission-pill">◎ ${esc(symbol)} M${game.prog.missionTier} | ${Math.min(mission?.progress ?? 0, mission?.target ?? 0)}/${mission?.target ?? 0}</span>
       </div>
     </div>
     <div class="ah-stats">${stats.map(([k, v]) => `<span class="ah-stat">${k}<b>${v}</b></span>`).join('')}</div>`;
-  if (host.__key !== markup) { host.__key = markup; host.innerHTML = markup; }
+  if (host.__key !== markup) {
+    host.__key = markup;
+    host.innerHTML = markup;
+    $('#ah-pick', host)?.addEventListener('click', openSymbolPicker);
+  }
+}
+
+/**
+ * THE WHOLE UNIVERSE, FROM THE TICKER.
+ *
+ * On a phone the explorer rail is off screen, so the symbol you were looking
+ * at was the only one reachable without hunting through a menu. Tapping it
+ * opens the explorer full screen: it is already the list of everything and
+ * already knows how to search and filter it, so a second list would only
+ * drift from the first.
+ */
+function openSymbolPicker() {
+  $('#explorer').classList.add('mobile-open', 'is-full');
+  $('#search')?.focus();
+}
+
+function closeSymbolPicker() {
+  $('#explorer').classList.remove('mobile-open', 'is-full');
 }
 
 function renderChart(full = false) {
@@ -764,7 +808,7 @@ function showUndoBar(result) {
   const pnl = result?.pnl ?? 0;
   const free = game.freeRewindsLeft();
   const charges = game.store.rewinds;
-  const cost = free > 0 ? `FREE · ${free} LEFT` : charges > 0 ? `${charges} CHARGES` : 'WATCH AN AD';
+  const cost = free > 0 ? `FREE | ${free} LEFT` : charges > 0 ? `${charges} CHARGES` : 'WATCH AN AD';
   clear(node);
   node.append(
     el('div', { class: 'undobar-copy' }, [
@@ -772,7 +816,7 @@ function showUndoBar(result) {
       el('span', { text: 'closed' }),
     ]),
     el('button', {
-      class: 'undobar-go', text: `⟲ UNDO · ${cost}`,
+      class: 'undobar-go', text: `⟲ UNDO | ${cost}`,
       onclick: () => { hideUndoBar(); ui.modals.open('rewind'); },
     }),
     el('button', { class: 'undobar-x', text: '✕', onclick: () => hideUndoBar() }),
@@ -844,6 +888,18 @@ async function resumeAccount() {
 
   try { await ui.auth.fetchProfile(); } catch { /* retried on the next load */ }
 
+  // A Google round trip or a confirmation link left the page before the
+  // consents could be written, so they were stashed. Spend them now.
+  if (ui.auth.needsConsent()) {
+    const stashed = ui.auth.takeStashedConsents();
+    if (stashed?.acceptedTerms) {
+      try {
+        await ui.auth.recordConsents(stashed);
+        await ui.auth.fetchProfile();
+      } catch { /* falls through to asking */ }
+    }
+  }
+
   if (ui.auth.needsConsent()) {
     ui.authBox.show({
       blocking: true,
@@ -853,6 +909,7 @@ async function resumeAccount() {
     return;
   }
   afterSignIn();
+  claimGrants();
 }
 
 async function afterSignIn() {
@@ -911,7 +968,7 @@ function showSaveChoice(remote) {
         onclick: () => pick(() => { pushCloudSave(); ui.toasts.push({ tone: 'good', icon: '✓', text: 'This device now wins' }); }),
       }, [
         el('b', { text: 'KEEP THIS DEVICE' }),
-        el('small', { text: `Level ${game.prog.level} · ${money0(localNw)} · ${game.account.stats.trades} trades` }),
+        el('small', { text: `Level ${game.prog.level} | ${money0(localNw)} | ${game.account.stats.trades} trades` }),
       ]),
       el('button', {
         class: 'auth-choice',
@@ -919,7 +976,7 @@ function showSaveChoice(remote) {
       }, [
         el('b', { text: 'KEEP THE CLOUD DESK' }),
         el('small', {
-          text: `Level ${remote.level ?? '?'} · ${money0(remote.net_worth)} · saved ${
+          text: `Level ${remote.level ?? '?'} | ${money0(remote.net_worth)} | saved ${
             remote.client_saved_at ? new Date(remote.client_saved_at).toLocaleString() : 'at an unknown time'}`,
         }),
       ]),
@@ -951,6 +1008,46 @@ async function pushCloudSave(force = false) {
   if (!res.ok) cloudDirty = true;   // try again on the next pass
 }
 
+/** Whether the signed-in account is an owner, per the server's own answer. */
+function isOwner() {
+  return Boolean(ui.auth?.isAdmin);
+}
+
+/**
+ * CLAIMING WHAT AN OWNER HANDED OUT.
+ *
+ * Grants are rows, not writes into somebody's save, so they are applied here
+ * on load and marked claimed. Applying first and claiming second means the
+ * worst case is a grant applied twice after a crash between the two, which is
+ * a player being given something twice rather than losing it.
+ */
+async function claimGrants() {
+  if (!ui.auth?.signedIn) return;
+  const pending = await ui.auth.pendingGrants();
+  for (const g of pending) {
+    const amount = Number(g.amount) || 0;
+    if (g.kind === 'cash' && amount > 0) {
+      game.storeCredit(amount, { name: g.note || 'Owner grant' });
+    } else if (g.kind === 'rewinds' && amount > 0) {
+      game.store.addRewinds(Math.round(amount));
+      ui.toasts.push({ tone: 'good', icon: '⟲', text: `${Math.round(amount)} rewinds granted` });
+    } else if (g.kind === 'vip' && amount > 0) {
+      game.store.vipPoints += Math.round(amount);
+      game.store.write();
+      game.account.vipDiscount = game.store.vipFeeDiscount();
+      ui.toasts.push({ tone: 'good', icon: '★', text: `${Math.round(amount)} VIP points granted` });
+    } else if (g.kind === 'pass' && g.item) {
+      const item = findStoreItem(g.item);
+      if (item) {
+        game.store.grant(item, game);
+        ui.toasts.push({ tone: 'good', icon: '🎁', text: `${item.name} granted` });
+      }
+    }
+    await ui.auth.claimGrant(g.id);
+  }
+  if (pending.length) { game.save(); render(true); }
+}
+
 function syncQuickTrade() {
   if (!ui.quickBuy) return;
   const m = ui.ticket?.margin ?? 0;
@@ -979,9 +1076,13 @@ function renderLegend() {
     rows.push(`<span class="legend-chip legend-row" style="color:${def.color}">${esc(def.name)}</span>`);
   }
   if (sig) {
-    rows.push(`<div class="signal-chip ${sig.side === 'BUY' ? 'up' : 'down'}">${sig.side === 'BUY' ? '▲' : '▼'} ${sig.side} SIGNAL @ ${fmtPrice(sig.price)} · ${sig.barsAgo} bars ago</div>`);
+    rows.push(`<div class="signal-chip ${sig.side === 'BUY' ? 'up' : 'down'}">${sig.side === 'BUY' ? '▲' : '▼'} ${sig.side} SIGNAL @ ${fmtPrice(sig.price)} | ${sig.barsAgo} bars ago</div>`);
   }
   const host = $('#chart-legend');
+  // On a phone the legend only appears while a finger is on the chart. The
+  // price is already in the header, and a permanent OHLC line plus an
+  // indicator chip plus a signal chip sit on top of the candles they describe.
+  host.classList.toggle('is-live', Boolean(ui.chart.hover));
   const markup = rows.join('');
   if (host.__key !== markup) { host.__key = markup; host.innerHTML = markup; }
 }
@@ -998,44 +1099,91 @@ function renderLegend() {
  * second list would drift the first time a tool was added, and the copy that
  * goes stale is always the one on the screen nobody tests.
  */
+/**
+ * THE PHONE MENU, AS A DRAWER.
+ *
+ * A panel from the right rather than a sheet from the bottom, and plain text
+ * rows rather than an emoji grid: the emoji were the toolbar's own labels and
+ * carried no meaning once the text was beside them.
+ *
+ * Built from the toolbar rather than a second hand-written list, so a tool
+ * added there appears here without anybody remembering to. The account block
+ * sits at the foot under the address it belongs to, which is the one place
+ * people look for a way out.
+ */
 function openMobileMenu() {
   const root = $('#modal-root');
   const tools = [...document.querySelectorAll('.toolstrip [data-modal]')].map((b) => ({
     id: b.dataset.modal,
     // The title attribute is the human name; the button's text is an emoji.
-    label: (b.getAttribute('title') || b.textContent || b.dataset.modal).trim().toUpperCase(),
-    icon: (b.textContent || '').trim().split(/\s+/)[0] || '•',
+    label: titleCase((b.getAttribute('title') || b.dataset.modal).trim()),
+    hint: (b.querySelector('.badge-count:not([hidden])')?.textContent || '').trim(),
   }));
 
-  const close = () => { root.hidden = true; root.innerHTML = ''; };
-  const go = (fn) => { close(); fn(); };
+  const close = () => {
+    root.classList.remove('is-open');
+    setTimeout(() => { root.hidden = true; clear(root); }, 180);
+  };
+  const go = (fn) => { close(); setTimeout(fn, 60); };
 
-  const rows = tools.map((t) => `
-    <button class="mmenu-row" data-go="${t.id}">
-      <span class="mmenu-ico">${t.icon}</span><span>${t.label}</span>
-    </button>`).join('');
+  const row = (label, { hint = '', onclick } = {}) => el('button', { class: 'mmenu-row', onclick }, [
+    el('span', { class: 'grow', text: label }),
+    hint ? el('span', { class: 'mmenu-hint', text: hint }) : null,
+  ]);
 
+  const list = el('div', { class: 'mmenu-list' });
+
+  list.append(row('Research desk', { onclick: () => go(() => setView('research')) }));
+  for (const t of tools) {
+    if (t.id === 'account' || t.id === 'settings') continue;   // they live below
+    list.append(row(t.label, { hint: t.hint, onclick: () => go(() => ui.modals.open(t.id)) }));
+  }
+  list.append(row(`Theme: ${settings.get('theme')}`, {
+    onclick: () => { settings.cycleTheme(); close(); },
+  }));
+
+  // --- the account block --------------------------------------------------
+  const auth = ui.auth;
+  list.append(el('div', {
+    class: 'mmenu-section',
+    text: auth?.signedIn ? (auth.email || 'YOUR ACCOUNT') : 'NOT SIGNED IN',
+  }));
+
+  if (auth?.configured && !auth.signedIn) {
+    list.append(row('Sign in or create an account', {
+      onclick: () => go(() => ui.authBox.show({ blocking: false })),
+    }));
+  } else {
+    list.append(row('Manage account', { onclick: () => go(() => ui.modals.open('account')) }));
+  }
+  list.append(row('Preferences', { onclick: () => go(() => ui.modals.open('settings')) }));
+  if (auth?.signedIn) {
+    list.append(row('Log out', { onclick: () => go(() => ui.modals.onSignOut?.()) }));
+  }
+  if (isOwner()) {
+    list.append(row('Owner panel', { onclick: () => { window.open('owner.html', '_blank'); } }));
+  }
+
+  clear(root);
   root.hidden = false;
-  root.innerHTML = `
-    <div class="mmenu-scrim" data-close="1"></div>
-    <div class="mmenu">
-      <div class="mmenu-head">
-        <span>MENU</span>
-        <button class="modal-close" data-close="1">✕</button>
-      </div>
-      <div class="mmenu-list">
-        <button class="mmenu-row" data-view="research">
-          <span class="mmenu-ico">◈</span><span>RESEARCH</span>
-        </button>
-        ${rows}
-      </div>
-    </div>`;
+  root.append(
+    el('div', { class: 'mmenu-scrim', onclick: close }),
+    el('div', { class: 'mmenu' }, [list]),
+  );
+  requestAnimationFrame(() => root.classList.add('is-open'));
 
-  root.querySelectorAll('[data-close]').forEach((n) => { n.onclick = close; });
-  root.querySelector('[data-view]').onclick = () => go(() => setView('research'));
-  root.querySelectorAll('[data-go]').forEach((n) => {
-    n.onclick = () => go(() => ui.modals.open(n.dataset.go));
-  });
+  const onEsc = (e) => {
+    if (e.key !== 'Escape') return;
+    close();
+    document.removeEventListener('keydown', onEsc);
+  };
+  document.addEventListener('keydown', onEsc);
+}
+
+/** "Algo desks" rather than "ALGO DESKS": a menu is read, not shouted. */
+function titleCase(s) {
+  const t = s.toLowerCase();
+  return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
 function showPromo() {
@@ -1050,9 +1198,9 @@ function showPromo() {
       <button class="modal-close" id="promo-close">✕</button>
     </div>
     <div class="promo-perks">
-      <div class="promo-perk full">1 · PICK A SIZE WITH 25% / 50% / MAX</div>
-      <div class="promo-perk full">2 · PRESS BUY TO OPEN THE POSITION</div>
-      <div class="promo-perk full">3 · CLOSE IT BELOW TO BANK THE P&L</div>
+      <div class="promo-perk full">1 | PICK A SIZE WITH 25% / 50% / MAX</div>
+      <div class="promo-perk full">2 | PRESS BUY TO OPEN THE POSITION</div>
+      <div class="promo-perk full">3 | CLOSE IT BELOW TO BANK THE P&L</div>
     </div>
     <button class="promo-buy" id="promo-go">GOT IT, LET ME TRADE</button>
     <div class="promo-note">Every market here is simulated. No real money is involved.</div>`;

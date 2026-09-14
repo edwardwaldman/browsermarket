@@ -66,7 +66,7 @@ export class ResearchPage {
         <span class="calrow-icon">${def.icon}</span>
         <div class="calrow-body">
           <div class="calrow-title"><b>${esc(e.sym)}</b> ${esc(def.label)}</div>
-          <div class="calrow-sub">${esc(e.slot)} · ${dayName(e.day)} · DAY ${e.day} · ${clockTime(e.minute)}</div>
+          <div class="calrow-sub">${esc(e.slot)} | ${dayName(e.day)} | DAY ${e.day} | ${clockTime(e.minute)}</div>
         </div>
         <span class="calrow-in">${formatIn(e.inMinutes)}</span>
         <span class="minibtn">OPEN CHART</span>

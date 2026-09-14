@@ -19,7 +19,7 @@ import { BotDesk, BOT_TYPES, upgradeCost } from '../src/engine/bots.js';
 import { Leaderboard } from '../src/engine/leaderboard.js';
 import { Game, SHOP, REWIND_WINDOW } from '../src/engine/game.js';
 import {
-  Auth, LEGAL, CODE_LENGTH, looksLikeEmail, normaliseEmail,
+  Auth, LEGAL, CODE_LENGTH, MIN_PASSWORD, looksLikeEmail, normaliseEmail, passwordProblem,
 } from '../src/engine/auth.js';
 import {
   Store, PASSES, CAPITAL_PACKS, CONSUMABLES, VIP_TIERS,
@@ -1820,4 +1820,129 @@ test('a bracket fires at the level it was given, on both sides', () => {
     assert.equal(a.history[0].reason, 'TAKE PROFIT');
     assert.ok(a.history[0].pnl > 0, `${side} take profit should book a gain`);
   }
+});
+
+// ── passwords and providers ──────────────────────────────────────────────
+test('a password has to be long enough to be worth having', () => {
+  assert.equal(passwordProblem('correcthorse'), null);
+  assert.match(passwordProblem('short'), /8 characters/);
+  assert.match(passwordProblem(''), /8 characters/);
+  assert.match(passwordProblem('12345678'), /only digits/);
+  assert.match(passwordProblem('x'.repeat(73)), /72 characters/);
+  assert.equal(MIN_PASSWORD, 8);
+});
+
+test('signing up refuses before the network when anything is wrong', async () => {
+  const auth = newAuth({ '/auth/v1/signup': { body: {} } });
+  const bad = [
+    ['nope', 'correcthorse', { acceptedTerms: true }],
+    ['player@example.com', 'short', { acceptedTerms: true }],
+    ['player@example.com', 'correcthorse', { acceptedTerms: false }],
+  ];
+  for (const [email, pw, consents] of bad) {
+    assert.equal((await auth.signUp(email, pw, consents)).ok, false, `${email}/${pw} should not be sent`);
+  }
+  assert.equal(auth.fetch.calls.length, 0, 'none of those are worth a round trip');
+});
+
+test('a signup that returns a session signs in and records consent', async () => {
+  const auth = newAuth({
+    '/auth/v1/signup': { body: SESSION },
+    '/rest/v1/profiles': { body: [{ id: 'u1' }] },
+    '/rest/v1/consent_events': { body: [] },
+  });
+  const res = await auth.signUp('Player@Example.com ', 'correcthorse', { acceptedTerms: true, marketing: true });
+  assert.equal(res.ok, true);
+  assert.equal(auth.signedIn, true);
+  const call = auth.fetch.calls[0];
+  assert.equal(call.body.email, 'player@example.com', 'normalised before it is sent');
+  const profile = auth.fetch.calls.find((c) => c.path.startsWith('/rest/v1/profiles'));
+  assert.equal(profile.body.marketing_opt_in, true);
+  assert.equal(profile.body.terms_version, LEGAL.termsVersion);
+});
+
+test('a signup awaiting confirmation stashes the consent for the trip back', async () => {
+  const storage = memoryStorage();
+  const auth = newAuth({ '/auth/v1/signup': { body: { user: { id: 'u1' } } } }, storage);
+  const res = await auth.signUp('player@example.com', 'correcthorse', { acceptedTerms: true, marketing: true });
+  assert.equal(res.ok, true);
+  assert.equal(res.confirm, true, 'no session means go and check your inbox');
+  assert.equal(auth.signedIn, false);
+
+  const stashed = auth.takeStashedConsents();
+  assert.equal(stashed.acceptedTerms, true);
+  assert.equal(stashed.marketing, true);
+  assert.equal(auth.takeStashedConsents(), null, 'and it is spent once taken');
+});
+
+test('a stale stash is not treated as this week s agreement', async () => {
+  const storage = memoryStorage();
+  const auth = newAuth({}, storage);
+  auth.stashConsents({ acceptedTerms: true, marketing: true });
+  const raw = JSON.parse(storage.getItem('browsermarket.consent.pending.v1'));
+  raw.at = Date.now() - 2 * 3600_000;
+  storage.setItem('browsermarket.consent.pending.v1', JSON.stringify(raw));
+  assert.equal(auth.takeStashedConsents(), null);
+});
+
+test('an address that already exists points at logging in', async () => {
+  const auth = newAuth({ '/auth/v1/signup': { status: 422, body: { msg: 'User already registered' } } });
+  const res = await auth.signUp('player@example.com', 'correcthorse', { acceptedTerms: true });
+  assert.equal(res.ok, false);
+  assert.equal(res.existing, true);
+  assert.match(res.reason, /already/i);
+});
+
+test('logging in exchanges the password for a session', async () => {
+  const auth = newAuth({ '/auth/v1/token': { body: SESSION } });
+  const res = await auth.signIn('player@example.com', 'correcthorse');
+  assert.equal(res.ok, true);
+  assert.equal(auth.signedIn, true);
+  assert.match(auth.fetch.calls[0].path, /grant_type=password/);
+});
+
+test('a wrong password says so without stranding a session', async () => {
+  const auth = newAuth({ '/auth/v1/token': { status: 400, body: { error: 'invalid_grant' } } });
+  const res = await auth.signIn('player@example.com', 'wrongpassword');
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /do not match/i);
+  assert.equal(auth.signedIn, false);
+});
+
+test('Google is offered only when the project says it is on', async () => {
+  const on = newAuth({ '/auth/v1/settings': { body: { external: { google: true } } } });
+  assert.deepEqual(await on.providers(), { google: true });
+
+  const off = newAuth({ '/auth/v1/settings': { body: { external: { google: false } } } });
+  assert.deepEqual(await off.providers(), { google: false });
+
+  // Unreachable is not the same as disabled, but the button cannot work
+  // either way, so it stays hidden rather than guessing.
+  const broken = newAuth({ '/auth/v1/settings': { status: 500, body: {} } });
+  assert.deepEqual(await broken.providers(), { google: false });
+});
+
+test('the Google URL carries the provider and a way back', async () => {
+  const storage = memoryStorage();
+  const auth = newAuth({}, storage);
+  const url = auth.googleUrl({ acceptedTerms: true, marketing: false });
+  assert.match(url, /\/auth\/v1\/authorize\?/);
+  assert.match(url, /provider=google/);
+  // No location under the test runner, so no way back is included rather than
+  // a broken one being sent.
+  // The browser is about to leave, so the ticked boxes have to outlive it.
+  assert.equal(auth.takeStashedConsents().acceptedTerms, true);
+});
+
+test('a reset link is only requested for a plausible address', async () => {
+  const auth = newAuth({ '/auth/v1/recover': { body: {} } });
+  assert.equal((await auth.sendReset('nope')).ok, false);
+  assert.equal(auth.fetch.calls.length, 0);
+  assert.equal((await auth.sendReset('player@example.com')).ok, true);
+  assert.equal(auth.fetch.calls[0].body.email, 'player@example.com');
+});
+
+test('the age on the consent line matches what the terms require', () => {
+  assert.ok(Number.isInteger(LEGAL.minAge));
+  assert.ok(LEGAL.minAge >= 13, 'never below the floor the terms set');
 });

@@ -1,21 +1,22 @@
 // The sign-in panel.
 //
-// Two steps. Type an email, then type the six digit code that arrives. The
-// consent checkboxes sit on the second step, next to the button that actually
-// creates the account, rather than on the first: a box ticked ninety seconds
-// and one inbox trip earlier is not a thing anybody remembers agreeing to.
+// Create an account with an email and a password, or with Google where the
+// project has that provider switched on. Existing players log in with the
+// same two fields.
 //
-// Accepting the terms is required and unticked by default. Marketing email is
-// optional and unticked by default, and stays that way. Neither box is
-// pre-filled, and the terms box is never bundled with the marketing one.
+// The age and terms box is required and unticked. The marketing box is
+// optional and also unticked: a pre-ticked consent box is not consent under
+// the GDPR, and our own privacy policy states in writing that this one is not
+// pre-ticked. Flipping the default would make that page untrue.
 
 import { el, clear, cls } from '../util/dom.js';
-import { LEGAL, CODE_LENGTH, looksLikeEmail } from '../engine/auth.js';
+import { LEGAL, looksLikeEmail, passwordProblem, MIN_PASSWORD } from '../engine/auth.js';
 
 const TITLES = {
-  email: 'SAVE YOUR PROGRESS',
-  code: 'CHECK YOUR EMAIL',
-  consent: 'ONE LAST THING',
+  signup: 'Create your account',
+  login: 'Welcome back',
+  consent: 'One last thing',
+  confirm: 'Check your email',
 };
 
 export class AuthBox {
@@ -24,26 +25,33 @@ export class AuthBox {
     this.auth = auth;
     this.toast = toast;
     this.onSignedIn = onSignedIn;
-    this.step = 'email';
+    this.step = 'signup';
     this.email = '';
     this.busy = false;
     this.blocking = false;
-    this.resendAt = 0;
+    this.google = false;
   }
 
   get open() { return !this.root.hidden; }
 
-  show({ blocking = false, reason = '', step = 'email' } = {}) {
+  show({ blocking = false, reason = '', step = 'signup' } = {}) {
     this.blocking = blocking;
     this.reason = reason;
     this.step = step;
     this.root.hidden = false;
     this.render();
+    // Drawn first, then the provider list fills in, so the form never waits on
+    // a round trip before it appears.
+    this.auth.providers().then((p) => {
+      if (this.google === p.google) return;
+      this.google = p.google;
+      if (this.open) this.render();
+    });
   }
 
   close() {
     // A blocking prompt that a tap outside dismisses is not a gate, it is a
-    // suggestion. Only the code path that signs in closes this one.
+    // suggestion. Only signing in closes this one.
     if (this.blocking) return;
     this.root.hidden = true;
     clear(this.root);
@@ -60,201 +68,223 @@ export class AuthBox {
     const card = el('div', { class: 'auth-card' });
 
     card.append(el('div', { class: 'auth-head' }, [
-      el('div', { class: 'auth-title', text: TITLES[this.step] ?? TITLES.email }),
+      el('h2', { class: 'auth-title', text: TITLES[this.step] ?? TITLES.signup }),
       this.blocking ? null : el('button', { class: 'modal-close', text: '✕', onclick: () => this.close() }),
     ]));
 
     if (this.reason) card.append(el('div', { class: 'auth-reason', text: this.reason }));
 
     if (this.step === 'consent') this.renderConsent(card);
-    else if (this.step === 'email') this.renderEmail(card);
-    else this.renderCode(card);
+    else if (this.step === 'confirm') this.renderConfirm(card);
+    else this.renderForm(card);
 
-    this.root.append(el('div', {
-      class: 'auth-scrim',
-      onclick: () => this.close(),
-    }), card);
+    this.root.append(el('div', { class: 'auth-scrim', onclick: () => this.close() }), card);
   }
 
-  renderEmail(card) {
-    card.append(el('p', { class: 'auth-copy', text: 'An account keeps your desk, your positions and everything you have unlocked, on every device you play on. No password: we send a six digit code.' }));
+  // --- the main form ------------------------------------------------------
 
-    const input = el('input', {
-      class: 'auth-input', type: 'email', inputmode: 'email', autocomplete: 'email',
-      placeholder: 'you@example.com', spellcheck: 'false', value: this.email,
+  renderForm(card) {
+    const isSignup = this.step === 'signup';
+
+    card.append(el('div', { class: 'auth-switch' }, [
+      el('span', { text: isSignup ? 'Already have an account?' : 'New here?' }),
+      el('button', {
+        class: 'auth-swap',
+        text: isSignup ? 'Log in' : 'Create one',
+        onclick: () => { this.step = isSignup ? 'login' : 'signup'; this.render(); },
+      }),
+    ]));
+
+    if (this.google) {
+      card.append(el('a', {
+        class: 'auth-oauth',
+        href: '#',
+        onclick: (e) => {
+          e.preventDefault();
+          if (isSignup && !terms.input.checked) {
+            note.textContent = 'Confirm your age and accept the terms first.';
+            return;
+          }
+          globalThis.location.href = this.auth.googleUrl({
+            acceptedTerms: true,
+            marketing: marketing.input.checked,
+          });
+        },
+      }, [googleMark(), el('b', { text: 'Google' })]));
+
+      card.append(el('div', { class: 'auth-or' }, [el('span', { text: 'OR CONTINUE WITH' })]));
+    }
+
+    const email = el('input', {
+      class: 'auth-input', type: 'email', inputmode: 'email',
+      autocomplete: 'email', placeholder: 'Enter your email',
+      spellcheck: 'false', value: this.email,
     });
+
+    const pass = passwordField('Create a password', isSignup ? 'new-password' : 'current-password');
+    const confirm = passwordField('Confirm your password', 'new-password');
+    if (!isSignup) pass.input.placeholder = 'Enter your password';
+
     const note = el('div', { class: 'auth-note' });
-    const go = el('button', { class: 'auth-go', text: 'SEND MY CODE' });
-
-    const submit = async () => {
-      if (this.busy) return;
-      const email = input.value.trim();
-      if (!looksLikeEmail(email)) { note.textContent = 'That does not look like an email address.'; return; }
-      this.busy = true;
-      go.disabled = true;
-      go.textContent = 'SENDING…';
-      note.textContent = '';
-      const res = await this.auth.sendCode(email);
-      this.busy = false;
-      go.disabled = false;
-      go.textContent = 'SEND MY CODE';
-      if (!res.ok) { note.textContent = res.reason; return; }
-      this.email = res.email;
-      this.step = 'code';
-      this.resendAt = Date.now() + 30_000;
-      this.render();
-    };
-
-    go.onclick = submit;
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
-
-    card.append(el('label', { class: 'auth-field' }, [
-      el('span', { text: 'EMAIL' }), input,
-    ]), note, go);
-
-    card.append(el('div', { class: 'auth-fine' }, [
-      el('span', { text: 'By continuing you will be asked to accept our ' }),
-      legalLink('Terms of Service', LEGAL.termsUrl),
-      el('span', { text: ' and ' }),
-      legalLink('Privacy Policy', LEGAL.privacyUrl),
-      el('span', { text: '.' }),
-    ]));
-
-    setTimeout(() => input.focus(), 30);
-  }
-
-  renderCode(card) {
-    card.append(el('p', { class: 'auth-copy' }, [
-      el('span', { text: 'We sent a code to ' }),
-      el('b', { text: this.email }),
-      el('span', { text: '. It is good for one hour.' }),
-    ]));
-
-    const input = el('input', {
-      class: 'auth-input auth-code', type: 'text', inputmode: 'numeric',
-      autocomplete: 'one-time-code', maxlength: String(CODE_LENGTH),
-      placeholder: '000000', spellcheck: 'false',
-    });
-    input.addEventListener('input', () => {
-      input.value = input.value.replace(/\D/g, '').slice(0, CODE_LENGTH);
-    });
+    const go = el('button', { class: 'auth-go', text: 'Continue' });
 
     const terms = checkbox('auth-terms');
     const marketing = checkbox('auth-marketing');
-    const note = el('div', { class: 'auth-note' });
-    const go = el('button', { class: 'auth-go', text: 'CREATE MY ACCOUNT' });
+
+    card.append(el('label', { class: 'auth-field' }, [el('span', { text: 'EMAIL' }), email]));
+    card.append(el('label', { class: 'auth-field' }, [
+      el('span', { text: 'PASSWORD' }), pass.wrap,
+    ]));
+    if (isSignup) {
+      card.append(el('label', { class: 'auth-field' }, [
+        el('span', { text: 'CONFIRM PASSWORD' }), confirm.wrap,
+      ]));
+      card.append(el('div', { class: 'auth-checks' }, [
+        el('label', { class: 'auth-check' }, [
+          terms.input,
+          el('span', {}, [
+            el('span', { text: `I am ${LEGAL.minAge} or older and I agree to the ` }),
+            legalLink('Terms of Service', LEGAL.termsUrl),
+            el('span', { text: ' and ' }),
+            legalLink('Privacy Policy', LEGAL.privacyUrl),
+            el('span', { text: '.' }),
+          ]),
+        ]),
+        el('label', { class: 'auth-check' }, [
+          marketing.input,
+          el('span', { text: 'Send me occasional product updates and offers. Optional, and you can unsubscribe at any time.' }),
+        ]),
+      ]));
+    }
 
     const submit = async () => {
       if (this.busy) return;
-      if (!terms.input.checked) {
-        note.textContent = 'You have to accept the Terms of Service and the Privacy Policy.';
+      note.textContent = '';
+      this.email = email.value.trim();
+
+      if (!looksLikeEmail(this.email)) { note.textContent = 'That does not look like an email address.'; return; }
+
+      if (isSignup) {
+        const bad = passwordProblem(pass.input.value);
+        if (bad) { note.textContent = `${bad}.`; return; }
+        if (pass.input.value !== confirm.input.value) { note.textContent = 'The two passwords do not match.'; return; }
+        if (!terms.input.checked) { note.textContent = 'Confirm your age and accept the terms to continue.'; return; }
+      } else if (!pass.input.value) {
+        note.textContent = 'Enter your password.';
         return;
       }
+
       this.busy = true;
       go.disabled = true;
-      go.textContent = 'CHECKING…';
-      note.textContent = '';
-      const res = await this.auth.verifyCode(this.email, input.value, {
-        acceptedTerms: true,
-        marketing: marketing.input.checked,
-      });
+      go.textContent = isSignup ? 'Creating…' : 'Signing in…';
+
+      const res = isSignup
+        ? await this.auth.signUp(this.email, pass.input.value, {
+          acceptedTerms: true, marketing: marketing.input.checked,
+        })
+        : await this.auth.signIn(this.email, pass.input.value);
+
       this.busy = false;
       go.disabled = false;
-      go.textContent = 'CREATE MY ACCOUNT';
-      if (!res.ok) { note.textContent = res.reason; return; }
+      go.textContent = 'Continue';
+
+      if (!res.ok) {
+        note.textContent = res.reason;
+        // An address that already exists is a wrong turn, not a failure.
+        if (res.existing) {
+          this.step = 'login';
+          setTimeout(() => this.render(), 900);
+        }
+        return;
+      }
+      if (res.confirm) { this.step = 'confirm'; this.render(); return; }
+
       this.finish();
       this.toast?.({ tone: 'good', icon: '✓', text: `Signed in as ${this.auth.email}` });
       this.onSignedIn?.();
     };
 
     go.onclick = submit;
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
-
-    card.append(el('label', { class: 'auth-field' }, [
-      el('span', { text: `${CODE_LENGTH} DIGIT CODE` }), input,
-    ]));
-
-    card.append(el('div', { class: 'auth-checks' }, [
-      el('label', { class: 'auth-check' }, [
-        terms.input,
-        el('span', {}, [
-          el('span', { text: 'I have read and accept the ' }),
-          legalLink('Terms of Service', LEGAL.termsUrl),
-          el('span', { text: ' and the ' }),
-          legalLink('Privacy Policy', LEGAL.privacyUrl),
-          el('span', { text: '. Required.' }),
-        ]),
-      ]),
-      el('label', { class: 'auth-check' }, [
-        marketing.input,
-        el('span', { text: 'Email me product news, new features and offers. Optional, and you can turn it off at any time in Settings or from any email we send.' }),
-      ]),
-    ]));
+    for (const input of [email, pass.input, confirm.input]) {
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    }
 
     card.append(note, go);
 
-    const resend = el('button', { class: 'auth-alt', text: 'Send it again' });
-    const tick = () => {
-      const left = Math.ceil((this.resendAt - Date.now()) / 1000);
-      if (left > 0) {
-        resend.disabled = true;
-        resend.textContent = `Send it again in ${left}s`;
-        setTimeout(tick, 1000);
-      } else {
-        resend.disabled = false;
-        resend.textContent = 'Send it again';
-      }
-    };
-    resend.onclick = async () => {
-      resend.disabled = true;
-      const res = await this.auth.sendCode(this.email);
-      if (!res.ok) { note.textContent = res.reason; resend.disabled = false; return; }
-      this.resendAt = Date.now() + 30_000;
-      tick();
-    };
-    tick();
+    if (!isSignup) {
+      const forgot = el('button', { class: 'auth-alt', text: 'Forgot your password?' });
+      forgot.onclick = async () => {
+        if (!looksLikeEmail(email.value.trim())) {
+          note.textContent = 'Type your email address first, then press this again.';
+          return;
+        }
+        forgot.disabled = true;
+        const res = await this.auth.sendReset(email.value.trim());
+        forgot.disabled = false;
+        note.textContent = res.ok
+          ? 'If that address has an account, a reset link is on its way.'
+          : res.reason;
+      };
+      card.append(el('div', { class: 'auth-alts' }, [forgot]));
+    } else {
+      card.append(el('div', { class: 'auth-fine', text: `Passwords need ${MIN_PASSWORD} characters or more.` }));
+    }
 
-    card.append(el('div', { class: 'auth-alts' }, [
-      resend,
-      el('button', {
-        class: 'auth-alt', text: 'Use a different address',
-        onclick: () => { this.step = 'email'; this.render(); },
-      }),
-    ]));
-
-    setTimeout(() => input.focus(), 30);
+    setTimeout(() => email.focus(), 30);
   }
 
+  // --- waiting on a confirmation email ------------------------------------
+
+  renderConfirm(card) {
+    card.append(el('p', { class: 'auth-copy' }, [
+      el('span', { text: 'Your account is made. Open the link we sent to ' }),
+      el('b', { text: this.email }),
+      el('span', { text: ' to finish, then come back here.' }),
+    ]));
+    card.append(el('div', { class: 'auth-alts' }, [
+      el('button', {
+        class: 'auth-alt', text: 'Use a different address',
+        onclick: () => { this.step = 'signup'; this.render(); },
+      }),
+      el('button', {
+        class: 'auth-alt', text: 'I have confirmed, let me in',
+        onclick: () => { this.step = 'login'; this.render(); },
+      }),
+    ]));
+  }
+
+  // --- consent that arrived without its form ------------------------------
+
   /**
-   * Signed in already, but by clicking the emailed link rather than typing the
-   * code, so the consent boxes were never shown. The account exists, so this
-   * cannot be dismissed: agreeing is the condition of having one.
+   * Signed in already, but through a route that never showed the boxes: a
+   * Google round trip whose stash expired, or a confirmation link opened on
+   * another device. The account exists, so this cannot be dismissed.
    */
   renderConsent(card) {
     card.append(el('p', { class: 'auth-copy' }, [
       el('span', { text: 'You are signed in as ' }),
       el('b', { text: this.auth.email || 'your account' }),
-      el('span', { text: '. Before we save anything, please confirm you accept the terms.' }),
+      el('span', { text: '. Before we save anything, please confirm.' }),
     ]));
 
     const terms = checkbox('auth-terms');
     const marketing = checkbox('auth-marketing');
     const note = el('div', { class: 'auth-note' });
-    const go = el('button', { class: 'auth-go', text: 'AGREE AND CONTINUE' });
+    const go = el('button', { class: 'auth-go', text: 'Agree and continue' });
 
     go.onclick = async () => {
       if (!terms.input.checked) {
-        note.textContent = 'You have to accept the Terms of Service and the Privacy Policy.';
+        note.textContent = 'Confirm your age and accept the terms to continue.';
         return;
       }
       go.disabled = true;
-      go.textContent = 'SAVING…';
+      go.textContent = 'Saving…';
       try {
         await this.auth.recordConsents({ acceptedTerms: true, marketing: marketing.input.checked });
         await this.auth.fetchProfile();
       } catch (err) {
         go.disabled = false;
-        go.textContent = 'AGREE AND CONTINUE';
+        go.textContent = 'Agree and continue';
         note.textContent = err?.message || 'That did not save. Try again.';
         return;
       }
@@ -267,21 +297,20 @@ export class AuthBox {
       el('label', { class: 'auth-check' }, [
         terms.input,
         el('span', {}, [
-          el('span', { text: 'I have read and accept the ' }),
+          el('span', { text: `I am ${LEGAL.minAge} or older and I agree to the ` }),
           legalLink('Terms of Service', LEGAL.termsUrl),
-          el('span', { text: ' and the ' }),
+          el('span', { text: ' and ' }),
           legalLink('Privacy Policy', LEGAL.privacyUrl),
-          el('span', { text: '. Required.' }),
+          el('span', { text: '.' }),
         ]),
       ]),
       el('label', { class: 'auth-check' }, [
         marketing.input,
-        el('span', { text: 'Email me product news, new features and offers. Optional, and you can turn it off at any time in Settings or from any email we send.' }),
+        el('span', { text: 'Send me occasional product updates and offers. Optional, and you can unsubscribe at any time.' }),
       ]),
     ]));
 
     card.append(note, go);
-
     card.append(el('div', { class: 'auth-alts' }, [
       el('button', {
         class: 'auth-alt', text: 'Sign out instead',
@@ -292,10 +321,49 @@ export class AuthBox {
 }
 
 function checkbox(id) {
-  const input = el('input', { type: 'checkbox', id, class: 'auth-box' });
-  return { input };
+  return { input: el('input', { type: 'checkbox', id, class: 'auth-box' }) };
+}
+
+/** A password field with the reveal toggle everybody now expects. */
+function passwordField(placeholder, autocomplete) {
+  const input = el('input', {
+    class: 'auth-input', type: 'password', autocomplete, placeholder, spellcheck: 'false',
+  });
+  const eye = el('button', {
+    class: 'auth-eye', type: 'button', title: 'Show password', text: '👁',
+  });
+  eye.onclick = () => {
+    const shown = input.type === 'text';
+    input.type = shown ? 'password' : 'text';
+    eye.classList.toggle('is-on', !shown);
+    eye.title = shown ? 'Show password' : 'Hide password';
+  };
+  return { input, eye, wrap: el('div', { class: 'auth-pass' }, [input, eye]) };
 }
 
 function legalLink(text, href) {
   return el('a', { class: 'auth-link', href, target: '_blank', rel: 'noopener', text });
+}
+
+/** Google's mark, inline so the button does not depend on a blocked CDN. */
+function googleMark() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 48 48');
+  svg.setAttribute('width', '20');
+  svg.setAttribute('height', '20');
+  svg.setAttribute('aria-hidden', 'true');
+  const paths = [
+    ['#EA4335', 'M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z'],
+    ['#4285F4', 'M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z'],
+    ['#FBBC05', 'M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z'],
+    ['#34A853', 'M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z'],
+  ];
+  for (const [fill, d] of paths) {
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('fill', fill);
+    path.setAttribute('d', d);
+    svg.append(path);
+  }
+  return svg;
 }

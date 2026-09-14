@@ -40,7 +40,7 @@ export const CODES = {
 export const SHOP = [
   {
     id: 'STARTER', name: 'TRADER STARTER PACK', once: true,
-    tag: 'ONE-TIME · PERMANENT ACCOUNT EDGE',
+    tag: 'ONE-TIME | PERMANENT ACCOUNT EDGE',
     perks: ['DAILY LEADING-STOCK PICK', '+25% DIVIDENDS', '0.4% DAILY INTEREST'],
     apply: (g) => {
       g.account.perks.dividendBoost += 0.25;
@@ -50,19 +50,19 @@ export const SHOP = [
   },
   {
     id: 'FEECUT', name: 'PRIME BROKERAGE', once: true,
-    tag: 'PERMANENT · FEES',
+    tag: 'PERMANENT | FEES',
     perks: ['-50% TRADING FEES', 'PRIORITY FILLS'],
     apply: (g) => { g.account.perks.feeDiscount += 0.5; },
   },
   {
     id: 'LUCK', name: 'COLLECTOR LICENSE', once: true,
-    tag: 'PERMANENT · DROPS',
+    tag: 'PERMANENT | DROPS',
     perks: ['2X COLLECTIBLE DROP RATE', '+10% XP'],
     apply: (g) => { g.flags.luck = 2; },
   },
   {
     id: 'DESK', name: 'EXTRA ALGO SLOT', once: true, placement: 'BOT_SLOT',
-    tag: 'PERMANENT · EMPIRE',
+    tag: 'PERMANENT | EMPIRE',
     perks: ['+1 ALGO DESK SLOT'],
     apply: (g) => { g.flags.bonusSlots += 1; },
   },
@@ -241,7 +241,7 @@ export class Game {
       this.emit({
         type: 'celebrate',
         title: idx.changePct > 0 ? 'TAPE IS RIPPING' : 'TAPE IS BREAKING',
-        sub: `${REGIMES[this.market.regime].label} · index ${idx.changePct.toFixed(2)}%`,
+        sub: `${REGIMES[this.market.regime].label} | index ${idx.changePct.toFixed(2)}%`,
         icon: idx.changePct > 0 ? '🚀' : '🩸',
       });
     }
@@ -276,7 +276,7 @@ export class Game {
         placement: 'SKIP_OPEN',
         limit: this.timeMachine.skipsUsed < 1
           ? '1 free per day, then watch a short placement'
-          : `Watch a placement · ${this.ads.remaining('SKIP_OPEN')} left today`,
+          : `Watch a placement | ${this.ads.remaining('SKIP_OPEN')} left today`,
         disabled: sess.id === 'RTH',
       },
       {
@@ -286,7 +286,7 @@ export class Game {
         minutes: 1440,
         free: false,
         placement: 'SIM_DAY',
-        limit: `Watch a placement · ${this.ads.remaining('SIM_DAY')} left today`,
+        limit: `Watch a placement | ${this.ads.remaining('SIM_DAY')} left today`,
       },
       {
         id: 'WEEK',
@@ -296,7 +296,7 @@ export class Game {
         free: false,
         placement: 'SIM_WEEK',
         limit: this.prog.level >= 12
-          ? `Watch a placement · ${this.ads.remaining('SIM_WEEK')} left today`
+          ? `Watch a placement | ${this.ads.remaining('SIM_WEEK')} left today`
           : 'Unlocks at level 12',
         disabled: this.prog.level < 12,
       },
@@ -342,7 +342,7 @@ export class Game {
     this.emit({
       type: 'celebrate',
       title: 'TIME SKIPPED',
-      sub: `${option.title} · account ${report.delta >= 0 ? '+' : '-'}$${Math.abs(report.delta).toFixed(2)}`,
+      sub: `${option.title} | account ${report.delta >= 0 ? '+' : '-'}$${Math.abs(report.delta).toFixed(2)}`,
       icon: '⏩',
     });
     this.emit({ type: 'timeskip', report });
@@ -364,7 +364,7 @@ export class Game {
     const ins = this.market.get(sym);
     if (!ins) return { ok: false, reason: 'Unknown symbol' };
     if (ins.tier && this.prog.level < ins.tier) {
-      return { ok: false, reason: `Executive terminal · level ${ins.tier}` };
+      return { ok: false, reason: `Executive terminal | level ${ins.tier}` };
     }
     if (ins.kind === 'INDEX') return { ok: false, reason: 'Index is not directly tradable' };
     if (ins.kind === 'COIN' && this.prog.level < 4) {
@@ -560,18 +560,18 @@ export class Game {
       if (drop) {
         this.emit({
           type: 'celebrate', title: 'COLLECTIBLE FOUND',
-          sub: `${drop.name} · ${drop.rarity}`, icon: drop.icon,
+          sub: `${drop.name} | ${drop.rarity}`, icon: drop.icon,
         });
       }
       this.emit({
         type: 'toast', tone: pnl >= 0 ? 'good' : 'bad', icon: pnl >= 0 ? '🟢' : '🔴',
-        text: `Closed for ${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toFixed(2)}${e.reason !== 'MANUAL' ? ` · ${e.reason}` : ''}`,
+        text: `Closed for ${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toFixed(2)}${e.reason !== 'MANUAL' ? ` | ${e.reason}` : ''}`,
       });
       this.emit({ type: 'pnl-flash', amount: pnl });
       if (pnl > 0) {
         this.emit({
           type: 'celebrate', title: 'PROFIT LOCKED',
-          sub: `+$${pnl.toFixed(2)} · ${((pnl / Math.max(1, e.pos.margin)) * 100).toFixed(1)}%`,
+          sub: `+$${pnl.toFixed(2)} | ${((pnl / Math.max(1, e.pos.margin)) * 100).toFixed(1)}%`,
           icon: '✓',
         });
       }
@@ -611,7 +611,7 @@ export class Game {
       }
       this.emit({
         type: 'celebrate', title: 'LEVEL UP',
-        sub: `Level ${e.level} · ${reward.cash ? `+$${reward.cash.toLocaleString()} cash` : `${UNLOCKS[reward.unlock] || reward.unlock} unlocked`}`,
+        sub: `Level ${e.level} | ${reward.cash ? `+$${reward.cash.toLocaleString()} cash` : `${UNLOCKS[reward.unlock] || reward.unlock} unlocked`}`,
         icon: '⭐',
       });
     }
@@ -620,12 +620,12 @@ export class Game {
       this.prog.addXp(e.mission.xp, { tick: this.market.tick });
       this.emit({
         type: 'toast', tone: 'good', icon: '🎯',
-        text: `Mission complete · ${e.mission.label} (+$${e.mission.cash})`,
+        text: `Mission complete | ${e.mission.label} (+$${e.mission.cash})`,
       });
     }
     if (e.type === 'badge') {
       this.emit({ type: 'badge', badge: e.badge });
-      this.emit({ type: 'toast', tone: 'good', icon: '🏅', text: `Badge awarded · ${e.badge.name}` });
+      this.emit({ type: 'toast', tone: 'good', icon: '🏅', text: `Badge awarded | ${e.badge.name}` });
     }
   }
 
@@ -699,7 +699,7 @@ export class Game {
     }
     this.emit({
       type: 'celebrate', title: 'IPO ALLOCATED',
-      sub: `${evt.sym} · ${(fillRate * 100).toFixed(0)}% fill · opened ${(evt.pop * 100).toFixed(1)}%`,
+      sub: `${evt.sym} | ${(fillRate * 100).toFixed(0)}% fill | opened ${(evt.pop * 100).toFixed(1)}%`,
       icon: '🚀',
     });
   }
@@ -782,7 +782,7 @@ export class Game {
     this.flags.rewards.push(id);
     this.account.cash += cash;
     this.account.ledgerPush(this.market, `REWARD ${id.replace(/_/g, ' ')}`, cash);
-    this.emit({ type: 'toast', tone: 'good', icon: '🎁', text: `Reward claimed · +$${cash.toLocaleString()}` });
+    this.emit({ type: 'toast', tone: 'good', icon: '🎁', text: `Reward claimed | +$${cash.toLocaleString()}` });
     return { ok: true, cash };
   }
 
@@ -797,7 +797,7 @@ export class Game {
     this.account.cash += reward.cash;
     this.prog.addXp(reward.xp, { tick: this.market.tick });
     this.account.ledgerPush(this.market, `CODE ${code}`, reward.cash);
-    this.emit({ type: 'toast', tone: 'good', icon: '🎁', text: `${reward.label} · +$${reward.cash.toLocaleString()}` });
+    this.emit({ type: 'toast', tone: 'good', icon: '🎁', text: `${reward.label} | +$${reward.cash.toLocaleString()}` });
     return { ok: true, reward };
   }
 
@@ -822,7 +822,7 @@ export class Game {
     this.prog.award('REBIRTH', this.market.day);
     this.emit({
       type: 'celebrate', title: `REBIRTH ${res.prestige}`,
-      sub: `+${res.gained} prestige · ${res.points} total`, icon: '♾️',
+      sub: `+${res.gained} prestige | ${res.points} total`, icon: '♾️',
     });
     return { ok: true, ...res };
   }

@@ -129,6 +129,13 @@ export const COINS = [
   { sym: 'FLOOR', name: 'floor coin', kind: 'COIN', sector: 'DIGITAL', price: 0.000112, vol: 0.33, beta: 2.4, drift: 0, liquidity: 0.18, color: '#34d399', blurb: 'Named optimistically.' },
 ];
 
+/**
+ * The line for the VOLATILE tab. Set against the universe rather than picked
+ * to look tidy: at 0.045 it takes the meme coins, the crypto, and the two
+ * stocks that actually swing, and leaves every ordinary name out.
+ */
+export const VOLATILE_MIN_VOL = 0.045;
+
 export const ASSET_CLASSES = [
   { id: 'STOCKS', label: 'STOCKS' },
   { id: 'ETFS', label: 'ETFS' },
@@ -136,6 +143,7 @@ export const ASSET_CLASSES = [
   { id: 'FX', label: 'FX' },
   { id: 'FUT', label: 'FUT' },
   { id: 'IDX', label: 'IDX' },
+  { id: 'VOLATILE', label: 'VOLATILE' },
   { id: 'IPO', label: 'IPO' },
   { id: 'PLAYER', label: 'PLAYER' },
   { id: 'COINS', label: 'COINS' },

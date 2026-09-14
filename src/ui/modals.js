@@ -11,7 +11,7 @@ import { PLACEMENTS } from '../engine/ads.js';
 import { LEGAL } from '../engine/auth.js';
 import {
   CATEGORIES, PASSES, CAPITAL_PACKS, CONSUMABLES, VIP_TIERS,
-  cashFor, vipPointsFor, vipProgress,
+  cashFor, vipPointsFor, vipProgress, unconfiguredProvider, devGrantProvider,
 } from '../engine/store.js';
 import { SECTORS } from '../data/instruments.js';
 import { settings, TOGGLES, UI_SCALES, SHORTCUTS, THEMES, ACCENTS, CANDLE_PALETTES, GRID_DENSITY, TARGET_PRESETS } from '../engine/settings.js';
@@ -87,7 +87,7 @@ export class Modals {
         ${stat('LIQUIDATIONS', String(account.stats.liquidations), account.stats.liquidations ? 'down' : '')}
         ${stat('ALGO P&L', signed(this.game.bots.totalPnl), this.game.bots.totalPnl >= 0 ? 'up' : 'down')}
       </div>
-      <h4>EQUITY CURVE · LAST ${account.equityCurve.length} DAYS</h4>
+      <h4>EQUITY CURVE | LAST ${account.equityCurve.length} DAYS</h4>
     `));
     const curve = account.equityCurve.length > 1 ? account.equityCurve : [account.startingCash, nw];
     const wrap = el('div', { style: { background: 'var(--panel-2)', border: '1px solid var(--line)', padding: '10px' } });
@@ -107,7 +107,7 @@ export class Modals {
     body.append(html(`<div class="rowlist">${account.ledger.map((l) => `
       <div class="listrow">
         <span class="pill">${esc(l.kind)}</span>
-        <span class="grow muted">DAY ${l.day} · ${clockTime(market.minuteOfTick(l.t))}</span>
+        <span class="grow muted">DAY ${l.day} | ${clockTime(market.minuteOfTick(l.t))}</span>
         <b class="${l.amount >= 0 ? 'up' : 'down'}">${signed(l.amount)}</b>
       </div>`).join('')}</div>`));
   }
@@ -161,7 +161,7 @@ export class Modals {
       </div>`).join('')}</div>
       <h4>DAILY STREAK</h4>
       <div class="ccard-sub">Trade at least once in a session to extend your streak. Every day adds +1% XP, up to +20%.
-      Current streak: <b class="up">${prog.streak}</b> · best ${prog.bestStreak}.</div>`));
+      Current streak: <b class="up">${prog.streak}</b> | best ${prog.bestStreak}.</div>`));
   }
 
   view_collection(body) {
@@ -169,7 +169,7 @@ export class Modals {
     const owned = Object.keys(prog.collection).length;
     body.append(html(`
       <div class="ccard-sub">Collectibles drop at random while you trade. Duplicates stack up to five times.
-      Collection bonus: <b class="up">+${(((prog.xpMultiplier - 1 - prog.prestigePoints * 0.05 - Math.min(prog.streak, 20) * 0.01) * 100) || 0).toFixed(1)}% XP</b> ·
+      Collection bonus: <b class="up">+${(((prog.xpMultiplier - 1 - prog.prestigePoints * 0.05 - Math.min(prog.streak, 20) * 0.01) * 100) || 0).toFixed(1)}% XP</b> |
       ${owned} / ${COLLECTIBLES.length} found.</div>
       <h4>INDEX</h4>
       <div class="collectgrid">${COLLECTIBLES.map((c) => {
@@ -202,7 +202,7 @@ export class Modals {
       <div class="listrow ${r.you ? 'you' : ''}">
         <span class="rank ${r.rank <= 3 ? 'top' : ''}">#${r.rank}</span>
         <span class="grow">${esc(r.name)}${r.you ? ' <span class="pill on">YOU</span>' : ''}</span>
-        <span class="muted nowrap">LVL ${r.level} · ${esc(r.style)}</span>
+        <span class="muted nowrap">LVL ${r.level} | ${esc(r.style)}</span>
         <b class="nowrap">${moneyShort(r.net)}</b>
       </div>`).join('')}</div>`));
   }
@@ -356,7 +356,7 @@ export class Modals {
 
     body.append(el('button', {
       class: 'bigrow', style: { borderColor: 'rgba(255,77,106,.35)', color: 'var(--down)', background: 'rgba(255,77,106,.1)' },
-      text: '▶ RESET ACCOUNT · WATCH A 2 MINUTE PLACEMENT',
+      text: '▶ RESET ACCOUNT | WATCH A 2 MINUTE PLACEMENT',
       onclick: async (e) => {
         const btn = e.target;
         if (!btn.dataset.armed) {
@@ -370,7 +370,7 @@ export class Modals {
         if (!ad?.ok) {
           btn.disabled = false;
           delete btn.dataset.armed;
-          btn.textContent = '▶ RESET ACCOUNT · WATCH A 2 MINUTE PLACEMENT';
+          btn.textContent = '▶ RESET ACCOUNT | WATCH A 2 MINUTE PLACEMENT';
           this.toast?.({ tone: 'bad', icon: '⚠', text: `${ad?.reason || 'No reward'}, save kept` });
           return;
         }
@@ -517,7 +517,7 @@ export class Modals {
       card.append(el('div', { class: 'botcard-head' }, [
         el('div', { class: 'boticon', style: { color: def.color }, text: def.icon }),
         el('div', { class: 'grow' }, [
-          el('div', { class: 'ccard-title', text: `${def.name} · L${bot.level}` }),
+          el('div', { class: 'ccard-title', text: `${def.name} | L${bot.level}` }),
           el('div', { class: 'ccard-sub', text: bot.focus ? `Working ${bot.focus}` : 'Scanning for a setup' }),
         ]),
         el('button', {
@@ -574,7 +574,7 @@ export class Modals {
         grid.append(el('div', { class: cls('ccard', (!afford || !room) && 'locked') }, [
           html(`<div class="ccard-title">${def.icon} ${esc(def.name)}</div>
             <div class="ccard-sub">${esc(def.blurb)}</div>
-            <div class="ccard-sub">Edge ${(def.edge * 6).toFixed(1)}%/day base · risk ${def.risk.toFixed(2)}x</div>`),
+            <div class="ccard-sub">Edge ${(def.edge * 6).toFixed(1)}%/day base | risk ${def.risk.toFixed(2)}x</div>`),
           el('button', {
             class: cls('btn', 'btn-sm', afford && room && 'btn-primary'),
             text: room ? moneyShort(def.cost) : 'NO SLOT',
@@ -726,7 +726,7 @@ export class Modals {
     const result = el('div', { class: 'ccard-sub', style: { marginTop: '8px' } });
     const submit = () => {
       const res = game.redeemCode(input.value);
-      result.textContent = res.ok ? `Redeemed · +${money(res.reward.cash, 0)} and ${res.reward.xp} XP` : res.reason;
+      result.textContent = res.ok ? `Redeemed | +${money(res.reward.cash, 0)} and ${res.reward.xp} XP` : res.reason;
       result.className = `ccard-sub ${res.ok ? 'up' : 'down'}`;
       input.value = '';
       this.refresh?.();
@@ -785,7 +785,7 @@ export class Modals {
     ]));
     body.append(hint);
 
-    body.append(el('h4', { text: `ARMED · ${pending.length}` }));
+    body.append(el('h4', { text: `ARMED | ${pending.length}` }));
     if (!pending.length) {
       body.append(html(`<div class="ccard-sub">Nothing armed. Add one above, or press
         <b>A</b> on the chart and click the level you want.</div>`));
@@ -820,7 +820,7 @@ export class Modals {
       }));
     }
 
-    body.append(el('h4', { text: `TRIGGERED · ${alerts.history.length}` }));
+    body.append(el('h4', { text: `TRIGGERED | ${alerts.history.length}` }));
     if (!alerts.history.length) {
       body.append(html('<div class="ccard-sub">No alert has fired yet.</div>'));
     } else {
@@ -828,7 +828,7 @@ export class Modals {
         <div class="listrow">
           <span class="pill ${a.above ? 'on' : ''}">${a.above ? '▲' : '▼'} HIT</span>
           <b>${esc(a.sym)}</b>
-          <span class="grow muted">DAY ${a.firedDay ?? '--'} · ${a.firedTick !== undefined ? clockTime(market.minuteOfTick(a.firedTick)) : ''}</span>
+          <span class="grow muted">DAY ${a.firedDay ?? '--'} | ${a.firedTick !== undefined ? clockTime(market.minuteOfTick(a.firedTick)) : ''}</span>
           <span class="muted">level ${fmtPrice(a.price)}</span>
           <b>${fmtPrice(a.firedPrice ?? a.price)}</b>
         </div>`).join('')}</div>`));
@@ -953,6 +953,98 @@ export class Modals {
     body.append(del);
   }
 
+
+  // --- the owner panel ----------------------------------------------------
+
+  /**
+   * OWNER CONTROLS.
+   *
+   * Two halves that must not be confused.
+   *
+   * The desk tools act on this browser's own save. They are a convenience, not
+   * a privilege: this is a single player game and anybody could edit their own
+   * save regardless, so nothing here is gated beyond the panel being hidden.
+   *
+   * The grants act on somebody else's account, and that is a real privilege.
+   * The server decides, not this screen: every insert is checked by a row
+   * level security policy against the account's own admin flag, so a player
+   * who forces this panel open gets a refusal from the database rather than
+   * a payout.
+   */
+  view_owner(body) {
+    const auth = this.auth;
+    const { game } = this;
+
+    if (!auth?.isAdmin) {
+      body.append(html(`<div class="ccard-sub">This panel is for owner accounts.
+        If you are signed in as one and still see this, reload so the profile
+        can be read again.</div>`));
+      return;
+    }
+
+    body.append(html(`<div class="ccard-sub">Signed in as <b>${esc(auth.email || '')}</b>.
+      Desk tools change this browser's save only. Grants change another account
+      and are checked by the server.</div>`));
+
+    // --- this desk --------------------------------------------------------
+    body.append(el('h4', { text: 'THIS DESK' }));
+    const deskGrid = el('div', { class: 'own-grid' });
+    const act = (label, fn) => deskGrid.append(el('button', {
+      class: 'own-btn', text: label,
+      onclick: () => { fn(); this.refresh?.(); this.rerender(); },
+    }));
+
+    act('+ $100K', () => game.storeCredit(100_000, { name: 'Owner tools' }));
+    act('+ $1M', () => game.storeCredit(1_000_000, { name: 'Owner tools' }));
+    act('+ 10 REWINDS', () => game.store.addRewinds(10));
+    act('+ 5 LEVELS', () => game.prog.addXp(totalXpForLevel(game.prog.level + 5) - game.prog.xp, game));
+    act('UNLOCK EVERYTHING', () => {
+      for (const l of LEVELS) if (l.unlock) game.prog.unlocked.add(l.unlock);
+      for (const item of SHOP) {
+        if (!game.flags.purchased.includes(item.id)) {
+          game.flags.purchased.push(item.id);
+          item.apply(game);
+        }
+      }
+    });
+    act('GRANT EVERY PASS', () => {
+      for (const pass of PASSES) if (!game.store.has(pass.id)) game.store.grant(pass, game);
+      game.account.vipDiscount = game.store.vipFeeDiscount();
+    });
+    act('+ 5000 VIP PTS', () => {
+      game.store.vipPoints += 5000;
+      game.store.write();
+      game.account.vipDiscount = game.store.vipFeeDiscount();
+    });
+    act('CLEAR ALL ADS TODAY', () => { game.ads.views = {}; game.ads.lastShownAt = 0; });
+    body.append(deskGrid);
+
+    body.append(html(`<div class="ccard-sub">Store checkout is currently
+      <b>${esc(game.store.provider?.name ?? 'unconfigured')}</b>. Switch it to the
+      granting provider to walk a purchase without paying.</div>`));
+    body.append(el('button', {
+      class: 'bigrow plain',
+      text: game.store.provider?.name === 'dev-grant'
+        ? '↩ PUT CHECKOUT BACK TO REFUSING'
+        : '▶ LET CHECKOUT GRANT WITHOUT CHARGING',
+      onclick: () => {
+        game.store.provider = game.store.provider?.name === 'dev-grant'
+          ? unconfiguredProvider
+          : devGrantProvider;
+        this.rerender();
+      },
+    }));
+
+    // Account administration lives on its own page, because it needs no game
+    // and a second copy of it here would drift from the first.
+    body.append(el('button', {
+      class: 'bigrow plain', text: '↗ ACCOUNTS AND GRANTS',
+      onclick: () => window.open('owner.html', '_blank'),
+    }));
+    body.append(html('<div class="ccard-sub">Opens the owner panel, where you can see every account and grant to one.</div>'));
+  }
+
+
   // --- the store ----------------------------------------------------------
 
   /**
@@ -994,7 +1086,7 @@ export class Modals {
             el('span', { class: 'muted', text: `${t.points.toLocaleString()} pts` }),
             el('span', { class: cls('pill', reached && 'on'), text: reached ? 'ACTIVE' : 'LOCKED' }),
           ]),
-          el('div', { class: 'ccard-sub', text: t.perks.join(' · ') }),
+          el('div', { class: 'ccard-sub', text: t.perks.join(' | ') }),
         ]));
       }
     }
@@ -1036,7 +1128,7 @@ export class Modals {
         el('div', {
           text: v.next ? `${v.toNext.toLocaleString()} pts to VIP ${v.next}` : 'Top standing reached',
         }),
-        el('div', { class: 'ccard-sub', text: v.perks.length ? v.perks.join(' · ') : 'Any purchase starts the ladder' }),
+        el('div', { class: 'ccard-sub', text: v.perks.length ? v.perks.join(' | ') : 'Any purchase starts the ladder' }),
       ]),
       bar,
       el('button', {
@@ -1129,14 +1221,14 @@ export class Modals {
 
     if (free > 0) {
       body.append(el('button', {
-        class: 'bigrow', text: `⟲ USE A FREE REWIND · ${free} LEFT TODAY`,
+        class: 'bigrow', text: `⟲ USE A FREE REWIND | ${free} LEFT TODAY`,
         onclick: () => run(() => (game.takeFreeRewind() ? null : { ok: false, reason: 'No free rewind left' })),
       }));
     }
 
     if (store.rewinds > 0) {
       body.append(el('button', {
-        class: 'bigrow plain', text: `⟲ SPEND A CHARGE · ${store.rewinds} LEFT`,
+        class: 'bigrow plain', text: `⟲ SPEND A CHARGE | ${store.rewinds} LEFT`,
         onclick: () => run(() => (store.spendRewind() ? null : { ok: false, reason: 'No charges left' })),
       }));
     }
@@ -1283,10 +1375,10 @@ export class Modals {
           return;
         }
         statusLine.className = 'bld-status good';
-        statusLine.textContent = `✓ valid · ${check.terms} terms · needs ${check.warmup} bars of history`;
+        statusLine.textContent = `✓ valid | ${check.terms} terms | needs ${check.warmup} bars of history`;
       } else {
         statusLine.className = 'bld-status good';
-        statusLine.textContent = `✓ ${describeDef(draft)} · ${draft.plot === 'sub' ? 'sub-pane' : 'overlay'}`;
+        statusLine.textContent = `✓ ${describeDef(draft)} | ${draft.plot === 'sub' ? 'sub-pane' : 'overlay'}`;
       }
       if (!candles.length) return;
       const res = computeCustom(draft, candles.slice(-180));
@@ -1300,8 +1392,8 @@ export class Modals {
       svg.setAttribute('preserveAspectRatio', 'none');
       preview.append(svg);
       preview.append(html(`<div class="ccard-sub">LATEST <b>${vals.at(-1).toFixed(4)}</b>
-        · LOW ${Math.min(...vals).toFixed(4)} · HIGH ${Math.max(...vals).toFixed(4)}
-        · ${vals.length} of ${Math.min(candles.length, 180)} bars plotted</div>`));
+        | LOW ${Math.min(...vals).toFixed(4)} | HIGH ${Math.max(...vals).toFixed(4)}
+        | ${vals.length} of ${Math.min(candles.length, 180)} bars plotted</div>`));
     };
     status();
 
@@ -1341,7 +1433,7 @@ export class Modals {
         Operators: + - * / and parentheses.</div>`));
     }
 
-    body.append(el('h4', { text: `MY LIBRARY · ${lib.list.length}/${MAX_SAVED}` }));
+    body.append(el('h4', { text: `MY LIBRARY | ${lib.list.length}/${MAX_SAVED}` }));
     if (!lib.list.length) {
       body.append(html('<div class="ccard-sub">Nothing saved yet. Build one above and press SAVE TO LIBRARY.</div>'));
       return;
@@ -1353,7 +1445,7 @@ export class Modals {
         el('i', { class: 'bld-dot', style: { background: def.color } }),
         el('div', { class: 'grow' }, [
           el('div', { text: def.name }),
-          el('div', { class: 'ccard-sub', text: `${describeDef(def)} · ${def.plot === 'sub' ? 'SUB-PANE' : 'OVERLAY'}` }),
+          el('div', { class: 'ccard-sub', text: `${describeDef(def)} | ${def.plot === 'sub' ? 'SUB-PANE' : 'OVERLAY'}` }),
         ]),
         el('button', {
           class: cls('switch', on && 'on'), text: on ? 'ON' : 'OFF',
@@ -1425,7 +1517,7 @@ export class Modals {
         <div class="listrow" data-sym="${f.sym}" style="cursor:pointer">
           <b>${f.sym}</b>
           <div class="grow"><div>${esc(f.name)}</div><div class="ccard-sub">${esc(f.def.blurb || '')}</div></div>
-          <span class="muted nowrap">${f.def.mult > 0 ? `${f.def.mult}x` : `${f.def.mult}x inv`} · div ${((f.def.divYield || 0) * 100).toFixed(2)}%/d</span>
+          <span class="muted nowrap">${f.def.mult > 0 ? `${f.def.mult}x` : `${f.def.mult}x inv`} | div ${((f.def.divYield || 0) * 100).toFixed(2)}%/d</span>
           <b class="${f.changePct >= 0 ? 'up' : 'down'} nowrap">${pct(f.changePct)}</b>
         </div>`).join('')}</div>`);
     node.addEventListener('click', (e) => {
@@ -1441,7 +1533,7 @@ export class Modals {
     body.append(html(`<div class="cardgrid">${idx.map((i) => `
       <div class="ccard">
         <div class="ccard-title">${i.sym}</div>
-        <div class="ccard-sub">${esc(i.name)} · ${esc(i.def.blurb || '')}</div>
+        <div class="ccard-sub">${esc(i.name)} | ${esc(i.def.blurb || '')}</div>
         <div class="ccard-foot"><b>${fmtPrice(i.price)}</b>
         <span class="${i.changePct >= 0 ? 'up' : 'down'}">${pct(i.changePct)}</span></div>
       </div>`).join('')}</div>
@@ -1464,8 +1556,8 @@ export class Modals {
       });
       const msg = el('div', { class: 'ccard-sub' });
       body.append(html(`<div class="ccard">
-        <div class="ccard-title">🚀 ${esc(ipo.name)} · ${esc(ipo.sym)}</div>
-        <div class="ccard-sub">Offer price ${money(ipo.offer)} · lists day ${ipo.listDay} · book closes at the open.
+        <div class="ccard-title">🚀 ${esc(ipo.name)} | ${esc(ipo.sym)}</div>
+        <div class="ccard-sub">Offer price ${money(ipo.offer)} | lists day ${ipo.listDay} | book closes at the open.
         Hot books scale you back; cold books fill in full and can break issue.</div>
       </div><h4>SUBSCRIBE</h4>`));
       body.append(el('div', { style: { display: 'flex', gap: '8px' } }, [
@@ -1532,6 +1624,7 @@ const TITLES = {
   settings: 'SETTINGS', alerts: 'ALERTS', scanner: 'MARKET SCANNER',
   sectors: 'SECTORS', fundhq: 'FUND HQ', index: 'INDEX DESK', launchpad: 'IPO LAUNCHPAD',
   builder: 'INDICATOR BUILDER', store: 'STORE', rewind: 'UNDO A TRADE', account: 'ACCOUNT',
+  owner: 'OWNER PANEL',
 };
 
 function stat(label, value, tone = '') {

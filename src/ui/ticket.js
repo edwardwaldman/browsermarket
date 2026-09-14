@@ -290,7 +290,7 @@ export class Ticket {
           el('div', { class: 'poscard-top' }, [
             el('div', {}, [
               el('div', { class: cls('poscard-side', o.type === 'CALL' ? 'up' : 'down'), text: `${o.type} ${fmtPrice(o.strike)} × ${o.qty}` }),
-              el('div', { class: 'poscard-sub', text: `paid ${money(o.premium)} · expires day ${o.expiryDay}` }),
+              el('div', { class: 'poscard-sub', text: `paid ${money(o.premium)} | expires day ${o.expiryDay}` }),
             ]),
             pnlNode,
           ]),
@@ -308,7 +308,7 @@ export class Ticket {
       const pnl = (mark.price - o.premium) * CONTRACT_SIZE * o.qty;
       o.__pnlNode.className = cls('poscard-pnl', pnl >= 0 ? 'up' : 'down');
       o.__pnlNode.innerHTML = `<div style="text-align:right">${signed(pnl)}</div>`
-        + `<div class="poscard-sub" style="text-align:right">mark ${money(mark.price)} · ${mark.daysLeft ?? 0}d</div>`;
+        + `<div class="poscard-sub" style="text-align:right">mark ${money(mark.price)} | ${mark.daysLeft ?? 0}d</div>`;
     }
   }
 
@@ -443,7 +443,7 @@ export class Ticket {
     const prog = this.game.prog;
 
     const hasOptions = prog.has('OPTIONS');
-    r.tabOptions.textContent = hasOptions ? 'OPTIONS' : '🔒 OPTIONS · LV 23';
+    r.tabOptions.textContent = hasOptions ? 'OPTIONS' : '🔒 OPTIONS | LV 23';
     r.tabOptions.classList.toggle('locked', !hasOptions);
     if (this.mode === 'OPTIONS' && !hasOptions) this.setMode('ORDER');
     if (this.mode === 'OPTIONS') {
@@ -533,7 +533,7 @@ export class Ticket {
         node.append(el('div', { class: 'poscard' }, [
           el('div', { class: 'poscard-top' }, [
             el('div', {}, [
-              el('div', { class: cls('poscard-side', p.side === 'LONG' ? 'up' : 'down'), text: `${p.side} ${fmtQty(p.qty)} · ${p.leverage}X` }),
+              el('div', { class: cls('poscard-side', p.side === 'LONG' ? 'up' : 'down'), text: `${p.side} ${fmtQty(p.qty)} | ${p.leverage}X` }),
               el('div', { class: 'poscard-sub', text: `avg ${fmtPrice(p.avg)}` }),
             ]),
             pnlNode,
