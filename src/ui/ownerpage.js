@@ -78,14 +78,22 @@ function renderSignIn(reason) {
   const msg = el('div', { class: 'own-msg bad', text: reason || '' });
   const go = el('button', { class: 'auth-go', text: 'Sign in' });
 
+  const shake = (...nodes) => {
+    for (const n of nodes) { n.classList.remove('shake'); void n.offsetWidth; n.classList.add('shake'); }
+  };
+
   const submit = async () => {
-    if (!looksLikeEmail(email.value.trim())) { msg.textContent = 'That does not look like an email address.'; return; }
+    if (!looksLikeEmail(email.value.trim())) {
+      msg.textContent = 'That does not look like an email address.';
+      shake(email);
+      return;
+    }
     go.disabled = true;
     go.textContent = 'Signing in…';
     const res = await auth.signIn(email.value.trim(), pass.value);
     go.disabled = false;
     go.textContent = 'Sign in';
-    if (!res.ok) { msg.textContent = res.reason; return; }
+    if (!res.ok) { msg.textContent = res.reason; shake(email, pass); return; }
     location.reload();
   };
   go.onclick = submit;

@@ -1223,14 +1223,6 @@ table.grid tr:hover td { background: var(--panel-2); }
     color: var(--text); font-size: 13.5px; letter-spacing: .6px;
   }
 
-  .mslider { width: 100%; accent-color: var(--accent); height: 26px; }
-  .mticks { display: flex; justify-content: space-between; margin-top: -6px; }
-  .mtick {
-    color: var(--dim-2); font-size: 12.5px; padding: 4px 6px; border-radius: 0;
-    letter-spacing: .4px;
-  }
-  .mtick:active { color: var(--accent-ink); }
-
   .mlev { display: flex; flex-wrap: wrap; gap: 5px; }
   .mlev[hidden] { display: none; }
   .mlev-btn {
@@ -1705,3 +1697,50 @@ table.grid tr:hover td { background: var(--panel-2); }
 }
 .explorer-close { display: none; margin-left: auto; font-size: 18px; color: var(--dim); border-radius: 0; }
 .explorer-close:hover { color: var(--text); }
+
+/* ── a refusal you can feel ───────────────────────────────────────────── */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  15%, 45%, 75% { transform: translateX(-6px); }
+  30%, 60%, 90% { transform: translateX(6px); }
+}
+.shake { animation: shake .34s cubic-bezier(.36, .07, .19, .97); }
+.shake .auth-input, .shake.auth-input { border-color: var(--down); }
+/* Somebody who asked not to be moved is not shown a wobble. */
+:root[data-motion="reduced"] .shake { animation: none; outline: 2px solid var(--down); }
+
+/* ── the drawer's one action ──────────────────────────────────────────── */
+.mmenu-cta { padding: 12px 16px 6px; display: grid; gap: 8px; }
+.mmenu-signup {
+  height: 48px; border-radius: 0; border: 1px solid var(--accent);
+  background: var(--accent); color: #fff; font-size: 15.5px; font-weight: 600;
+}
+.mmenu-signup:active { filter: brightness(.9); }
+.mmenu-signin {
+  border-radius: 0; color: var(--accent-ink); font-size: 13.5px; padding: 4px;
+  background: none; border: 0;
+}
+
+/* ── size presets ─────────────────────────────────────────────────────── */
+@media (max-width: 760px) {
+  .msize-row { display: flex; align-items: center; gap: 6px; }
+  .msizes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; flex: 1; }
+  .msize {
+    height: 44px; border: 1px solid var(--line-2); border-radius: 0;
+    color: var(--dim); font-size: 14px; letter-spacing: .4px; background: var(--panel-2);
+  }
+  .msize.is-active {
+    background: var(--raise); color: var(--accent-ink); border-color: var(--accent);
+  }
+  .msize-input {
+    height: 44px; width: 100%; text-align: center; border-radius: 0;
+    background: var(--sunken); border: 1px solid var(--accent); color: var(--text);
+    font-size: 14px; font-family: inherit; outline: none;
+  }
+  .msizes-edit {
+    flex: none; height: 44px; padding: 0 10px; border-radius: 0;
+    border: 1px solid var(--line-2); background: var(--panel-2);
+    color: var(--dim-2); font-size: 11px; letter-spacing: 1px;
+  }
+  .msizes-edit.is-on { color: var(--accent-ink); border-color: var(--accent); }
+}
