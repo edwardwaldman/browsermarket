@@ -18,7 +18,7 @@ export class MobileTrade {
     this.sheet = sheet;
     this.game = game;
     this.getSymbol = getSymbol;
-    /** The same candles the big chart is drawing, so the two never disagree. */
+    /** Told when the sheet's height changes, so the chart can resize into it. */
     this.onLayoutChange = onLayoutChange;
     this.onTrade = onTrade;
     this.onSymbolPick = onSymbolPick;
@@ -155,18 +155,6 @@ export class MobileTrade {
     r.preview = el('div', { class: 'mpreview' });
     r.positions = el('div', { class: 'mpositions' });
 
-    /**
-     * A MINI CHART ON TOP OF THE ORDER FORM.
-     *
-     * The sheet used to cover the screen, so the moment somebody pressed BUY
-     * the thing they were buying disappeared. That is the one piece of
-     * information a trade is actually made from: they are sizing a position
-     * against a price they can no longer see, and the only way back to it was
-     * to close the form and start again.
-     *
-     * The sheet is half the screen now and this sits at the top of it, so the
-     * chart is above the form and the live price is above the button.
-     */
     r.panel = el('div', { class: 'msheet' }, [
       head,
       el('div', { class: 'msheet-body' }, [
