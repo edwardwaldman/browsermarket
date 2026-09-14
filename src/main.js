@@ -86,7 +86,7 @@ function startGame(g, resumed = false) {
 
   setInterval(() => { game.save(); markCloudDirty(); pushCloudSave(); }, 10000);
   startSignupGate();
-  if (ui.auth?.signedIn) afterSignIn();
+  resumeAccount();
   window.addEventListener('beforeunload', () => game.save());
   document.addEventListener('visibilitychange', () => {
     if (game.wiped) return;
@@ -827,6 +827,34 @@ function startSignupGate() {
  * where progress can be lost, so neither side is thrown away without being
  * asked. Only when one side is plainly empty does it resolve itself.
  */
+/**
+ * Pick up an account on load, whichever way it arrived: a stored session from
+ * last time, or the tokens Supabase puts in the URL fragment when somebody
+ * clicks the emailed link instead of typing the code.
+ *
+ * A link arrival has a session but no consent, because the boxes live on the
+ * code step it skipped. The account exists at that point, so the agreement is
+ * collected before anything is saved rather than after.
+ */
+async function resumeAccount() {
+  if (!accountsConfigured) return;
+  const fromLink = ui.auth.adoptFromUrl();
+  if (fromLink.ok) await ui.auth.loadUser();
+  if (!ui.auth.signedIn) return;
+
+  try { await ui.auth.fetchProfile(); } catch { /* retried on the next load */ }
+
+  if (ui.auth.needsConsent()) {
+    ui.authBox.show({
+      blocking: true,
+      step: 'consent',
+      reason: 'Your account is ready. One confirmation and your desk starts syncing.',
+    });
+    return;
+  }
+  afterSignIn();
+}
+
 async function afterSignIn() {
   cloudDirty = true;
   try { await ui.auth.fetchProfile(); } catch { /* shown on the next load */ }

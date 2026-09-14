@@ -179,6 +179,69 @@ export class Auth {
     return { ok: true, user: this.user };
   }
 
+  /**
+   * ARRIVING BY LINK INSTEAD OF BY CODE.
+   *
+   * Supabase's stock email template sends a magic link, not a six digit code:
+   * the token is only in the mail if somebody has edited the template to
+   * include it. So both have to work, or the very first sign-in on a fresh
+   * project fails for a reason nobody can see from the browser.
+   *
+   * Clicking the link returns here with the tokens in the URL fragment. They
+   * are read once and the fragment is wiped immediately, because a session
+   * token sitting in the address bar is one screenshot or one pasted link away
+   * from being somebody else's.
+   */
+  adoptFromUrl(loc = globalThis.location, history = globalThis.history) {
+    const hash = String(loc?.hash || '');
+    if (!hash.includes('access_token')) return { ok: false, reason: 'No session in the URL' };
+    const params = new URLSearchParams(hash.replace(/^#/, ''));
+    const access = params.get('access_token');
+    if (!access) return { ok: false, reason: 'No session in the URL' };
+
+    const expiresIn = Number(params.get('expires_in')) || 3600;
+    this.session = {
+      access_token: access,
+      refresh_token: params.get('refresh_token') || null,
+      expires_at: Number(params.get('expires_at')) || Math.floor(Date.now() / 1000) + expiresIn,
+      user: null,                       // filled in by the profile fetch below
+    };
+    this.write();
+
+    try {
+      history?.replaceState?.(null, '', `${loc.pathname}${loc.search}`);
+    } catch { /* a browser that will not rewrite the bar is not a reason to fail */ }
+
+    this.emit('signed-in');
+    return { ok: true };
+  }
+
+  /** Read the signed-in user back from the token, for a link arrival. */
+  async loadUser() {
+    if (!this.session?.access_token) return null;
+    try {
+      const user = await this.call('/auth/v1/user', { method: 'GET', auth: true });
+      if (user?.id) {
+        this.session.user = user;
+        this.write();
+      }
+      return user ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * True when there is a session but no record of what was agreed to, which is
+   * exactly what a link arrival produces: the consent boxes live on the code
+   * step and clicking a link skips it. The account exists either way, so the
+   * agreement has to be collected before the game is handed over.
+   */
+  needsConsent() {
+    if (!this.signedIn) return false;
+    return !this.profile?.terms_accepted_at;
+  }
+
   async signOut() {
     if (this.session?.access_token) {
       try { await this.call('/auth/v1/logout', { auth: true }); } catch { /* the token dies anyway */ }

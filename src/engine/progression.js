@@ -19,13 +19,25 @@ export const UNLOCKS = {
   REBIRTH: 'REBIRTH',
 };
 
+/**
+ * Open from the first trade rather than earned.
+ *
+ * Take profit and stop loss used to unlock at level 6, which meant the players
+ * most likely to blow an account up were the ones denied the tool that stops
+ * it. Leverage is ungated for the same reason: these are risk controls, and a
+ * risk control withheld until you have survived long enough to need it less is
+ * backwards. The level that used to hand them over pays cash instead, so the
+ * ladder keeps its rung.
+ */
+export const ALWAYS_UNLOCKED = ['BRACKETS'];
+
 /** Level table. Each entry either pays cash or opens a desk. */
 export const LEVELS = [
   { lvl: 2, cash: 1800 },
   { lvl: 3, unlock: 'SHORTS' },
   { lvl: 4, cash: 2600 },
   { lvl: 5, unlock: 'LIMIT' },
-  { lvl: 6, unlock: 'BRACKETS' },
+  { lvl: 6, cash: 3400 },
   { lvl: 7, cash: 5000 },
   { lvl: 8, cash: 8000 },
   { lvl: 9, unlock: 'IPO' },
@@ -129,7 +141,7 @@ export class Progression {
     this.prestige = 0;
     this.prestigePoints = 0;
     this.lifetimePeak = 0;
-    this.unlocked = new Set();
+    this.unlocked = new Set(ALWAYS_UNLOCKED);
     this.missions = [];
     this.missionTier = 0;
     this.collection = {};   // id -> { rarity, count, firstDay }
@@ -303,7 +315,7 @@ export class Progression {
     this.lifetimePeak = Math.max(this.lifetimePeak, netWorth);
     this.xp = 0;
     this.level = 1;
-    this.unlocked = new Set();
+    this.unlocked = new Set(ALWAYS_UNLOCKED);
     this.missionTier = 0;
     this.rollMissions(1);
     this.emit({ type: 'rebirth', prestige: this.prestige, gained });
@@ -340,7 +352,7 @@ export class Progression {
     this.prestige = raw.prestige ?? 0;
     this.prestigePoints = raw.prestigePoints ?? 0;
     this.lifetimePeak = raw.lifetimePeak ?? 0;
-    this.unlocked = new Set(raw.unlocked || []);
+    this.unlocked = new Set([...ALWAYS_UNLOCKED, ...(raw.unlocked || [])]);
     this.missions = raw.missions?.length ? raw.missions : this.missions;
     this.missionTier = raw.missionTier ?? 0;
     this.collection = raw.collection ?? {};

@@ -27,6 +27,9 @@ const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(`PAGEERROR: ${e.message}`));
 
+await page.addInitScript(() => {
+  window.BROWSERMARKET_CONFIG = { signupAfterMs: 36_000_000 };
+});
 await page.goto(URL, { waitUntil: 'networkidle' });
 await page.waitForTimeout(4500);
 await page.click('#promo-go').catch(() => {});
@@ -536,6 +539,44 @@ const mobileOverflow = await page.evaluate(
   () => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 check('no horizontal overflow with the phone bar', mobileOverflow === 0, `${mobileOverflow}px`);
 
+// The sheet was dismissed by the check above, and the form only recomputes
+// while it is open.
+await page.click('.mbtn.buy');
+await page.waitForTimeout(400);
+
+check('take profit and stop loss are in the phone order form', await page.evaluate(() => {
+  const labels = [...document.querySelectorAll('.mbracket .mfield span')].map((s) => s.textContent);
+  return labels.includes('TAKE PROFIT') && labels.includes('STOP LOSS')
+    && document.querySelectorAll('.mbracket .mpresets').length === 2;
+}));
+
+check('a bracket preset states what it is worth in money', await page.evaluate(async () => {
+  game.limiter.hits.clear();
+  game.account.cash = Math.max(game.account.cash, 20000);
+  [...document.querySelectorAll('.mtick')].find((t) => t.textContent === '50%').click();
+  await new Promise((r) => setTimeout(r, 200));
+  const [tpRow, slRow] = document.querySelectorAll('.mbracket .mpresets');
+  [...tpRow.children].find((b) => b.textContent === '10%').click();
+  [...slRow.children].find((b) => b.textContent === '5%').click();
+  await new Promise((r) => setTimeout(r, 250));
+  const note = document.querySelector('.mbracket-note').textContent;
+  return /Take \+\$/.test(note) && /Stop -\$/.test(note);
+}));
+
+check('the order actually carries the bracket', await page.evaluate(async () => {
+  // Adding to a name already held merges into that position rather than making
+  // a second one, so find it by symbol instead of assuming a new row appeared.
+  const held = () => game.account.positions.reduce((n, p) => n + p.qty, 0);
+  const before = held();
+  document.querySelector('.msubmit').click();
+  await new Promise((r) => setTimeout(r, 400));
+  const p = game.account.positions.find((x) => x.side === 'LONG' && x.tp);
+  return held() > before && Boolean(p) && p.tp > p.avg && p.sl < p.avg && p.sl > 0;
+}));
+
+check('a filled bracket clears rather than sticking to the next order', await page.evaluate(
+  () => document.querySelectorAll('.mbracket .mfield input')[0].value === ''));
+
 await page.setViewportSize({ width: 1280, height: 800 });
 await page.waitForTimeout(400);
 check('the desk ticket comes back on a wide screen', await page.evaluate(
@@ -565,8 +606,12 @@ check('there is a visible way to accounts from the toolbar', await page.evaluate
   document.querySelector('[data-modal="account"]').click();
   await new Promise((r) => setTimeout(r, 250));
   const t = document.querySelector('.modal-body')?.textContent ?? '';
-  // Unconfigured on this pass, so it has to say so rather than show a dead form.
-  return t.includes('not switched on') && t.includes('this browser only');
+  // Correct either way: a build with a project offers the way in, one without
+  // says so rather than showing a form that cannot work.
+  const configured = Boolean(window.BROWSERMARKET_CONFIG?.supabaseUrl);
+  return configured
+    ? t.includes('SIGN IN') || t.includes('Signed in as')
+    : t.includes('not switched on') && t.includes('this browser only');
 }));
 
 await page.keyboard.press('Escape');
@@ -712,6 +757,27 @@ for (const doc of ['terms', 'privacy']) {
     `${info.h2} sections, ${info.words} words`);
   await lp.close();
 }
+
+
+check('a session arriving by emailed link is picked up', await page.evaluate(async () => {
+  const m = await import('/src/engine/auth.js');
+  const auth = new m.Auth({ url: 'https://demo.supabase.co', anonKey: 'k', storage: window.sessionStorage });
+  const res = auth.adoptFromUrl(
+    { hash: '#access_token=abc&refresh_token=def&expires_in=3600', pathname: '/', search: '' },
+    { replaceState() {} },
+  );
+  return res.ok && auth.session.access_token === 'abc' && auth.session.refresh_token === 'def';
+}));
+
+check('a link arrival with no consent on file is asked for it', await page.evaluate(async () => {
+  const m = await import('/src/engine/auth.js');
+  const auth = new m.Auth({ url: 'https://demo.supabase.co', anonKey: 'k', storage: window.sessionStorage });
+  auth.session = { access_token: 'a', user: { id: 'u', email: 'x@y.z' } };
+  auth.profile = { terms_accepted_at: null };
+  const before = auth.needsConsent();
+  auth.profile = { terms_accepted_at: new Date().toISOString() };
+  return before === true && auth.needsConsent() === false;
+}));
 
 check('no console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

@@ -12,7 +12,9 @@ import {
 } from '../src/engine/custom.js';
 import { Market, aggregate, sessionAt, ar1Innovation, TF } from '../src/engine/market.js';
 import { Account, FEE_RATE } from '../src/engine/account.js';
-import { Progression, totalXpForLevel, xpForLevel, LEVERAGE_TIERS, LEVELS } from '../src/engine/progression.js';
+import {
+  Progression, totalXpForLevel, xpForLevel, LEVERAGE_TIERS, LEVELS, ALWAYS_UNLOCKED,
+} from '../src/engine/progression.js';
 import { BotDesk, BOT_TYPES, upgradeCost } from '../src/engine/bots.js';
 import { Leaderboard } from '../src/engine/leaderboard.js';
 import { Game, SHOP, REWIND_WINDOW } from '../src/engine/game.js';
@@ -417,7 +419,9 @@ test('rebirth needs a million and pays compounding prestige', () => {
   const res = p.rebirth(4e6);
   assert.ok(res.gained >= 1);
   assert.equal(p.level, 1);
-  assert.equal(p.unlocked.size, 0);
+  // A prestige gives back the earned desks, but not the risk controls: taking
+  // somebody's stop loss away as a reward for doing well is backwards.
+  assert.deepEqual([...p.unlocked].sort(), [...ALWAYS_UNLOCKED].sort());
   assert.ok(p.perks.startingCash > before, 'prestige should raise the starting stake');
 });
 
@@ -1779,4 +1783,41 @@ test('the legal versions the client records are real and dated', () => {
   assert.match(LEGAL.termsVersion, /^\d{4}-\d{2}-\d{2}$/);
   assert.match(LEGAL.privacyVersion, /^\d{4}-\d{2}-\d{2}$/);
   assert.ok(LEGAL.termsUrl.endsWith('.html') && LEGAL.privacyUrl.endsWith('.html'));
+});
+
+// ── take profit and stop loss ────────────────────────────────────────────
+test('brackets are open from the first trade, like leverage', () => {
+  const p = new Progression(21);
+  assert.equal(p.has('BRACKETS'), true, 'a stop loss is a risk control, not a reward');
+  assert.equal(p.level, 1);
+  // And no level hands them over a second time.
+  assert.equal(LEVELS.some((l) => l.unlock === 'BRACKETS'), false);
+});
+
+test('a save from before the change still gets brackets', () => {
+  const p = new Progression(22);
+  p.load({ unlocked: ['SHORTS'], level: 4 });
+  assert.equal(p.has('BRACKETS'), true, 'an old save must not be stuck without them');
+  assert.equal(p.has('SHORTS'), true, 'and must keep what it had earned');
+});
+
+test('the level that used to open brackets still pays its rung', () => {
+  const six = LEVELS.find((l) => l.lvl === 6);
+  assert.ok(six, 'level 6 must still be in the ladder');
+  assert.ok(six.cash > 0, 'it pays cash now instead of leaving a dead rung');
+});
+
+test('a bracket fires at the level it was given, on both sides', () => {
+  for (const [side, mult] of [['LONG', 1.2], ['SHORT', 0.8]]) {
+    const m = new Market(707).warmUp(1);
+    const a = new Account(60000);
+    const entry = m.get('OBBY').price;
+    const tp = side === 'LONG' ? entry * 1.1 : entry * 0.9;
+    a.open(m, { sym: 'OBBY', side, margin: 3000, leverage: 1, tp });
+    m.get('OBBY').price = entry * mult;
+    a.runBrackets(m);
+    assert.equal(a.positions.length, 0, `${side} take profit did not fire`);
+    assert.equal(a.history[0].reason, 'TAKE PROFIT');
+    assert.ok(a.history[0].pnl > 0, `${side} take profit should book a gain`);
+  }
 });
