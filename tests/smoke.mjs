@@ -561,6 +561,17 @@ check('the wiped account comes back fresh', await page.evaluate(
     && game.prog.level === 1 && game.library.list.length === 0));
 
 
+check('there is a visible way to accounts from the toolbar', await page.evaluate(async () => {
+  document.querySelector('[data-modal="account"]').click();
+  await new Promise((r) => setTimeout(r, 250));
+  const t = document.querySelector('.modal-body')?.textContent ?? '';
+  // Unconfigured on this pass, so it has to say so rather than show a dead form.
+  return t.includes('not switched on') && t.includes('this browser only');
+}));
+
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+
 // ── accounts ─────────────────────────────────────────────────────────────
 // Configured with a stubbed backend so the whole sign-up path can be walked
 // without a live project.
@@ -662,6 +673,16 @@ check('the save is pushed to the account', await page.evaluate(async () => {
   const push = window.__authCalls.find((c) => c.path.includes('/rest/v1/cloud_saves') && c.body?.payload);
   return Boolean(push) && push.body.user_id === 'u1' && typeof push.body.payload === 'object';
 }));
+
+check('the account modal shows the signed-in state', await page.evaluate(async () => {
+  document.querySelector('[data-modal="account"]').click();
+  await new Promise((r) => setTimeout(r, 250));
+  const t = document.querySelector('.modal-body').textContent;
+  return t.includes('player@example.com') && t.includes('SIGN OUT');
+}));
+
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
 
 check('settings shows the account and the way out of marketing', await page.evaluate(async () => {
   document.querySelector('[data-modal="settings"]').click();
