@@ -860,14 +860,31 @@ export class Modals {
    * it is the place every promise made at sign-up can actually be kept:
    * turning marketing email off, deleting the cloud copy, signing out.
    */
-  settingsAccount(body) {
+  /**
+   * Reachable both as its own modal from the toolbar and as a block inside
+   * Settings. One implementation, because two would drift and the one that
+   * goes stale is always the one nobody opens.
+   */
+  view_account(body) {
+    this.settingsAccount(body, { standalone: true });
+  }
+
+  settingsAccount(body, { standalone = false } = {}) {
     const auth = this.auth;
-    body.append(el('h4', { text: 'ACCOUNT' }));
+    if (!standalone) body.append(el('h4', { text: 'ACCOUNT' }));
 
     if (!auth?.configured) {
-      body.append(html(`<div class="ccard-sub">Accounts are not configured on this build.
+      body.append(html(`<div class="ccard-sub">
+        <b>Accounts are not switched on for this build yet.</b><br>
         Your desk is saved in this browser only: clearing site data clears it, and
-        it does not follow you to another device.</div>`));
+        it does not follow you to another device.
+        <br><br>Once a project is connected, this is where you sign in with a code
+        sent to your email, and your desk syncs to every device you play on.
+        Nothing else about the game changes.</div>`));
+      body.append(el('div', { class: 'legal-links' }, [
+        el('a', { class: 'auth-link', href: LEGAL.termsUrl, target: '_blank', rel: 'noopener', text: 'Terms of Service' }),
+        el('a', { class: 'auth-link', href: LEGAL.privacyUrl, target: '_blank', rel: 'noopener', text: 'Privacy Policy' }),
+      ]));
       return;
     }
 
@@ -1514,7 +1531,7 @@ const TITLES = {
   customize: 'TERMINAL CUSTOMIZATION', desks: 'ALGO DESKS', rebirth: 'REBIRTH',
   settings: 'SETTINGS', alerts: 'ALERTS', scanner: 'MARKET SCANNER',
   sectors: 'SECTORS', fundhq: 'FUND HQ', index: 'INDEX DESK', launchpad: 'IPO LAUNCHPAD',
-  builder: 'INDICATOR BUILDER', store: 'STORE', rewind: 'UNDO A TRADE',
+  builder: 'INDICATOR BUILDER', store: 'STORE', rewind: 'UNDO A TRADE', account: 'ACCOUNT',
 };
 
 function stat(label, value, tone = '') {
