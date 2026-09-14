@@ -22,6 +22,7 @@ export class Account {
     this.orders = [];
     this.history = [];
     this.ledger = [];
+    this.vipDiscount = 0;   // set from the store, never saved
     this.drip = false;
     this.stats = {
       trades: 0, wins: 0, losses: 0, best: 0, worst: 0,
@@ -94,8 +95,14 @@ export class Account {
     return this.positions.find((p) => p.sym === sym && p.side === side && p.leverage === leverage);
   }
 
+  /**
+   * VIP standing is kept out of `perks` on purpose. Perks are saved, so adding
+   * a tier's discount into them would stack it again on every reload; this is
+   * recomputed from the store instead and never persisted.
+   */
   feeRate() {
-    return FEE_RATE * (1 - clamp(this.perks.feeDiscount, 0, 0.9));
+    const total = clamp(this.perks.feeDiscount, 0, 0.9) + clamp(this.vipDiscount || 0, 0, 0.5);
+    return FEE_RATE * (1 - clamp(total, 0, 0.9));
   }
 
   /**

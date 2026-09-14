@@ -174,7 +174,8 @@ function buildUi() {
   ui.modals.symbol = symbol;
   ui.modals.previewCandles = () => game.market.get(symbol)?.candles(timeframe) ?? [];
 
-  ui.ads = new AdOverlay($('#ad-root'), game.ads);
+  ui.ads = new AdOverlay($('#ad-root'), game.ads, game.store);
+  ui.ads.onStore = (cat) => { ui.modals.storeCat = cat; ui.modals.open('store'); };
   ui.modals.onWatchAd = (placement) => ui.ads.play(placement);
   ui.modals.toast = (t) => ui.toasts.push(t);
   ui.modals.onReplayTutorial = () => { game.flags.tutorialDone = false; showPromo(); };
@@ -513,6 +514,9 @@ function handleEvent(e) {
     case 'toast':
       if (settings.get('notifications')) ui.toasts.push(e);
       break;
+    case 'closed':
+      showUndoBar(e.result);
+      break;
     case 'celebrate':
       if (settings.get('marketAlerts')) ui.celebration.show(e);
       blip(880, 0.12, 'triangle', 0.05);
@@ -722,6 +726,47 @@ function onSheetLayout(open) {
     ui.chart.resize();
     ui.chart.render();
   }));
+}
+
+/**
+ * THE UNDO PROMPT.
+ *
+ * A closed trade is the only moment a rewind is worth anything, and it stops
+ * being worth anything a few minutes later when the price has moved on, so the
+ * offer lives here rather than buried in a menu. It states the result it is
+ * undoing, because an undo worth paying for is one the player already regrets.
+ */
+function showUndoBar(result) {
+  const node = $('#undobar');
+  if (!node) return;
+  clearTimeout(node.__timer);
+  const pnl = result?.pnl ?? 0;
+  const free = game.freeRewindsLeft();
+  const charges = game.store.rewinds;
+  const cost = free > 0 ? `FREE · ${free} LEFT` : charges > 0 ? `${charges} CHARGES` : 'WATCH AN AD';
+  clear(node);
+  node.append(
+    el('div', { class: 'undobar-copy' }, [
+      el('b', { class: pnl >= 0 ? 'up' : 'down', text: `${esc(result?.sym ?? '')} ${signed(pnl)}` }),
+      el('span', { text: 'closed' }),
+    ]),
+    el('button', {
+      class: 'undobar-go', text: `⟲ UNDO · ${cost}`,
+      onclick: () => { hideUndoBar(); ui.modals.open('rewind'); },
+    }),
+    el('button', { class: 'undobar-x', text: '✕', onclick: () => hideUndoBar() }),
+  );
+  node.hidden = false;
+  // Long enough to notice and read, short enough not to become furniture.
+  node.__timer = setTimeout(hideUndoBar, 12000);
+}
+
+function hideUndoBar() {
+  const node = $('#undobar');
+  if (!node) return;
+  clearTimeout(node.__timer);
+  node.hidden = true;
+  clear(node);
 }
 
 function syncQuickTrade() {
