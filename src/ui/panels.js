@@ -219,9 +219,9 @@ export class BottomDock {
       <div class="flowcol"><div class="flowhead">BIDS</div>${ladder(book.bids, 'bid')}</div>
       <div class="flowcol"><div class="flowhead">ASKS</div>${ladder(book.asks, 'ask')}</div>
       <div class="flowcol">
-        <div class="flowhead">TIME &amp; SALES · ${esc(sym)}</div>
+        <div class="flowhead">TIME &amp; SALES | ${esc(sym)}</div>
         <div class="imbalance"><i style="width:${buyShare.toFixed(1)}%"></i></div>
-        <div class="flowhead" style="margin-bottom:6px">BUY PRESSURE ${buyShare.toFixed(0)}% · SPREAD ${fmtPrice(market.spread(ins))}</div>
+        <div class="flowhead" style="margin-bottom:6px">BUY PRESSURE ${buyShare.toFixed(0)}% | SPREAD ${fmtPrice(market.spread(ins))}</div>
         ${tape}
       </div>
     </div>`;
@@ -253,7 +253,7 @@ export class BottomDock {
       const date = gameDate(d - 1);
       cells.push(`<div class="calcell" style="background:${bg}" title="Day ${d}">
         <div class="d">${date.getUTCDate()}</div>
-        <div class="v">${v === null ? '·' : (v >= 0 ? '+' : '') + moneyShort(v).replace('$', '')}</div>
+        <div class="v">${v === null ? '|' : (v >= 0 ? '+' : '') + moneyShort(v).replace('$', '')}</div>
       </div>`);
     }
     const dow = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
@@ -291,7 +291,7 @@ export class BottomDock {
       <span class="feedtag ${l.amount >= 0 ? 'bull' : 'bear'}">${esc(l.kind)}</span>
       <div class="feedbody">
         <div class="feedhead ${l.amount >= 0 ? 'up' : 'down'}">${signed(l.amount)}</div>
-        <div class="feedsub">DAY ${l.day} · ${clockTime(market.minuteOfTick(l.t))}</div>
+        <div class="feedsub">DAY ${l.day} | ${clockTime(market.minuteOfTick(l.t))}</div>
       </div>
     </div>`).join('');
   }
@@ -337,7 +337,7 @@ export class BottomDock {
       <span class="feedtag ${n.tone === 'bull' ? 'bull' : n.tone === 'bear' ? 'bear' : 'info'}">${esc(n.headline)}</span>
       <div class="feedbody">
         <div class="feedhead">${esc(n.body)}</div>
-        <div class="feedsub">DAY ${n.day} · ${clockTime(n.minute)} · ${n.symbols?.length ? esc(n.symbols.join(' ')) : 'MARKET WIDE'}</div>
+        <div class="feedsub">DAY ${n.day} | ${clockTime(n.minute)} | ${n.symbols?.length ? esc(n.symbols.join(' ')) : 'MARKET WIDE'}</div>
       </div>
     </div>`).join('');
   }

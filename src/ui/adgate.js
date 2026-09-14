@@ -33,7 +33,7 @@ export class AdOverlay {
     const counter = el('div', { class: 'ad-count', text: `${placement.seconds}` });
     const bar = el('i');
     const skip = el('button', {
-      class: 'ad-skip', text: 'CLOSE · NO REWARD',
+      class: 'ad-skip', text: 'CLOSE | NO REWARD',
       onclick: () => this.controller.abort(),
     });
 

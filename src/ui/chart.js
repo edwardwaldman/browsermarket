@@ -519,9 +519,28 @@ export class Chart {
       ctx.fillText(fmtPrice(p), width - padR + 8, yOf(p) + 4);
     }
     ctx.textAlign = 'center';
-    const labelEvery = Math.max(1, Math.floor(bars.length / 7));
+
+    /**
+     * HOW MANY TIMESTAMPS FIT, NOT SEVEN.
+     *
+     * This drew a fixed seven labels whatever the width. A timestamp is about
+     * fifty pixels, so on a phone seven of them ran into each other and came
+     * out as one unreadable smear, with the leftmost half off the canvas.
+     * Measure the label, divide the plot by it, and draw that many.
+     */
+    const sample = clockTime(this.minuteOf(bars[0].t));
+    const textW = ctx.measureText(sample).width;
+    const slot = textW + 20;                       // plus breathing room
+    const plotW = width - geo.padL - padR;
+    const fits = Math.max(2, Math.floor(plotW / slot));
+    const labelEvery = Math.max(1, Math.ceil(bars.length / fits));
+
     for (let i = 0; i < bars.length; i += labelEvery) {
-      ctx.fillText(clockTime(this.minuteOf(bars[i].t)), xOf(i), height - padB + 16);
+      const x = xOf(i);
+      // Centred text runs half its width either side, so one too close to an
+      // edge gets clipped. Skipping it beats printing half a time.
+      if (x - textW / 2 < 0 || x + textW / 2 > width - padR) continue;
+      ctx.fillText(clockTime(this.minuteOf(bars[i].t)), x, height - padB + 16);
     }
   }
 

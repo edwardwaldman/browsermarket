@@ -18,7 +18,7 @@ const launch = process.env.CHROMIUM_PATH
 const checks = [];
 const check = (name, ok, detail = '') => {
   checks.push({ name, ok, detail });
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ` · ${detail}` : ''}`);
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ` | ${detail}` : ''}`);
 };
 
 const browser = await chromium.launch(launch);
@@ -334,7 +334,7 @@ const quick = await page.evaluate(async () => {
     last: [...document.querySelectorAll('#toasts .toast')].at(-1)?.textContent ?? '',
   };
 });
-check('quick buy opens a position at the ticket size', quick.ok, `${quick.label} · ${quick.last}`);
+check('quick buy opens a position at the ticket size', quick.ok, `${quick.label} | ${quick.last}`);
 
 // the indicator builder
 check('the builder opens from the indicators menu', await page.evaluate(async () => {
@@ -468,10 +468,13 @@ check('the phone shows a buy and sell bar, not the desk ticket', await page.eval
     && getComputedStyle(document.querySelector('#bottompanel')).display === 'none';
 }));
 
-check('the buy and sell buttons are big enough to hit', await page.evaluate(() => {
+check('the buy and sell buttons clear the touch target minimum', await page.evaluate(() => {
+  // Rendered pixels, after the phone's 80% zoom. 44 is Apple's floor and 48
+  // is Android's, so this is the number that actually matters rather than
+  // whatever the unzoomed CSS happened to say.
   const r = document.querySelector('.mbtn.buy').getBoundingClientRect();
-  return r.height >= 56 && r.width >= 150;
-}));
+  return r.height >= 48 && r.width >= 120;
+}, ));
 
 check('the bar carries the two sided price', await page.evaluate(() => {
   const subs = [...document.querySelectorAll('.mbtn-sub')].map((s) => s.textContent);
@@ -577,6 +580,39 @@ check('the order actually carries the bracket', await page.evaluate(async () => 
 check('a filled bracket clears rather than sticking to the next order', await page.evaluate(
   () => document.querySelectorAll('.mbracket .mfield input')[0].value === ''));
 
+check('tapping the ticker opens the picker full screen', await page.evaluate(async () => {
+  document.querySelector('#ah-pick').click();
+  await new Promise((r) => setTimeout(r, 250));
+  const panel = document.querySelector('#explorer');
+  const r = panel.getBoundingClientRect();
+  return panel.classList.contains('is-full')
+    && r.width >= window.innerWidth - 2 && r.height >= window.innerHeight - 2;
+}));
+
+check('the picker has a VOLATILE tab holding only wild names', await page.evaluate(async () => {
+  const tab = [...document.querySelectorAll('.classtab')].find((t) => t.textContent === 'VOLATILE');
+  if (!tab) return false;
+  tab.click();
+  await new Promise((r) => setTimeout(r, 250));
+  // The row carries its ticker in its first line, not an attribute.
+  const syms = [...document.querySelectorAll('.assetrow .assetrow-sym')]
+    .map((n) => n.textContent.trim());
+  if (syms.length < 4) return false;
+  const m = await import('/src/data/instruments.js');
+  // Every listed name is genuinely above the line, and the calm ones are out.
+  return syms.every((x) => (game.market.get(x)?.def.vol ?? 0) >= m.VOLATILE_MIN_VOL)
+    && !syms.includes('MKTX');
+}));
+
+check('picking from the picker closes it and switches the chart', await page.evaluate(async () => {
+  const row = document.querySelector('.assetrow');
+  const want = row.querySelector('.assetrow-sym').textContent.trim();
+  row.click();
+  await new Promise((r) => setTimeout(r, 400));
+  return !document.querySelector('#explorer').classList.contains('is-full')
+    && document.querySelector('.ah-sym').textContent.startsWith(want);
+}));
+
 await page.setViewportSize({ width: 1280, height: 800 });
 await page.waitForTimeout(400);
 check('the desk ticket comes back on a wide screen', await page.evaluate(
@@ -617,6 +653,58 @@ check('there is a visible way to accounts from the toolbar', await page.evaluate
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 
+check('the phone menu opens as a drawer from the right', await page.evaluate(async () => {
+  document.querySelector('#btn-mobile-menu').click();
+  await new Promise((r) => setTimeout(r, 350));
+  const root = document.querySelector('#modal-root');
+  const panel = document.querySelector('.mmenu');
+  if (!panel || root.hidden) return false;
+  const r = panel.getBoundingClientRect();
+  // Anchored to the right edge and running the full height, not a bottom sheet.
+  return Math.abs(r.right - window.innerWidth) < 2 && r.height > window.innerHeight * 0.8;
+}));
+
+check('the drawer lists the tools as text, not emoji', await page.evaluate(() => {
+  const rows = [...document.querySelectorAll('.mmenu-row')].map((b) => b.textContent.trim());
+  return rows.length >= 6
+    && rows.some((t) => /research/i.test(t))
+    && rows.some((t) => /preferences/i.test(t))
+    && !document.querySelector('.mmenu-ico');
+}));
+
+check('the drawer names the account state at its foot', await page.evaluate(() => {
+  const section = document.querySelector('.mmenu-section');
+  const rows = [...document.querySelectorAll('.mmenu-row')].map((b) => b.textContent.trim());
+  return Boolean(section) && /not signed in|@/i.test(section.textContent)
+    && rows.some((t) => /sign in|manage account/i.test(t));
+}));
+
+check('the owner row is hidden from a non-owner', await page.evaluate(
+  () => ![...document.querySelectorAll('.mmenu-row')].some((b) => /owner/i.test(b.textContent))));
+
+check('the drawer closes on escape', await page.evaluate(async () => {
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await new Promise((r) => setTimeout(r, 350));
+  return document.querySelector('#modal-root').hidden === true;
+}));
+
+check('the terminal opens on a broad fund, not one company', await page.evaluate(
+  () => document.querySelector('.ah-sym').textContent.startsWith('MKTX')));
+
+check('the ticker is a button with a caret', await page.evaluate(
+  () => document.querySelector('button.ah-sym') !== null
+    && document.querySelector('.ah-caret') !== null));
+
+check('a celebration has a surface to be read against', await page.evaluate(async () => {
+  ui.celebration.show({ title: 'WHILE YOU WERE OUT', sub: 'test', icon: '🌙' });
+  await new Promise((r) => setTimeout(r, 200));
+  const inner = document.querySelector('.celebration-inner');
+  const bg = getComputedStyle(inner).backgroundColor;
+  const clear = bg === 'transparent' || /rgba\(0,\s*0,\s*0,\s*0\)/.test(bg);
+  document.querySelector('#celebration').hidden = true;
+  return Boolean(inner) && !clear;
+}));
+
 // ── accounts ─────────────────────────────────────────────────────────────
 // Configured with a stubbed backend so the whole sign-up path can be walked
 // without a live project.
@@ -630,7 +718,10 @@ await page.addInitScript(() => {
     const p = String(url);
     if (!p.includes('demo.supabase.co')) return real(url, init);
     window.__authCalls.push({ path: p, body: init?.body ? JSON.parse(init.body) : null });
-    if (p.includes('/auth/v1/verify')) {
+    if (p.includes('/auth/v1/settings')) {
+      return new Response(JSON.stringify({ external: { google: true } }), { status: 200 });
+    }
+    if (p.includes('/auth/v1/signup') || p.includes('/auth/v1/token')) {
       return new Response(JSON.stringify({
         access_token: 't', refresh_token: 'r', expires_in: 3600,
         user: { id: 'u1', email: 'player@example.com' },
@@ -644,13 +735,13 @@ await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(2000);
 await page.evaluate(() => { document.querySelector('#promo').hidden = true; });
 
-check('accounts stay out of the way before the minute is up', await page.evaluate(
+check('accounts stay out of the way before the timer is up', await page.evaluate(
   () => document.querySelector('#auth-root').hidden === true));
 
-await page.waitForTimeout(3500);
+await page.waitForTimeout(3600);
 check('the sign-up gate appears once the timer is up', await page.evaluate(
   () => !document.querySelector('#auth-root').hidden
-    && document.querySelector('.auth-title').textContent.includes('SAVE YOUR PROGRESS')));
+    && /create your account/i.test(document.querySelector('.auth-title').textContent)));
 
 check('the gate cannot be tapped away', await page.evaluate(async () => {
   document.querySelector('.auth-scrim').click();
@@ -658,48 +749,75 @@ check('the gate cannot be tapped away', await page.evaluate(async () => {
   return !document.querySelector('#auth-root').hidden;
 }));
 
-check('a typo never reaches the network', await page.evaluate(async () => {
-  const before = window.__authCalls.length;
-  document.querySelector('.auth-input').value = 'nope';
-  document.querySelector('.auth-go').click();
-  await new Promise((r) => setTimeout(r, 250));
-  return window.__authCalls.length === before && document.querySelector('.auth-note').textContent.length > 0;
+check('the form carries every field the design asks for', await page.evaluate(() => {
+  const labels = [...document.querySelectorAll('.auth-field span')].map((s) => s.textContent);
+  return labels.includes('EMAIL') && labels.includes('PASSWORD') && labels.includes('CONFIRM PASSWORD')
+    && document.querySelectorAll('.auth-pass').length === 2
+    && Boolean(document.querySelector('.auth-swap'));
 }));
 
-check('sending a code moves to the code step', await page.evaluate(async () => {
-  const input = document.querySelector('.auth-input');
-  input.value = 'player@example.com';
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  document.querySelector('.auth-go').click();
-  await new Promise((r) => setTimeout(r, 400));
-  const otp = window.__authCalls.find((c) => c.path.includes('/auth/v1/otp'));
-  return Boolean(document.querySelector('.auth-code'))
-    && otp?.body?.email === 'player@example.com' && otp.body.create_user === true;
-}));
+check('Google is offered only because the project reports it enabled', await page.evaluate(
+  () => Boolean(document.querySelector('.auth-oauth'))
+    && window.__authCalls.some((c) => c.path.includes('/auth/v1/settings'))));
 
-check('both consent boxes start unticked', await page.evaluate(
+check('neither consent box starts ticked', await page.evaluate(
   () => document.querySelector('#auth-terms').checked === false
     && document.querySelector('#auth-marketing').checked === false));
 
-check('the consent boxes link to the two documents', await page.evaluate(() => {
+check('the age and terms box links both documents', await page.evaluate(() => {
   const hrefs = [...document.querySelectorAll('.auth-checks a')].map((a) => a.getAttribute('href'));
   return hrefs.some((h) => h.includes('terms')) && hrefs.some((h) => h.includes('privacy'));
 }));
 
-check('an account cannot be made without accepting the terms', await page.evaluate(async () => {
-  const before = window.__authCalls.length;
-  document.querySelector('.auth-code').value = '123456';
-  document.querySelector('.auth-go').click();
-  await new Promise((r) => setTimeout(r, 300));
-  return window.__authCalls.length === before
-    && /accept/i.test(document.querySelector('.auth-note').textContent);
-}));
+const fill = async (email, pw, confirm) => page.evaluate(([e, p1, p2]) => {
+  const [emailInput] = document.querySelectorAll('.auth-field input.auth-input');
+  const passes = document.querySelectorAll('.auth-pass input');
+  emailInput.value = e;
+  passes[0].value = p1;
+  if (passes[1]) passes[1].value = p2;
+}, [email, pw, confirm]);
 
-check('accepting the terms signs in and closes the gate', await page.evaluate(async () => {
+check('a short password never reaches the network', await page.evaluate(async () => {
+  const before = window.__authCalls.length;
+  const [emailInput] = document.querySelectorAll('.auth-field input.auth-input');
+  const passes = document.querySelectorAll('.auth-pass input');
+  emailInput.value = 'player@example.com';
+  passes[0].value = 'short';
+  passes[1].value = 'short';
   document.querySelector('#auth-terms').checked = true;
   document.querySelector('.auth-go').click();
-  await new Promise((r) => setTimeout(r, 700));
-  return document.querySelector('#auth-root').hidden === true;
+  await new Promise((r) => setTimeout(r, 250));
+  return window.__authCalls.length === before
+    && /characters/i.test(document.querySelector('.auth-note').textContent);
+}));
+
+await fill('player@example.com', 'correcthorse1', 'correcthorse2');
+check('mismatched passwords are caught before the network', await page.evaluate(async () => {
+  const before = window.__authCalls.length;
+  document.querySelector('.auth-go').click();
+  await new Promise((r) => setTimeout(r, 250));
+  return window.__authCalls.length === before
+    && /do not match/i.test(document.querySelector('.auth-note').textContent);
+}));
+
+await fill('player@example.com', 'correcthorse1', 'correcthorse1');
+check('an account cannot be made without the age and terms box', await page.evaluate(async () => {
+  document.querySelector('#auth-terms').checked = false;
+  const before = window.__authCalls.length;
+  document.querySelector('.auth-go').click();
+  await new Promise((r) => setTimeout(r, 250));
+  return window.__authCalls.length === before
+    && /age|terms/i.test(document.querySelector('.auth-note').textContent);
+}));
+
+check('accepting signs up and closes the gate', await page.evaluate(async () => {
+  document.querySelector('#auth-terms').checked = true;
+  document.querySelector('.auth-go').click();
+  await new Promise((r) => setTimeout(r, 800));
+  const signup = window.__authCalls.find((c) => c.path.includes('/auth/v1/signup'));
+  return document.querySelector('#auth-root').hidden === true
+    && signup?.body?.email === 'player@example.com'
+    && typeof signup.body.password === 'string';
 }));
 
 check('the consent record is written with both versions', await page.evaluate(() => {

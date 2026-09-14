@@ -23,3 +23,10 @@ export const accountsConfigured = Boolean(SUPABASE.url && SUPABASE.anonKey);
  * background tab does not burn through it.
  */
 export const SIGNUP_AFTER_MS = Number(cfg.signupAfterMs ?? 60_000);
+
+/**
+ * What the terminal opens on. A broad market fund rather than a single name:
+ * the first screen should say "this is a market", not "this is one company you
+ * have never heard of".
+ */
+export const DEFAULT_SYMBOL = String(cfg.defaultSymbol || 'MKTX');

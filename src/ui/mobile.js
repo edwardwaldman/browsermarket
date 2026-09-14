@@ -378,7 +378,7 @@ export class MobileTrade {
     const parts = [];
     if (tp) parts.push(`Take ${signed(((tp - fill) * dir * quantity) * mult)} at ${fmtPrice(tp)}`);
     if (sl) parts.push(`Stop ${signed(((sl - fill) * dir * quantity) * mult)} at ${fmtPrice(sl)}`);
-    r.bracketNote.textContent = this.margin > 0 ? parts.join(' · ') : '';
+    r.bracketNote.textContent = this.margin > 0 ? parts.join(' | ') : '';
     r.bracketNote.hidden = !parts.length || !(this.margin > 0);
     r.riskNote.textContent = sl ? 'Stop set' : 'No stop set';
     r.riskNote.classList.toggle('down', !sl);
