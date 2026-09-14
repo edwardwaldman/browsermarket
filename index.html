@@ -54,7 +54,9 @@
       <button class="tool" data-modal="rewards" title="Free rewards">🎁</button>
       <button class="tool" data-modal="leaderboard" title="Leaderboard">🏆</button>
       <button class="tool" data-modal="badges" title="Badges">✨</button>
-      <button class="shopbtn" data-modal="shop">▣ SHOP</button>
+      <button class="tool" data-modal="rewind" title="Undo a trade">⟲</button>
+      <button class="tool" data-modal="shop" title="Free perks">🎖️</button>
+      <button class="shopbtn" data-modal="store" title="Store">▣ STORE</button>
       <button class="tool" data-modal="alerts" title="Alerts">🔔<i class="badge-count" id="alert-count">0</i></button>
       <button class="tool" id="btn-theme" title="Light / dark mode">◐</button>
       <button class="tool" data-modal="settings" title="Settings">⚙</button>
@@ -125,10 +127,26 @@
   <div class="toasts" id="toasts"></div>
   <div class="celebration" id="celebration" hidden></div>
   <div class="modal-root" id="modal-root" hidden></div>
+  <div class="undobar" id="undobar" hidden></div>
+  <div class="auth-root" id="auth-root" hidden></div>
   <div class="ad-root" id="ad-root" hidden></div>
   <div class="promo" id="promo" hidden></div>
 </div>
 
+<script>
+  /* Deployment configuration. Paste your Supabase project URL and its
+     publishable (anon) key here to turn on accounts and cloud saves. Both
+     blank is a supported state: the game runs locally with no sign-in.
+     The publishable key is public by design; every table is behind row level
+     security keyed on the signed-in user. */
+  /* Anything set before this runs wins, so a deployment can inject the values
+     from an environment variable ahead of the page without editing this file. */
+  window.BROWSERMARKET_CONFIG = Object.assign({
+    supabaseUrl: '',
+    supabaseAnonKey: '',
+    signupAfterMs: 60000,
+  }, window.BROWSERMARKET_CONFIG || {});
+</script>
 <script type="module" src="src/main.js"></script>
 </body>
 </html>

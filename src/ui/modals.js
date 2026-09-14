@@ -8,6 +8,11 @@ import { LEVELS, RARITIES, COLLECTIBLES, BADGES, totalXpForLevel, xpForLevel } f
 import { BOT_TYPES, upgradeCost, OFFLINE_EFFICIENCY } from '../engine/bots.js';
 import { SHOP, CODES } from '../engine/game.js';
 import { PLACEMENTS } from '../engine/ads.js';
+import { LEGAL } from '../engine/auth.js';
+import {
+  CATEGORIES, PASSES, CAPITAL_PACKS, CONSUMABLES, VIP_TIERS,
+  cashFor, vipPointsFor, vipProgress,
+} from '../engine/store.js';
 import { SECTORS } from '../data/instruments.js';
 import { settings, TOGGLES, UI_SCALES, SHORTCUTS, THEMES, ACCENTS, CANDLE_PALETTES, GRID_DENSITY, TARGET_PRESETS } from '../engine/settings.js';
 import {
@@ -347,6 +352,8 @@ export class Modals {
         return sw;
       })(),
     ]));
+    this.settingsAccount(body);
+
     body.append(el('button', {
       class: 'bigrow', style: { borderColor: 'rgba(255,77,106,.35)', color: 'var(--down)', background: 'rgba(255,77,106,.1)' },
       text: '▶ RESET ACCOUNT · WATCH A 2 MINUTE PLACEMENT',
@@ -846,6 +853,297 @@ export class Modals {
     }).join('')}</div>`));
   }
 
+
+
+  /**
+   * The account block in Settings. Signed out it is an invitation; signed in
+   * it is the place every promise made at sign-up can actually be kept:
+   * turning marketing email off, deleting the cloud copy, signing out.
+   */
+  settingsAccount(body) {
+    const auth = this.auth;
+    body.append(el('h4', { text: 'ACCOUNT' }));
+
+    if (!auth?.configured) {
+      body.append(html(`<div class="ccard-sub">Accounts are not configured on this build.
+        Your desk is saved in this browser only: clearing site data clears it, and
+        it does not follow you to another device.</div>`));
+      return;
+    }
+
+    if (!auth.signedIn) {
+      body.append(html(`<div class="ccard-sub">Your desk is saved in this browser only.
+        An account keeps it on every device you play on.</div>`));
+      body.append(el('button', {
+        class: 'bigrow', text: '✉ SIGN IN OR CREATE AN ACCOUNT',
+        onclick: () => { this.close(); this.onSignIn?.(); },
+      }));
+      return;
+    }
+
+    const marketingOn = Boolean(auth.profile?.marketing_opt_in);
+    body.append(html(`<div class="ccard-sub">Signed in as <b>${esc(auth.email || '')}</b>.
+      Your desk syncs to this account automatically.</div>`));
+
+    body.append(el('div', { class: 'setrow' }, [
+      el('div', { class: 'setrow-body' }, [
+        el('div', { class: 'setrow-title', text: 'PRODUCT EMAIL' }),
+        el('div', { class: 'setrow-desc', text: 'News, new features and offers. Off does not stop account email such as sign-in codes.' }),
+      ]),
+      (() => {
+        const sw = el('button', { class: cls('switch', marketingOn && 'on'), text: marketingOn ? 'ON' : 'OFF' });
+        sw.onclick = async () => {
+          const next = !sw.classList.contains('on');
+          sw.disabled = true;
+          const res = await auth.setMarketing(next);
+          sw.disabled = false;
+          if (!res.ok) { this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+          sw.className = cls('switch', next && 'on');
+          sw.textContent = next ? 'ON' : 'OFF';
+        };
+        return sw;
+      })(),
+    ]));
+
+    body.append(el('div', { class: 'legal-links' }, [
+      el('a', { class: 'auth-link', href: LEGAL.termsUrl, target: '_blank', rel: 'noopener', text: 'Terms of Service' }),
+      el('a', { class: 'auth-link', href: LEGAL.privacyUrl, target: '_blank', rel: 'noopener', text: 'Privacy Policy' }),
+    ]));
+
+    body.append(el('button', {
+      class: 'bigrow plain', text: '↪ SIGN OUT',
+      onclick: () => this.onSignOut?.(),
+    }));
+
+    const del = el('button', {
+      class: 'bigrow plain', text: '☁ DELETE MY CLOUD SAVE',
+      onclick: async () => {
+        if (!del.dataset.armed) {
+          del.dataset.armed = '1';
+          del.textContent = 'PRESS AGAIN TO DELETE THE CLOUD COPY';
+          return;
+        }
+        del.disabled = true;
+        const res = await auth.deleteAccountData();
+        del.disabled = false;
+        delete del.dataset.armed;
+        del.textContent = '☁ DELETE MY CLOUD SAVE';
+        this.toast?.(res.ok
+          ? { tone: 'good', icon: '✓', text: 'Cloud save deleted. This device keeps its own copy.' }
+          : { tone: 'bad', icon: '⚠', text: res.reason });
+      },
+    });
+    body.append(del);
+  }
+
+  // --- the store ----------------------------------------------------------
+
+  /**
+   * THE STOREFRONT.
+   *
+   * A category rail down the left, VIP standing across the top, and a grid of
+   * priced cards, which is the shape every free-to-play shop settles on
+   * because it is the one that survives having thirty things for sale.
+   *
+   * Nothing here is granted until the checkout provider says money actually
+   * moved. The provider that ships refuses, so an unconfigured build shows the
+   * whole store and sells nothing rather than handing out paid goods.
+   */
+  view_store(body) {
+    const { store } = this.game;
+    const cat = this.storeCat || (this.storeCat = 'specials');
+
+    body.append(this.storeVip(store));
+
+    const rail = el('div', { class: 'st-rail' });
+    for (const c of CATEGORIES) {
+      rail.append(el('button', {
+        class: cls('st-cat', cat === c.id && 'is-active'), text: c.label,
+        onclick: () => { this.storeCat = c.id; this.rerender(); },
+      }));
+    }
+
+    const grid = el('div', { class: 'st-grid' });
+    for (const item of this.storeItemsFor(cat)) grid.append(this.storeCard(item, store));
+
+    if (cat === 'vip') {
+      clear(grid);
+      grid.className = 'st-vip-list';
+      for (const t of VIP_TIERS.slice(1)) {
+        const reached = store.vip >= t.level;
+        grid.append(el('div', { class: cls('st-tier', reached && 'is-on') }, [
+          el('div', { class: 'st-tier-head' }, [
+            el('b', { text: `VIP ${t.level}` }),
+            el('span', { class: 'muted', text: `${t.points.toLocaleString()} pts` }),
+            el('span', { class: cls('pill', reached && 'on'), text: reached ? 'ACTIVE' : 'LOCKED' }),
+          ]),
+          el('div', { class: 'ccard-sub', text: t.perks.join(' · ') }),
+        ]));
+      }
+    }
+
+    body.append(el('div', { class: 'st-body' }, [rail, grid]));
+    body.append(html(`<div class="st-legal">
+      Everything on this page is in-game only. Simulated desk capital, passes and
+      rewinds have no cash value, cannot be withdrawn, transferred or exchanged,
+      and are not an investment. No instrument in this game is real.
+      ${store.provider?.name === 'unconfigured'
+        ? '<br><b>Payments are not connected on this build</b>, so nothing here can be bought yet.'
+        : ''}
+    </div>`));
+  }
+
+  storeItemsFor(cat) {
+    if (cat === 'passes') return PASSES;
+    if (cat === 'capital') return CAPITAL_PACKS;
+    if (cat === 'rewinds') return CONSUMABLES;
+    if (cat === 'vip') return [];
+    // Specials: the pass they do not own yet, then the value picks.
+    const unowned = PASSES.filter((p) => !this.game.store.has(p.id));
+    return [...unowned.slice(0, 2), CAPITAL_PACKS[2], CAPITAL_PACKS[3], CONSUMABLES[0]].filter(Boolean);
+  }
+
+  storeVip(store) {
+    const v = vipProgress(store.vipPoints);
+    const bar = el('div', { class: 'st-vipbar' }, [
+      el('i', { style: { width: `${v.need ? Math.min(100, (v.into / v.need) * 100) : 100}%` } }),
+      el('span', {
+        text: v.need
+          ? `${v.into.toLocaleString()} / ${v.need.toLocaleString()}`
+          : `${store.vipPoints.toLocaleString()} pts`,
+      }),
+    ]);
+    return el('div', { class: 'st-vip' }, [
+      el('div', { class: 'st-vip-badge', text: `VIP ${v.level}` }),
+      el('div', { class: 'st-vip-copy' }, [
+        el('div', {
+          text: v.next ? `${v.toNext.toLocaleString()} pts to VIP ${v.next}` : 'Top standing reached',
+        }),
+        el('div', { class: 'ccard-sub', text: v.perks.length ? v.perks.join(' · ') : 'Any purchase starts the ladder' }),
+      ]),
+      bar,
+      el('button', {
+        class: 'st-vip-btn', text: 'VIP BENEFITS',
+        onclick: () => { this.storeCat = 'vip'; this.rerender(); },
+      }),
+    ]);
+  }
+
+  storeCard(item, store) {
+    const owned = item.once && store.has(item.id);
+    const cash = cashFor(item);
+    const card = el('div', { class: cls('st-card', item.tag && 'is-tagged', owned && 'is-owned') });
+    if (item.bonusPct) {
+      card.append(el('div', { class: 'st-bonus', text: `+${item.bonusPct}% BONUS` }));
+    }
+    card.append(el('div', { class: 'st-card-name', text: item.name }));
+    if (cash) card.append(el('div', { class: 'st-card-cash', text: `$${cash.toLocaleString()}` }));
+    if (item.rewinds) card.append(el('div', { class: 'st-card-cash', text: `${item.rewinds} ⟲` }));
+    if (item.tag) card.append(el('div', { class: 'st-card-tag', text: item.tag }));
+    if (item.perks) {
+      card.append(el('ul', { class: 'st-perks' }, item.perks.map((p) => el('li', { text: p }))));
+    }
+    card.append(el('div', { class: 'st-vippts', text: `+${vipPointsFor(item).toLocaleString()} VIP pts` }));
+
+    const buy = el('button', {
+      class: cls('st-buy', owned && 'is-owned'),
+      text: owned ? 'OWNED' : `$${item.price.toFixed(2)}`,
+      disabled: Boolean(owned),
+      onclick: async () => {
+        buy.disabled = true;
+        buy.textContent = 'CHECKING OUT…';
+        const res = await store.buy(item.id, this.game);
+        if (!res.ok) {
+          buy.disabled = false;
+          buy.textContent = `$${item.price.toFixed(2)}`;
+          this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason });
+          return;
+        }
+        this.game.account.vipDiscount = store.vipFeeDiscount();
+        this.toast?.({ tone: 'good', icon: '🧾', text: `${item.name} unlocked` });
+        this.refresh?.();
+        this.rerender();
+      },
+    });
+    card.append(buy);
+    return card;
+  }
+
+
+  /**
+   * UNDO A TRADE.
+   *
+   * Three ways to pay for it, cheapest first: a free daily one from a pass or
+   * VIP standing, a rewarded placement, or a charge bought in the store. The
+   * window is deliberately short, so this undoes the trade you just regretted
+   * rather than the afternoon.
+   */
+  view_rewind(body) {
+    const { game } = this;
+    const store = game.store;
+    const can = game.canRewind();
+    const free = game.freeRewindsLeft();
+
+    body.append(html(`<div class="ccard-sub">
+      A rewind puts your account back exactly as it stood immediately before
+      your last position change: the position returns, the cash returns, the
+      fee is refunded. Anything opened since is discarded with it.
+    </div>`));
+
+    body.append(el('div', { class: 'cardgrid', style: { marginTop: '12px' } }, [
+      html(stat('LAST TRADE', can.ok ? esc(can.label.toUpperCase()) : 'NONE IN RANGE')),
+      html(stat('FREE TODAY', String(free))),
+      html(stat('CHARGES', String(store.rewinds))),
+    ]));
+
+    if (!can.ok) {
+      body.append(html(`<div class="ccard-sub" style="margin-top:12px">🚫 ${esc(can.reason)}</div>`));
+      return;
+    }
+
+    const run = (pay) => {
+      const res = pay();
+      if (res && res.ok === false) { this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+      const done = game.rewind();
+      if (!done.ok) { this.toast?.({ tone: 'bad', icon: '⚠', text: done.reason }); return; }
+      this.refresh?.();
+      this.close();
+    };
+
+    if (free > 0) {
+      body.append(el('button', {
+        class: 'bigrow', text: `⟲ USE A FREE REWIND · ${free} LEFT TODAY`,
+        onclick: () => run(() => (game.takeFreeRewind() ? null : { ok: false, reason: 'No free rewind left' })),
+      }));
+    }
+
+    if (store.rewinds > 0) {
+      body.append(el('button', {
+        class: 'bigrow plain', text: `⟲ SPEND A CHARGE · ${store.rewinds} LEFT`,
+        onclick: () => run(() => (store.spendRewind() ? null : { ok: false, reason: 'No charges left' })),
+      }));
+    }
+
+    const adBtn = el('button', {
+      class: 'bigrow plain', text: '▶ WATCH A PLACEMENT TO UNDO',
+      onclick: async () => {
+        adBtn.disabled = true;
+        adBtn.textContent = 'PLACEMENT RUNNING…';
+        const ad = await this.onWatchAd?.('REWIND');
+        adBtn.disabled = false;
+        adBtn.textContent = '▶ WATCH A PLACEMENT TO UNDO';
+        if (!ad?.ok) { this.toast?.({ tone: 'bad', icon: '⚠', text: ad?.reason || 'No reward' }); return; }
+        run(() => null);
+      },
+    });
+    body.append(adBtn);
+
+    body.append(el('button', {
+      class: 'bigrow plain', text: '▣ BUY REWIND CHARGES',
+      onclick: () => { this.storeCat = 'rewinds'; this.open('store'); },
+    }));
+  }
+
   // --- indicator builder --------------------------------------------------
 
   /**
@@ -1216,7 +1514,7 @@ const TITLES = {
   customize: 'TERMINAL CUSTOMIZATION', desks: 'ALGO DESKS', rebirth: 'REBIRTH',
   settings: 'SETTINGS', alerts: 'ALERTS', scanner: 'MARKET SCANNER',
   sectors: 'SECTORS', fundhq: 'FUND HQ', index: 'INDEX DESK', launchpad: 'IPO LAUNCHPAD',
-  builder: 'INDICATOR BUILDER',
+  builder: 'INDICATOR BUILDER', store: 'STORE', rewind: 'UNDO A TRADE',
 };
 
 function stat(label, value, tone = '') {

@@ -8,12 +8,16 @@ import { BotDesk, BOT_TYPES, upgradeCost } from './bots.js';
 import { Leaderboard } from './leaderboard.js';
 import { Rng, clamp } from '../util/rng.js';
 import { Alerts } from './alerts.js';
+import { Store } from './store.js';
 import { EventCalendar } from './calendar.js';
 import { RateLimiter } from './ratelimit.js';
 import { AdGate } from './ads.js';
 import { buildChain, markOption, CONTRACT_SIZE } from './options.js';
 
 export const SAVE_KEY = 'browsermarket.save.v1';
+
+/** How long a trade stays undoable, in game minutes. */
+export const REWIND_WINDOW = 240;
 export const MS_PER_TICK = 500;         // one game minute at 1x
 export const SPEEDS = [1, 2, 4];
 export const MAX_OFFLINE_TICKS = 20160; // 14 game days of catch-up
@@ -78,6 +82,11 @@ export class Game {
     this.calendar = new EventCalendar(new Rng(seed ^ 0x1d3b));
     this.limiter = new RateLimiter();
     this.ads = new AdGate();
+    this.store = new Store();
+    this.account.vipDiscount = this.store.vipFeeDiscount();
+    this.rewindPoint = null;
+    this.rewindDay = new Date().toISOString().slice(0, 10);
+    this.rewindsUsed = 0;
 
     this.trader = opts.trader || 'you';
     this.speed = 1;
@@ -437,10 +446,81 @@ export class Game {
     return this.account.closeOption(this.market, id, fraction, 'MANUAL');
   }
 
+  // --- rewind -------------------------------------------------------------
+
+  /**
+   * UNDOING A TRADE.
+   *
+   * A snapshot of the whole account is taken immediately before anything that
+   * changes a position, and a rewind restores it. Replaying the trade in
+   * reverse was the other option and it is the wrong one: a close pays
+   * dividends, moves the ledger, books fees, feeds the stats and can trip a
+   * bracket on the way, so an inverse that missed one of those would quietly
+   * pay out twice.
+   *
+   * Anything opened after the snapshot is discarded with it, which is what
+   * undoing the trade means.
+   */
+  snapshot(label) {
+    this.rewindPoint = {
+      label,
+      tick: this.market.tick,
+      at: Date.now(),
+      account: JSON.parse(JSON.stringify(this.account.toJSON())),
+    };
+  }
+
+  canRewind() {
+    if (!this.rewindPoint) return { ok: false, reason: 'No trade to undo yet' };
+    const age = this.market.tick - this.rewindPoint.tick;
+    // Four game hours. Past that it stops being an undo and starts being a
+    // rewrite of the session, and every price in between has moved.
+    if (age > REWIND_WINDOW) return { ok: false, reason: 'That trade is too far back to undo' };
+    return { ok: true, label: this.rewindPoint.label, age };
+  }
+
+  /** Restore the snapshot. The caller is responsible for paying for it. */
+  rewind() {
+    const check = this.canRewind();
+    if (!check.ok) return check;
+    const snap = this.rewindPoint;
+    this.rewindPoint = null;
+    this.rewindDay = new Date().toISOString().slice(0, 10);
+    this.rewindsUsed = 0;
+    this.account.load(snap.account);
+    this.emit({ type: 'toast', tone: 'good', icon: '⟲', text: `Undone: ${snap.label}` });
+    return { ok: true, label: snap.label };
+  }
+
+  /** Free rewinds reset on the real calendar day, like the ad quotas do. */
+  freeRewindsLeft() {
+    const stamp = new Date().toISOString().slice(0, 10);
+    if (this.rewindDay !== stamp) { this.rewindDay = stamp; this.rewindsUsed = 0; }
+    return Math.max(0, this.store.dailyRewinds() - this.rewindsUsed);
+  }
+
+  takeFreeRewind() {
+    if (this.freeRewindsLeft() <= 0) return false;
+    this.rewindsUsed = (this.rewindsUsed || 0) + 1;
+    return true;
+  }
+
+  /** Credit bought desk capital and show it in the ledger like any other cash. */
+  storeCredit(amount, item) {
+    if (!(amount > 0)) return;
+    this.account.cash += amount;
+    this.account.ledgerPush(this.market, 'STORE', amount);
+    this.emit({ type: 'toast', tone: 'good', icon: '🧾', text: `${item.name}: +$${Math.round(amount).toLocaleString()}` });
+  }
+
   closePosition(id, fraction = 1) {
     const limit = this.limiter.take('close');
     if (!limit.ok) return { ok: false, reason: limit.reason };
-    return this.account.close(this.market, id, fraction, 'MANUAL');
+    const pos = this.account.positions.find((p) => p.id === id);
+    this.snapshot(pos ? `close ${pos.sym}` : 'close');
+    const res = this.account.close(this.market, id, fraction, 'MANUAL');
+    if (res.ok) this.emit({ type: 'closed', result: { ...res, sym: pos?.sym ?? '' } });
+    return res;
   }
 
   exitAll() {
@@ -763,6 +843,9 @@ export class Game {
       volumeMilestone: this.volumeMilestone,
       botPendingPnl: this.botPendingPnl,
       ads: this.ads.toJSON(),
+      store: this.store.toJSON(),
+      rewindDay: this.rewindDay,
+      rewindsUsed: this.rewindsUsed,
       alerts: this.alerts.toJSON(),
       calendar: this.calendar.toJSON(),
       timeMachine: this.timeMachine,
@@ -785,6 +868,10 @@ export class Game {
     game.volumeMilestone = raw.volumeMilestone ?? 0;
     game.botPendingPnl = raw.botPendingPnl ?? 0;
     game.ads.load(raw.ads);
+    game.store.load(raw.store);
+    game.rewindDay = raw.rewindDay ?? game.rewindDay;
+    game.rewindsUsed = raw.rewindsUsed ?? 0;
+    game.account.vipDiscount = game.store.vipFeeDiscount();
     game.alerts.load(raw.alerts);
     game.calendar.load(raw.calendar);
     game.timeMachine = { ...game.timeMachine, ...(raw.timeMachine || {}) };

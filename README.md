@@ -120,6 +120,29 @@ more of the book and the tape, optional trade confirmations, a
 buy-button-near-top layout for short screens, full-number formatting, and
 independent toggles for sound, notifications and market alerts.
 
+**The store.** A storefront with a category rail, VIP standing and priced
+cards: passes ($4.99 remove ads, $9.99 beginner, $24.99 pro desk), six capital
+packs from $1.99 to $99.99 whose per-dollar value climbs with the tier, and
+rewind charges. Everything sold is in-game and cannot be cashed out.
+
+Nothing is granted until a checkout provider reports that money moved. The
+provider that ships refuses every checkout on purpose, so an unconfigured build
+shows the whole store and sells nothing rather than handing out paid goods to
+anyone who opens the console. Wire a real processor by setting
+`game.store.provider` to something with a `checkout(item)` that resolves
+`{ completed: true }`. See `src/engine/store.js`.
+
+**Undoing a trade.** A snapshot of the account is taken before anything that
+changes a position, and a rewind restores it. It expires after four game hours,
+so it undoes the trade you just regretted rather than the afternoon. Pay with a
+free daily one from a pass or VIP standing, a rewarded placement, or a bought
+charge. A prompt appears for twelve seconds after any close.
+
+**Accounts.** Optional, and off until configured. Sign-in is a six digit code
+emailed to you, with no password to leak or forget. An account syncs your desk
+between devices; without one the game is exactly what it has always been, a
+local save in a browser. See [Accounts and cloud saves](#accounts-and-cloud-saves).
+
 **Rate limits.** Player actions are throttled on a sliding window: orders,
 closes, alerts, codes, shop purchases, desk changes and time skips each get
 their own budget. The game is entirely client-side, so these are not a security
@@ -169,6 +192,8 @@ turnover: a $1,000 order barely moves the tape, a $5,000,000 order pays about
 ```
 index.html              the terminal shell
 styles/main.css         the whole visual system
+legal/                  terms of service and privacy policy
+supabase/migrations/    the schema accounts and cloud saves need
 src/
   data/instruments.js   the tradable universe
   engine/
@@ -179,6 +204,8 @@ src/
     settings.js         preferences, themes, palettes and accents
     ratelimit.js        sliding-window limits on player actions
     ads.js              rewarded-placement gating for every unlock
+    store.js            the storefront, VIP standing and checkout
+    auth.js             accounts, sign-in codes and cloud saves
     options.js          Black-Scholes, the chain, expiry settlement
     indicators.js       SMA, EMA, RSI, MACD, Bollinger, VWAP, crossovers
     custom.js           user-built indicators and the formula language
@@ -194,6 +221,7 @@ src/
     modals.js           every overlay
     pages.js            the research desk
     adgate.js           the rewarded-placement overlay
+    authbox.js          the sign-in panel
     mobile.js           the phone trade bar and order sheet
     toast.js            toasts and celebration banners
   main.js               wiring and the render loop
@@ -226,3 +254,56 @@ Progress autosaves to `localStorage` every 10 seconds and on unload. Reopening
 the page replays the time you were away: the market keeps moving, resting
 orders can fill, brackets can trigger and your algo desks keep earning. Export
 or wipe your save from Settings.
+
+
+## Accounts and cloud saves
+
+Accounts are off until you configure them. With `supabaseUrl` and
+`supabaseAnonKey` blank the game runs entirely in the browser with a local save,
+no sign-in ever appears, and the sign-up timer never fires.
+
+To turn them on:
+
+1. Create a Supabase project, or pick an existing one.
+2. Apply `supabase/migrations/0001_auth_saves_consents.sql`. It creates
+   `profiles`, `cloud_saves` and `consent_events`, turns on row level security
+   for all three, and writes a policy for every operation keyed on `auth.uid()`.
+   `consent_events` deliberately has no update or delete policy: a record of
+   what was agreed to is the point of it, so nobody can rewrite it, including
+   the person it belongs to.
+3. In the Supabase dashboard enable the **Email** provider and turn on email
+   OTP. Set the confirmation template to send `{{ .Token }}` rather than a magic
+   link, since this client verifies a six digit code.
+4. Paste the project URL and its publishable (anon) key into the
+   `BROWSERMARKET_CONFIG` block at the bottom of `index.html`. Anything that
+   sets `window.BROWSERMARKET_CONFIG` before that script runs wins, so a
+   deployment can inject the values from an environment variable instead.
+
+The publishable key is meant to be public. It identifies the project and
+nothing else, and every table is behind row level security, so it grants an
+attacker exactly what it grants a player: a session for an address they control
+and access to that account's own rows.
+
+There is no SDK. The three endpoints this needs are ordinary REST calls, so
+`src/engine/auth.js` uses `fetch` and the project stays dependency free.
+
+**The sign-up gate.** After `signupAfterMs` of visible play, an unsigned player
+is asked to make an account. It is counted in time the tab was actually on
+screen, so a page left open in a background tab overnight does not come back to
+a wall.
+
+**Whose save wins.** Signing in on a device that has already been played on is
+the one case where progress can be lost, so neither side is discarded without
+being asked. Only when one side is plainly empty does it resolve itself.
+
+## Legal
+
+`legal/terms.html` and `legal/privacy.html` are the documents the sign-up flow
+links to and records consent against. Their versions live in
+`LEGAL` in `src/engine/auth.js`, and every acceptance is stored with the version
+that was accepted, so a later change is provable rather than assumed.
+
+**They are templates, not legal advice.** Every `[SQUARE BRACKET]` has to be
+filled in before you publish, and a lawyer in your operating jurisdiction should
+review the result. The privacy policy in particular names sub-processors: that
+list has to match what you actually use.

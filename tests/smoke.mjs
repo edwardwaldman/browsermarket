@@ -391,6 +391,68 @@ for (const [w, h] of [[390, 844], [768, 1024], [1280, 800]]) {
   check(`no horizontal overflow at ${w}px`, overflow === 0, `${overflow}px`);
 }
 
+// ── the store ────────────────────────────────────────────────────────────
+check('the store opens and prices everything', await page.evaluate(async () => {
+  document.querySelector('[data-modal="store"]').click();
+  await new Promise((r) => setTimeout(r, 250));
+  const t = document.querySelector('.modal-body').textContent;
+  const prices = [...document.querySelectorAll('.st-buy')].map((b) => b.textContent);
+  return t.includes('VIP') && t.includes('SPECIALS')
+    && prices.length >= 4 && prices.every((p) => /^\$\d/.test(p) || p === 'OWNED');
+}));
+
+check('an unconfigured checkout sells nothing', await page.evaluate(async () => {
+  const before = game.account.cash;
+  const res = await game.store.buy('CAP_1', game);
+  return res.ok === false && game.account.cash === before && game.store.owned.length === 0;
+}));
+
+check('a completed checkout grants the pass and its capital', await page.evaluate(async () => {
+  const m = await import('/src/engine/store.js');
+  game.store.provider = m.devGrantProvider;
+  const before = game.account.cash;
+  const res = await game.store.buy('BEGINNER', game);
+  return res.ok && Math.round(game.account.cash - before) === 100000
+    && game.store.has('BEGINNER') && game.store.vip >= 1;
+}));
+
+check('owning the ad pass skips the wait', await page.evaluate(async () => {
+  const m = await import('/src/engine/store.js');
+  game.store.grant(m.findItem('NO_ADS'));
+  game.ads.lastShownAt = 0;
+  const started = Date.now();
+  const res = await ui.ads.play('SKIP_OPEN');
+  return res.ok && res.skipped === true && Date.now() - started < 1000;
+}));
+
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+
+// ── undoing a trade ──────────────────────────────────────────────────────
+check('closing a trade offers the undo', await page.evaluate(async () => {
+  game.limiter.hits.clear();
+  game.account.cash = Math.max(game.account.cash, 20000);
+  game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
+  const pos = game.account.positions.at(-1);
+  game.closePosition(pos.id, 1);
+  await new Promise((r) => setTimeout(r, 300));
+  const bar = document.querySelector('#undobar');
+  return !bar.hidden && bar.textContent.includes('UNDO');
+}));
+
+check('the undo restores the position and the cash', await page.evaluate(async () => {
+  game.limiter.hits.clear();
+  game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1500, leverage: 1 });
+  const pos = game.account.positions.at(-1);
+  const cashBefore = game.account.cash;
+  const qty = pos.qty;
+  game.closePosition(pos.id, 1);
+  await new Promise((r) => setTimeout(r, 200));
+  const done = game.rewind();
+  const back = game.account.positions.find((p) => Math.abs(p.qty - qty) < 1e-9);
+  return done.ok && Boolean(back) && Math.abs(game.account.cash - cashBefore) < 1e-6;
+}));
+
 // ── the phone layout ─────────────────────────────────────────────────────
 await page.setViewportSize({ width: 390, height: 844 });
 await page.waitForTimeout(600);
@@ -428,7 +490,7 @@ check('pressing buy expands the trade sheet', await page.evaluate(() => {
 
 check('the sheet has the market order form', await page.evaluate(() => {
   const t = document.querySelector('.msheet').textContent;
-  return ['MARKET', 'LIMIT', 'Buy', 'Sell', 'Balance', '25%', '100%'].every((x) => t.includes(x))
+  return ['MARKET', 'LIMIT', 'Buy', 'Short', 'Balance', '25%', '100%'].every((x) => t.includes(x))
     && Boolean(document.querySelector('.mamount-input') && document.querySelector('.mslider'));
 }));
 
@@ -497,6 +559,138 @@ await page.waitForTimeout(1500);
 check('the wiped account comes back fresh', await page.evaluate(
   () => game.account.stats.trades === 0 && game.account.positions.length === 0
     && game.prog.level === 1 && game.library.list.length === 0));
+
+
+// ── accounts ─────────────────────────────────────────────────────────────
+// Configured with a stubbed backend so the whole sign-up path can be walked
+// without a live project.
+await page.addInitScript(() => {
+  window.BROWSERMARKET_CONFIG = {
+    supabaseUrl: 'https://demo.supabase.co', supabaseAnonKey: 'anon-demo', signupAfterMs: 3000,
+  };
+  window.__authCalls = [];
+  const real = window.fetch;
+  window.fetch = async (url, init) => {
+    const p = String(url);
+    if (!p.includes('demo.supabase.co')) return real(url, init);
+    window.__authCalls.push({ path: p, body: init?.body ? JSON.parse(init.body) : null });
+    if (p.includes('/auth/v1/verify')) {
+      return new Response(JSON.stringify({
+        access_token: 't', refresh_token: 'r', expires_in: 3600,
+        user: { id: 'u1', email: 'player@example.com' },
+      }), { status: 200 });
+    }
+    if (p.includes('/rest/v1/cloud_saves')) return new Response('[]', { status: 200 });
+    return new Response('{}', { status: 200 });
+  };
+});
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(2000);
+await page.evaluate(() => { document.querySelector('#promo').hidden = true; });
+
+check('accounts stay out of the way before the minute is up', await page.evaluate(
+  () => document.querySelector('#auth-root').hidden === true));
+
+await page.waitForTimeout(3500);
+check('the sign-up gate appears once the timer is up', await page.evaluate(
+  () => !document.querySelector('#auth-root').hidden
+    && document.querySelector('.auth-title').textContent.includes('SAVE YOUR PROGRESS')));
+
+check('the gate cannot be tapped away', await page.evaluate(async () => {
+  document.querySelector('.auth-scrim').click();
+  await new Promise((r) => setTimeout(r, 200));
+  return !document.querySelector('#auth-root').hidden;
+}));
+
+check('a typo never reaches the network', await page.evaluate(async () => {
+  const before = window.__authCalls.length;
+  document.querySelector('.auth-input').value = 'nope';
+  document.querySelector('.auth-go').click();
+  await new Promise((r) => setTimeout(r, 250));
+  return window.__authCalls.length === before && document.querySelector('.auth-note').textContent.length > 0;
+}));
+
+check('sending a code moves to the code step', await page.evaluate(async () => {
+  const input = document.querySelector('.auth-input');
+  input.value = 'player@example.com';
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  document.querySelector('.auth-go').click();
+  await new Promise((r) => setTimeout(r, 400));
+  const otp = window.__authCalls.find((c) => c.path.includes('/auth/v1/otp'));
+  return Boolean(document.querySelector('.auth-code'))
+    && otp?.body?.email === 'player@example.com' && otp.body.create_user === true;
+}));
+
+check('both consent boxes start unticked', await page.evaluate(
+  () => document.querySelector('#auth-terms').checked === false
+    && document.querySelector('#auth-marketing').checked === false));
+
+check('the consent boxes link to the two documents', await page.evaluate(() => {
+  const hrefs = [...document.querySelectorAll('.auth-checks a')].map((a) => a.getAttribute('href'));
+  return hrefs.some((h) => h.includes('terms')) && hrefs.some((h) => h.includes('privacy'));
+}));
+
+check('an account cannot be made without accepting the terms', await page.evaluate(async () => {
+  const before = window.__authCalls.length;
+  document.querySelector('.auth-code').value = '123456';
+  document.querySelector('.auth-go').click();
+  await new Promise((r) => setTimeout(r, 300));
+  return window.__authCalls.length === before
+    && /accept/i.test(document.querySelector('.auth-note').textContent);
+}));
+
+check('accepting the terms signs in and closes the gate', await page.evaluate(async () => {
+  document.querySelector('#auth-terms').checked = true;
+  document.querySelector('.auth-go').click();
+  await new Promise((r) => setTimeout(r, 700));
+  return document.querySelector('#auth-root').hidden === true;
+}));
+
+check('the consent record is written with both versions', await page.evaluate(() => {
+  const profile = window.__authCalls.find((c) => c.path.includes('/rest/v1/profiles'));
+  const events = window.__authCalls.find((c) => c.path.includes('/rest/v1/consent_events'));
+  return Boolean(profile?.body?.terms_version) && Boolean(profile.body.privacy_version)
+    && profile.body.marketing_opt_in === false
+    && Array.isArray(events?.body)
+    && events.body.some((e) => e.kind === 'terms')
+    && events.body.some((e) => e.kind === 'privacy')
+    && events.body.some((e) => e.kind === 'marketing_opt_out');
+}));
+
+check('the save is pushed to the account', await page.evaluate(async () => {
+  await new Promise((r) => setTimeout(r, 400));
+  const push = window.__authCalls.find((c) => c.path.includes('/rest/v1/cloud_saves') && c.body?.payload);
+  return Boolean(push) && push.body.user_id === 'u1' && typeof push.body.payload === 'object';
+}));
+
+check('settings shows the account and the way out of marketing', await page.evaluate(async () => {
+  document.querySelector('[data-modal="settings"]').click();
+  await new Promise((r) => setTimeout(r, 300));
+  const t = document.querySelector('.modal-body').textContent;
+  return t.includes('ACCOUNT') && t.includes('player@example.com')
+    && t.includes('PRODUCT EMAIL') && t.includes('SIGN OUT')
+    && t.includes('DELETE MY CLOUD SAVE');
+}));
+
+await page.keyboard.press('Escape');
+await page.waitForTimeout(150);
+
+for (const doc of ['terms', 'privacy']) {
+  const lp = await browser.newPage({ viewport: { width: 900, height: 900 } });
+  const errs = [];
+  lp.on('pageerror', (e) => errs.push(String(e)));
+  const resp = await lp.goto(`${URL.replace(/\/$/, '')}/legal/${doc}.html`, { waitUntil: 'networkidle' });
+  const info = await lp.evaluate(() => ({
+    h2: document.querySelectorAll('h2').length,
+    words: document.body.innerText.split(/\s+/).length,
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    back: Boolean(document.querySelector('a[href*="index.html"]')),
+  }));
+  check(`the ${doc} page is served and substantial`,
+    resp?.ok() && info.h2 >= 15 && info.words > 1200 && info.overflow === 0 && info.back && !errs.length,
+    `${info.h2} sections, ${info.words} words`);
+  await lp.close();
+}
 
 check('no console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

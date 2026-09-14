@@ -13,13 +13,13 @@ import { LEVERAGE_TIERS } from '../engine/progression.js';
 const STEPS = [0, 25, 50, 75, 100];
 
 export class MobileTrade {
-  constructor({ bar, sheet, game, getSymbol, getCandles, onTrade, onSymbolPick, toast, openModal }) {
+  constructor({ bar, sheet, game, getSymbol, onTrade, onSymbolPick, toast, openModal, onLayoutChange }) {
     this.bar = bar;
     this.sheet = sheet;
     this.game = game;
     this.getSymbol = getSymbol;
     /** The same candles the big chart is drawing, so the two never disagree. */
-    this.getCandles = getCandles;
+    this.onLayoutChange = onLayoutChange;
     this.onTrade = onTrade;
     this.onSymbolPick = onSymbolPick;
     this.toast = toast;
@@ -50,7 +50,7 @@ export class MobileTrade {
       el('span', { class: 'mbtn-sub' }),
     ]);
     r.barSell = el('button', { class: 'mbtn sell', onclick: () => this.expand('SHORT') }, [
-      el('span', { class: 'mbtn-label', text: 'SELL' }),
+      el('span', { class: 'mbtn-label', text: 'SHORT' }),
       el('span', { class: 'mbtn-sub' }),
     ]);
     r.barBuySub = r.barBuy.querySelector('.mbtn-sub');
@@ -87,7 +87,7 @@ export class MobileTrade {
     ]);
 
     r.segBuy = el('button', { class: 'mseg-btn buy', text: 'Buy', onclick: () => this.setSide('LONG') });
-    r.segSell = el('button', { class: 'mseg-btn sell', text: 'Sell', onclick: () => this.setSide('SHORT') });
+    r.segSell = el('button', { class: 'mseg-btn sell', text: 'Short', onclick: () => this.setSide('SHORT') });
     const seg = el('div', { class: 'mseg' }, [r.segBuy, r.segSell]);
 
     r.amount = el('input', {
@@ -167,21 +167,8 @@ export class MobileTrade {
      * The sheet is half the screen now and this sits at the top of it, so the
      * chart is above the form and the live price is above the button.
      */
-    r.spark = el('canvas', { class: 'mspark' });
-    r.sparkLast = el('span', { class: 'mspark-last' });
-    r.sparkChg = el('span', { class: 'mspark-chg' });
-    r.sparkWrap = el('div', { class: 'mspark-wrap' }, [
-      r.spark,
-      el('div', { class: 'mspark-read' }, [
-        el('span', { class: 'mspark-sym' }),
-        r.sparkLast, r.sparkChg,
-      ]),
-    ]);
-    r.sparkSym = r.sparkWrap.querySelector('.mspark-sym');
-
     r.panel = el('div', { class: 'msheet' }, [
       head,
-      r.sparkWrap,
       el('div', { class: 'msheet-body' }, [
         seg, amountRow, r.slider, ticks, r.levRow,
         balanceRow, metaRow, r.limitField, r.brackets,
@@ -205,89 +192,39 @@ export class MobileTrade {
     requestAnimationFrame(() => this.sheet.classList.add('is-open'));
     document.body.classList.add('sheet-open');
     this.update();
+    this.measure();
   }
 
   /**
-   * THE LAST HOUR OR SO OF CLOSES, AS A LINE. Not a second candlestick chart.
+   * THE CHART IS WHAT IS ABOVE THE FORM.
    *
-   * A sparkline is the right amount of chart for a strip this size: at ninety
-   * pixels tall, candles are indistinguishable smudges and the wicks are a lie
-   * about precision. A line answers the only question being asked here, which
-   * is which way this has been going while I decide.
+   * There used to be a drawn-from-scratch mini chart at the top of the sheet,
+   * which is a second chart of the same candles a few pixels from the real
+   * one. Instead the app is squeezed into whatever the sheet leaves, so the
+   * actual chart is the thing above the order form and keeps every indicator,
+   * marker and alert line the player put on it.
    *
-   * Coloured against the first close on screen rather than against the day's
-   * open, because the window IS what is on screen. Green for up over the
-   * stretch drawn, red for down, and it agrees with the number beside it
-   * because both are computed from the same two values.
+   * The height is published as a custom property rather than hard coded,
+   * because the sheet grows and shrinks with what is in it: the leverage row
+   * opens, the bracket fields appear, a position gets a card.
    */
-  drawSpark(sym, quote) {
-    const r = this.refs;
-    const cv = r.spark;
-    if (!cv || !cv.isConnected) return;
-    const candles = this.getCandles?.() || [];
-    const closes = candles.slice(-80).map((c) => c.c).filter((n) => Number.isFinite(n));
-
-    const cssW = cv.clientWidth || 300;
-    const cssH = cv.clientHeight || 90;
-    const dpr = Math.min(3, window.devicePixelRatio || 1);
-    // Only resize when it actually changed: assigning width clears the canvas,
-    // so doing it every tick would make the line flicker.
-    if (cv.width !== Math.round(cssW * dpr) || cv.height !== Math.round(cssH * dpr)) {
-      cv.width = Math.round(cssW * dpr);
-      cv.height = Math.round(cssH * dpr);
-    }
-    const ctx = cv.getContext('2d');
-    if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, cssW, cssH);
-
-    const last = quote?.last ?? closes[closes.length - 1];
-    r.sparkSym.textContent = sym;
-    r.sparkLast.textContent = fmtPrice(last);
-
-    if (closes.length < 2) { r.sparkChg.textContent = ''; return; }
-
-    const first = closes[0];
-    const up = closes[closes.length - 1] >= first;
-    const css = getComputedStyle(document.documentElement);
-    const line = (css.getPropertyValue(up ? '--up' : '--down') || '').trim() || (up ? '#3fb950' : '#f85149');
-
-    const delta = first ? ((closes[closes.length - 1] - first) / first) * 100 : 0;
-    r.sparkChg.textContent = `${delta >= 0 ? '+' : ''}${delta.toFixed(2)}%`;
-    r.sparkChg.style.color = line;
-
-    let hi = -Infinity, lo = Infinity;
-    for (const c of closes) { if (c > hi) hi = c; if (c < lo) lo = c; }
-    // A flat stretch has no range to scale against and would divide by zero.
-    const pad = (hi - lo) || Math.max(0.01, hi * 0.001);
-    hi += pad * 0.12; lo -= pad * 0.12;
-
-    const xOf = (i) => (i / (closes.length - 1)) * cssW;
-    const yOf = (v) => cssH - ((v - lo) / (hi - lo)) * cssH;
-
-    ctx.beginPath();
-    closes.forEach((c, i) => (i ? ctx.lineTo(xOf(i), yOf(c)) : ctx.moveTo(xOf(i), yOf(c))));
-    ctx.strokeStyle = line;
-    ctx.lineWidth = 1.6;
-    ctx.lineJoin = 'round';
-    ctx.stroke();
-
-    // A wash under the line, so the strip reads as a chart at a glance rather
-    // than as a stray rule across the sheet.
-    ctx.lineTo(cssW, cssH);
-    ctx.lineTo(0, cssH);
-    ctx.closePath();
-    ctx.globalAlpha = 0.12;
-    ctx.fillStyle = line;
-    ctx.fill();
-    ctx.globalAlpha = 1;
+  measure() {
+    const h = this.open ? Math.round(this.refs.panel.getBoundingClientRect().height) : 0;
+    if (h === this._lastHeight) return;
+    this._lastHeight = h;
+    const root = document.documentElement;
+    if (h) root.style.setProperty('--sheet-h', `${h}px`);
+    else root.style.removeProperty('--sheet-h');
+    this.onLayoutChange?.(this.open);
   }
 
   collapse() {
+    if (this.open) this._lastHeight = null;
     this.open = false;
     this.sheet.classList.remove('is-open');
     document.body.classList.remove('sheet-open');
     this.showLeverage = false;
+    this.measure();
     setTimeout(() => { if (!this.open) this.sheet.hidden = true; }, 200);
   }
 
@@ -361,7 +298,6 @@ export class MobileTrade {
 
     // The chart above the form, redrawn with the rest of the sheet so it moves
     // with the market rather than freezing at the moment the sheet opened.
-    this.drawSpark(sym, quote);
 
     const gate = this.game.canTrade(sym);
     const maxLev = this.game.prog.maxLeverage?.() ?? 100;
@@ -418,7 +354,7 @@ export class MobileTrade {
     r.bracketToggle.classList.toggle('is-locked', !hasBrackets);
     r.brackets.hidden = !this.showBrackets || !hasBrackets;
 
-    const word = this.side === 'LONG' ? 'BUY' : 'SELL';
+    const word = this.side === 'LONG' ? 'BUY' : 'SHORT';
     r.submit.className = cls('msubmit', this.side === 'LONG' ? 'buy' : 'sell');
     r.submit.textContent = gate.ok ? `${word} ${ins.sym}` : '🔒 LOCKED';
     r.submit.disabled = !gate.ok;
@@ -436,6 +372,7 @@ export class MobileTrade {
       <span>Liq <b>${this.leverage > 1 ? fmtPrice(liq) : '--'}</b></span>` : '';
 
     this.renderPositions();
+    this.measure();
   }
 
   renderPositions() {

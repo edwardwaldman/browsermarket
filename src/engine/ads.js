@@ -12,6 +12,7 @@ export const PLACEMENTS = {
   SHOP_UNLOCK: { id: 'SHOP_UNLOCK', label: 'Unlock a permanent edge', seconds: 30, dailyCap: 4 },
   BOT_SLOT: { id: 'BOT_SLOT', label: 'Open an extra algo slot', seconds: 30, dailyCap: 2 },
   RESET_ACCOUNT: { id: 'RESET_ACCOUNT', label: 'Wipe the save and start over', seconds: 120, dailyCap: 3 },
+  REWIND: { id: 'REWIND', label: 'Undo your last trade', seconds: 20, dailyCap: 5 },
 };
 
 export const COOLDOWN_MS = 20_000;

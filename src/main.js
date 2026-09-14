@@ -12,6 +12,9 @@ import { MobileTrade } from './ui/mobile.js';
 import { ResearchPage } from './ui/pages.js';
 import { Toasts, Celebration, floatXp } from './ui/toast.js';
 import { settings } from './engine/settings.js';
+import { Auth } from './engine/auth.js';
+import { AuthBox } from './ui/authbox.js';
+import { SUPABASE, accountsConfigured, SIGNUP_AFTER_MS } from './config.js';
 import { IndicatorLibrary } from './engine/custom.js';
 import { AdOverlay } from './ui/adgate.js';
 import { $, el, clear, cls, esc, on } from './util/dom.js';
@@ -56,7 +59,8 @@ function boot() {
 
 function startGame(g, resumed = false) {
   game = g;
-  window.game = g; // handy in the console
+  window.game = g; // handy in the console, and in the browser smoke test
+  window.ui = ui;
   game.library = new IndicatorLibrary();
 
   const report = resumed ? game.catchUp() : null;
@@ -80,7 +84,9 @@ function startGame(g, resumed = false) {
   // pressing it, and it stood between somebody who came to trade and the trade.
   // The card is still reachable from Settings for anyone who wants the tour.
 
-  setInterval(() => game.save(), 10000);
+  setInterval(() => { game.save(); markCloudDirty(); pushCloudSave(); }, 10000);
+  startSignupGate();
+  if (ui.auth?.signedIn) afterSignIn();
   window.addEventListener('beforeunload', () => game.save());
   document.addEventListener('visibilitychange', () => {
     if (game.wiped) return;
@@ -161,9 +167,6 @@ function buildUi() {
     sheet: $('#mobile-sheet'),
     game,
     getSymbol: () => symbol,
-    // The chart's own candles, not a second source: a mini chart that disagreed
-    // with the one behind it would be worse than no mini chart.
-    getCandles: () => ui.chart?.candles || [],
     onTrade: (e) => ui.ticket.onTrade?.(e),
     onSymbolPick: () => {
       ui.mobile.collapse();
@@ -171,12 +174,29 @@ function buildUi() {
     },
     toast: (t) => ui.toasts.push(t),
     openModal: (id) => { ui.mobile.collapse(); ui.modals.open(id); },
+    onLayoutChange: (open) => onSheetLayout(open),
   });
 
   ui.modals.symbol = symbol;
   ui.modals.previewCandles = () => game.market.get(symbol)?.candles(timeframe) ?? [];
 
-  ui.ads = new AdOverlay($('#ad-root'), game.ads);
+  ui.auth = new Auth({ url: SUPABASE.url, anonKey: SUPABASE.anonKey });
+  ui.authBox = new AuthBox({
+    root: $('#auth-root'),
+    auth: ui.auth,
+    toast: (t) => ui.toasts.push(t),
+    onSignedIn: () => afterSignIn(),
+  });
+  ui.modals.auth = ui.auth;
+  ui.modals.onSignIn = () => ui.authBox.show({ blocking: false });
+  ui.modals.onSignOut = async () => {
+    await ui.auth.signOut();
+    ui.toasts.push({ tone: 'info', icon: '👋', text: 'Signed out. This desk stays on this device.' });
+    ui.modals.rerender();
+  };
+
+  ui.ads = new AdOverlay($('#ad-root'), game.ads, game.store);
+  ui.ads.onStore = (cat) => { ui.modals.storeCat = cat; ui.modals.open('store'); };
   ui.modals.onWatchAd = (placement) => ui.ads.play(placement);
   ui.modals.toast = (t) => ui.toasts.push(t);
   ui.modals.onReplayTutorial = () => { game.flags.tutorialDone = false; showPromo(); };
@@ -346,7 +366,7 @@ function buildChartTools() {
     onclick: () => quickTrade('LONG'),
   });
   ui.quickSell = el('button', {
-    class: 'quickbtn sell', text: '▼ SELL', title: 'Market sell at the ticket size',
+    class: 'quickbtn sell', text: '▼ SHORT', title: 'Open a short at the ticket size',
     onclick: () => quickTrade('SHORT'),
   });
   bar.append(ui.quickBuy, ui.quickSell);
@@ -514,6 +534,9 @@ function handleEvent(e) {
       break;
     case 'toast':
       if (settings.get('notifications')) ui.toasts.push(e);
+      break;
+    case 'closed':
+      showUndoBar(e.result);
       break;
     case 'celebrate':
       if (settings.get('marketAlerts')) ui.celebration.show(e);
@@ -704,15 +727,211 @@ function renderChart(full = false) {
 }
 
 /** Label the chart's buy and sell buttons with the size they would send. */
+/**
+ * The trade sheet shrank the app, so the chart canvas is a different size than
+ * it was a frame ago and has to repaint at it. It also gets fewer bars while
+ * the form is open: the same ninety candles squeezed into a third of the
+ * height is a grey smear, and the point of keeping the chart on screen is that
+ * it can still be read. The player's own zoom is put back when the form closes.
+ */
+function onSheetLayout(open) {
+  if (open) {
+    if (ui.preSheetBars === undefined) ui.preSheetBars = ui.chart.barCount;
+    ui.chart.barCount = Math.min(ui.chart.barCount, 40);
+  } else if (ui.preSheetBars !== undefined) {
+    ui.chart.barCount = ui.preSheetBars;
+    ui.preSheetBars = undefined;
+  }
+  // Two frames: one for the height change to land, one to draw at the new size.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    ui.chart.resize();
+    ui.chart.render();
+  }));
+}
+
+/**
+ * THE UNDO PROMPT.
+ *
+ * A closed trade is the only moment a rewind is worth anything, and it stops
+ * being worth anything a few minutes later when the price has moved on, so the
+ * offer lives here rather than buried in a menu. It states the result it is
+ * undoing, because an undo worth paying for is one the player already regrets.
+ */
+function showUndoBar(result) {
+  const node = $('#undobar');
+  if (!node) return;
+  clearTimeout(node.__timer);
+  const pnl = result?.pnl ?? 0;
+  const free = game.freeRewindsLeft();
+  const charges = game.store.rewinds;
+  const cost = free > 0 ? `FREE · ${free} LEFT` : charges > 0 ? `${charges} CHARGES` : 'WATCH AN AD';
+  clear(node);
+  node.append(
+    el('div', { class: 'undobar-copy' }, [
+      el('b', { class: pnl >= 0 ? 'up' : 'down', text: `${esc(result?.sym ?? '')} ${signed(pnl)}` }),
+      el('span', { text: 'closed' }),
+    ]),
+    el('button', {
+      class: 'undobar-go', text: `⟲ UNDO · ${cost}`,
+      onclick: () => { hideUndoBar(); ui.modals.open('rewind'); },
+    }),
+    el('button', { class: 'undobar-x', text: '✕', onclick: () => hideUndoBar() }),
+  );
+  node.hidden = false;
+  // Long enough to notice and read, short enough not to become furniture.
+  node.__timer = setTimeout(hideUndoBar, 12000);
+}
+
+function hideUndoBar() {
+  const node = $('#undobar');
+  if (!node) return;
+  clearTimeout(node.__timer);
+  node.hidden = true;
+  clear(node);
+}
+
+
+// ── accounts and cloud saves ─────────────────────────────────────────────
+
+/**
+ * THE SIGN-UP GATE.
+ *
+ * Counted in time the tab was actually visible, so a page left open in a
+ * background tab overnight does not come back to a wall. With no project
+ * configured the gate never fires at all and the game stays exactly what it
+ * was: a local save in a browser.
+ */
+let playedMs = 0;
+let lastGateTick = Date.now();
+
+function startSignupGate() {
+  if (!accountsConfigured) return;
+  lastGateTick = Date.now();
+  setInterval(() => {
+    const now = Date.now();
+    if (!document.hidden) playedMs += now - lastGateTick;
+    lastGateTick = now;
+    if (ui.auth.signedIn || ui.authBox.open) return;
+    if (playedMs < SIGNUP_AFTER_MS) return;
+    ui.authBox.show({
+      blocking: true,
+      reason: 'Your desk is only on this device so far. Make a free account to keep it.',
+    });
+  }, 1000);
+}
+
+/**
+ * WHOSE SAVE WINS.
+ *
+ * Signing in on a device that has already been played on is the one case
+ * where progress can be lost, so neither side is thrown away without being
+ * asked. Only when one side is plainly empty does it resolve itself.
+ */
+async function afterSignIn() {
+  cloudDirty = true;
+  try { await ui.auth.fetchProfile(); } catch { /* shown on the next load */ }
+  const pulled = await ui.auth.pullSave();
+  if (!pulled.ok) {
+    ui.toasts.push({ tone: 'bad', icon: '⚠', text: `Cloud save unavailable: ${pulled.reason}` });
+    return;
+  }
+  const remote = pulled.save;
+  const localPlayed = game.account.stats.trades > 0 || game.market.day > 8;
+
+  if (!remote) { pushCloudSave(); return; }
+  if (!localPlayed) { adoptCloudSave(remote); return; }
+  showSaveChoice(remote);
+}
+
+/**
+ * Written to the local save and reloaded, rather than swapped in live.
+ * Re-running the boot path would leave the old game's listeners, intervals and
+ * DOM handlers behind it, and a save restore is exactly the moment not to be
+ * clever about state.
+ */
+function adoptCloudSave(remote) {
+  if (!remote?.payload || !Game.fromJSON(remote.payload)) {
+    ui.toasts.push({ tone: 'bad', icon: '⚠', text: 'That cloud save could not be read' });
+    return;
+  }
+  game.wiped = true;               // stop the autosave racing the reload
+  game.stop();
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(remote.payload));
+  } catch {
+    ui.toasts.push({ tone: 'bad', icon: '⚠', text: 'This browser will not let the game save' });
+    return;
+  }
+  location.reload();
+}
+
+function showSaveChoice(remote) {
+  const root = $('#auth-root');
+  const money0 = (n) => `$${Math.round(n || 0).toLocaleString()}`;
+  const localNw = game.account.netWorth(game.market);
+
+  const pick = (fn) => { root.hidden = true; clear(root); fn(); };
+
+  clear(root);
+  root.append(
+    el('div', { class: 'auth-scrim' }),
+    el('div', { class: 'auth-card' }, [
+      el('div', { class: 'auth-head' }, [el('div', { class: 'auth-title', text: 'TWO DESKS' })]),
+      el('p', { class: 'auth-copy', text: 'This device and your account both have progress. Keeping one replaces the other, so pick the one you want.' }),
+      el('button', {
+        class: 'auth-choice',
+        onclick: () => pick(() => { pushCloudSave(); ui.toasts.push({ tone: 'good', icon: '✓', text: 'This device now wins' }); }),
+      }, [
+        el('b', { text: 'KEEP THIS DEVICE' }),
+        el('small', { text: `Level ${game.prog.level} · ${money0(localNw)} · ${game.account.stats.trades} trades` }),
+      ]),
+      el('button', {
+        class: 'auth-choice',
+        onclick: () => pick(() => adoptCloudSave(remote)),
+      }, [
+        el('b', { text: 'KEEP THE CLOUD DESK' }),
+        el('small', {
+          text: `Level ${remote.level ?? '?'} · ${money0(remote.net_worth)} · saved ${
+            remote.client_saved_at ? new Date(remote.client_saved_at).toLocaleString() : 'at an unknown time'}`,
+        }),
+      ]),
+    ]),
+  );
+  root.hidden = false;
+}
+
+let cloudDirty = false;
+let cloudPushing = false;
+let lastCloudPush = 0;
+
+function markCloudDirty() { cloudDirty = true; }
+
+/** Throttled: a save every half minute is plenty for a game that autosaves. */
+async function pushCloudSave(force = false) {
+  if (!ui.auth?.signedIn || game.wiped) return;
+  if (cloudPushing) return;
+  if (!force && !cloudDirty) return;
+  if (!force && Date.now() - lastCloudPush < 30_000) return;
+  cloudPushing = true;
+  cloudDirty = false;
+  lastCloudPush = Date.now();
+  const res = await ui.auth.pushSave(game.toJSON(), {
+    netWorth: game.account.netWorth(game.market),
+    level: game.prog.level,
+  });
+  cloudPushing = false;
+  if (!res.ok) cloudDirty = true;   // try again on the next pass
+}
+
 function syncQuickTrade() {
   if (!ui.quickBuy) return;
   const m = ui.ticket?.margin ?? 0;
   const size = m > 0 ? ` ${moneyShort(m)}` : '';
   ui.quickBuy.textContent = `▲ BUY${size}`;
-  ui.quickSell.textContent = `▼ SELL${size}`;
+  ui.quickSell.textContent = `▼ SHORT${size}`;
   const shorts = game.prog.has('SHORTS');
   ui.quickSell.disabled = !shorts;
-  ui.quickSell.title = shorts ? 'Market sell at the ticket size' : 'Shorts unlock at level 3';
+  ui.quickSell.title = shorts ? 'Open a short at the ticket size' : 'Shorts unlock at level 3';
   ui.quickBuy.classList.toggle('is-idle', !(m > 0));
   ui.quickSell.classList.toggle('is-idle', !(m > 0));
 }
