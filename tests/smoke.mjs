@@ -428,7 +428,7 @@ check('pressing buy expands the trade sheet', await page.evaluate(() => {
 
 check('the sheet has the market order form', await page.evaluate(() => {
   const t = document.querySelector('.msheet').textContent;
-  return ['MARKET', 'LIMIT', 'Buy', 'Sell', 'Balance', '25%', '100%'].every((x) => t.includes(x))
+  return ['MARKET', 'LIMIT', 'Buy', 'Short', 'Balance', '25%', '100%'].every((x) => t.includes(x))
     && Boolean(document.querySelector('.mamount-input') && document.querySelector('.mslider'));
 }));
 

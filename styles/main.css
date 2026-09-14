@@ -1142,19 +1142,6 @@ table.grid tr:hover td { background: var(--panel-2); }
   /* The chart above the order form. `flex: none` so it keeps its height while
      the body below it scrolls, and a fixed height so the canvas has something
      to measure itself against. */
-  .mspark-wrap {
-    position: relative; flex: none; height: 84px;
-    border-bottom: 1px solid var(--line); background: var(--sunken);
-  }
-  .mspark { display: block; width: 100%; height: 100%; }
-  .mspark-read {
-    position: absolute; top: 6px; left: 10px; right: 10px;
-    display: flex; align-items: baseline; gap: 8px;
-    pointer-events: none; font-variant-numeric: tabular-nums;
-  }
-  .mspark-sym { font-size: 12px; letter-spacing: 1px; color: var(--dim-2); }
-  .mspark-last { font-size: 17px; color: var(--text); }
-  .mspark-chg { font-size: 12.5px; margin-left: auto; }
   .msheet-collapse {
     width: 34px; height: 34px; border: 1px solid var(--line-2); border-radius: 0;
     color: var(--dim); font-size: 17px; line-height: 1; flex: none;
@@ -1275,10 +1262,27 @@ table.grid tr:hover td { background: var(--panel-2); }
   /* Strip the trade view back to a price and a chart. */
   body.sheet-open { overflow: hidden; }
 
+  /* THE CHART IS THE SCREEN ABOVE THE FORM.
+     The app is squeezed into what the sheet leaves rather than being covered
+     by it, so the real chart resizes into the gap instead of hiding behind a
+     scrim. Everything that is a label rather than the product gets out of the
+     way while the form is open: the account cards, the status bar and the
+     pinned buttons the sheet came from. */
+  body.sheet-open .app { height: calc(100dvh - var(--sheet-h, 50dvh)); }
+  body.sheet-open .statcards,
+  body.sheet-open .statusbar,
+  body.sheet-open .mbar { display: none; }
+  /* Transparent, because its job is to catch the tap that dismisses the form,
+     not to dim the chart the player is reading. */
+  body.sheet-open .msheet-scrim { background: transparent; }
+
   /* A compact head: one brand row, one readout row, one tool row. */
   .topbar { gap: 5px; padding: 5px 7px; }
   .brand { order: 1; }
   .brand-mark { font-size: 13px; }
+  /* Default order 0 put MENU ahead of the title. It belongs at the far right
+     of the title's own row, which is order 1 plus the auto margin. */
+  .mobile-menu { order: 1; margin-left: auto; }
   .viewnav { order: 1; width: auto; margin-left: auto; gap: 3px; }
   .viewtab { padding: 6px 9px; font-size: 11.5px; }
   .viewtab .ico { display: none; }

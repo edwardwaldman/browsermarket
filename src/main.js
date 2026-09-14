@@ -161,9 +161,6 @@ function buildUi() {
     sheet: $('#mobile-sheet'),
     game,
     getSymbol: () => symbol,
-    // The chart's own candles, not a second source: a mini chart that disagreed
-    // with the one behind it would be worse than no mini chart.
-    getCandles: () => ui.chart?.candles || [],
     onTrade: (e) => ui.ticket.onTrade?.(e),
     onSymbolPick: () => {
       ui.mobile.collapse();
@@ -171,6 +168,7 @@ function buildUi() {
     },
     toast: (t) => ui.toasts.push(t),
     openModal: (id) => { ui.mobile.collapse(); ui.modals.open(id); },
+    onLayoutChange: (open) => onSheetLayout(open),
   });
 
   ui.modals.symbol = symbol;
@@ -346,7 +344,7 @@ function buildChartTools() {
     onclick: () => quickTrade('LONG'),
   });
   ui.quickSell = el('button', {
-    class: 'quickbtn sell', text: '▼ SELL', title: 'Market sell at the ticket size',
+    class: 'quickbtn sell', text: '▼ SHORT', title: 'Open a short at the ticket size',
     onclick: () => quickTrade('SHORT'),
   });
   bar.append(ui.quickBuy, ui.quickSell);
@@ -704,15 +702,37 @@ function renderChart(full = false) {
 }
 
 /** Label the chart's buy and sell buttons with the size they would send. */
+/**
+ * The trade sheet shrank the app, so the chart canvas is a different size than
+ * it was a frame ago and has to repaint at it. It also gets fewer bars while
+ * the form is open: the same ninety candles squeezed into a third of the
+ * height is a grey smear, and the point of keeping the chart on screen is that
+ * it can still be read. The player's own zoom is put back when the form closes.
+ */
+function onSheetLayout(open) {
+  if (open) {
+    if (ui.preSheetBars === undefined) ui.preSheetBars = ui.chart.barCount;
+    ui.chart.barCount = Math.min(ui.chart.barCount, 40);
+  } else if (ui.preSheetBars !== undefined) {
+    ui.chart.barCount = ui.preSheetBars;
+    ui.preSheetBars = undefined;
+  }
+  // Two frames: one for the height change to land, one to draw at the new size.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    ui.chart.resize();
+    ui.chart.render();
+  }));
+}
+
 function syncQuickTrade() {
   if (!ui.quickBuy) return;
   const m = ui.ticket?.margin ?? 0;
   const size = m > 0 ? ` ${moneyShort(m)}` : '';
   ui.quickBuy.textContent = `▲ BUY${size}`;
-  ui.quickSell.textContent = `▼ SELL${size}`;
+  ui.quickSell.textContent = `▼ SHORT${size}`;
   const shorts = game.prog.has('SHORTS');
   ui.quickSell.disabled = !shorts;
-  ui.quickSell.title = shorts ? 'Market sell at the ticket size' : 'Shorts unlock at level 3';
+  ui.quickSell.title = shorts ? 'Open a short at the ticket size' : 'Shorts unlock at level 3';
   ui.quickBuy.classList.toggle('is-idle', !(m > 0));
   ui.quickSell.classList.toggle('is-idle', !(m > 0));
 }
