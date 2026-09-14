@@ -12,6 +12,12 @@
 import { el, clear, cls } from '../util/dom.js';
 import { LEGAL, CODE_LENGTH, looksLikeEmail } from '../engine/auth.js';
 
+const TITLES = {
+  email: 'SAVE YOUR PROGRESS',
+  code: 'CHECK YOUR EMAIL',
+  consent: 'ONE LAST THING',
+};
+
 export class AuthBox {
   constructor({ root, auth, toast, onSignedIn }) {
     this.root = root;
@@ -27,10 +33,10 @@ export class AuthBox {
 
   get open() { return !this.root.hidden; }
 
-  show({ blocking = false, reason = '' } = {}) {
+  show({ blocking = false, reason = '', step = 'email' } = {}) {
     this.blocking = blocking;
     this.reason = reason;
-    this.step = 'email';
+    this.step = step;
     this.root.hidden = false;
     this.render();
   }
@@ -54,13 +60,14 @@ export class AuthBox {
     const card = el('div', { class: 'auth-card' });
 
     card.append(el('div', { class: 'auth-head' }, [
-      el('div', { class: 'auth-title', text: this.step === 'email' ? 'SAVE YOUR PROGRESS' : 'CHECK YOUR EMAIL' }),
+      el('div', { class: 'auth-title', text: TITLES[this.step] ?? TITLES.email }),
       this.blocking ? null : el('button', { class: 'modal-close', text: '✕', onclick: () => this.close() }),
     ]));
 
     if (this.reason) card.append(el('div', { class: 'auth-reason', text: this.reason }));
 
-    if (this.step === 'email') this.renderEmail(card);
+    if (this.step === 'consent') this.renderConsent(card);
+    else if (this.step === 'email') this.renderEmail(card);
     else this.renderCode(card);
 
     this.root.append(el('div', {
@@ -216,6 +223,71 @@ export class AuthBox {
     ]));
 
     setTimeout(() => input.focus(), 30);
+  }
+
+  /**
+   * Signed in already, but by clicking the emailed link rather than typing the
+   * code, so the consent boxes were never shown. The account exists, so this
+   * cannot be dismissed: agreeing is the condition of having one.
+   */
+  renderConsent(card) {
+    card.append(el('p', { class: 'auth-copy' }, [
+      el('span', { text: 'You are signed in as ' }),
+      el('b', { text: this.auth.email || 'your account' }),
+      el('span', { text: '. Before we save anything, please confirm you accept the terms.' }),
+    ]));
+
+    const terms = checkbox('auth-terms');
+    const marketing = checkbox('auth-marketing');
+    const note = el('div', { class: 'auth-note' });
+    const go = el('button', { class: 'auth-go', text: 'AGREE AND CONTINUE' });
+
+    go.onclick = async () => {
+      if (!terms.input.checked) {
+        note.textContent = 'You have to accept the Terms of Service and the Privacy Policy.';
+        return;
+      }
+      go.disabled = true;
+      go.textContent = 'SAVING…';
+      try {
+        await this.auth.recordConsents({ acceptedTerms: true, marketing: marketing.input.checked });
+        await this.auth.fetchProfile();
+      } catch (err) {
+        go.disabled = false;
+        go.textContent = 'AGREE AND CONTINUE';
+        note.textContent = err?.message || 'That did not save. Try again.';
+        return;
+      }
+      this.finish();
+      this.toast?.({ tone: 'good', icon: '✓', text: `Signed in as ${this.auth.email}` });
+      this.onSignedIn?.();
+    };
+
+    card.append(el('div', { class: 'auth-checks' }, [
+      el('label', { class: 'auth-check' }, [
+        terms.input,
+        el('span', {}, [
+          el('span', { text: 'I have read and accept the ' }),
+          legalLink('Terms of Service', LEGAL.termsUrl),
+          el('span', { text: ' and the ' }),
+          legalLink('Privacy Policy', LEGAL.privacyUrl),
+          el('span', { text: '. Required.' }),
+        ]),
+      ]),
+      el('label', { class: 'auth-check' }, [
+        marketing.input,
+        el('span', { text: 'Email me product news, new features and offers. Optional, and you can turn it off at any time in Settings or from any email we send.' }),
+      ]),
+    ]));
+
+    card.append(note, go);
+
+    card.append(el('div', { class: 'auth-alts' }, [
+      el('button', {
+        class: 'auth-alt', text: 'Sign out instead',
+        onclick: async () => { await this.auth.signOut(); this.blocking = false; this.finish(); },
+      }),
+    ]));
   }
 }
 

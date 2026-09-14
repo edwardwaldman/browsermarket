@@ -143,8 +143,13 @@
   /* Anything set before this runs wins, so a deployment can inject the values
      from an environment variable ahead of the page without editing this file. */
   window.BROWSERMARKET_CONFIG = Object.assign({
-    supabaseUrl: '',
-    supabaseAnonKey: '',
+    supabaseUrl: 'https://eudbhuarqbjxmumtseay.supabase.co',
+    /* The legacy anon key, not the newer sb_publishable_ one, because this
+       client sends the key as `Authorization: Bearer` on anonymous calls and
+       PostgREST parses that header as a JWT. The publishable format is not a
+       JWT and would fail there. Both are public by design: every table is
+       behind row level security keyed on the signed-in user. */
+    supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZGJodWFycWJqeG11bXRzZWF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzNDUwNzYsImV4cCI6MjEwNDkyMTA3Nn0.lr5x1x32EHvK2rQgdZYma-gxLCAKlVkiExYyHGVb9Tg',
     signupAfterMs: 60000,
   }, window.BROWSERMARKET_CONFIG || {});
 </script>

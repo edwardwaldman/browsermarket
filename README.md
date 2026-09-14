@@ -62,10 +62,16 @@ keep it in a library of up to 24. See `src/engine/custom.js`.
 buy-pressure imbalance for every name.
 
 **On a phone** the terminal reduces to a price, a chart and two full-width BUY
-and SELL buttons carrying the live bid and ask. Pressing either expands a trade
+and SHORT buttons carrying the live bid and ask. Pressing either expands a trade
 sheet with the whole order form: market or limit, side, amount, a percentage
-slider, leverage, take-profit and stop-loss, and the positions you already hold
-with close buttons. The market explorer and the desk ticket still open as sheets
+slider, leverage, and the positions you already hold with close buttons.
+
+Take profit and stop loss are two fields on that form rather than a link
+reading "TP/SL not set", which is a label describing the problem instead of a
+control that fixes it. Each has one-tap presets, because typing "10%" on a
+phone while a position is moving is the step people skip, and the form states
+what the bracket is worth in money at the current size: a percentage of a
+levered notional is not a number anybody reads off a phone under pressure. The market explorer and the desk ticket still open as sheets
 from the chart toolbar when you want them. See `src/ui/mobile.js`.
 
 **Progression.** 30 levels, each paying cash or opening a desk: shorts at 3,
@@ -73,7 +79,12 @@ coins at 4, limits at 5, the launchpad at 9, algo slots at 10, funds at 13, the
 scanner at 15, futures at 16, the news wire at 20, options at 23, rebirth at 30.
 Missions, daily streaks, collectible drops and badges feed the XP curve.
 Leverage is **not** gated: every tier from 1x to 100x is available from the
-first trade, because it is a risk choice rather than a reward.
+first trade, because it is a risk choice rather than a reward. Take profit and
+stop loss are ungated for the same reason. They used to unlock at level 6,
+which meant the players most likely to blow an account up were the ones denied
+the tool that stops it. Level 6 pays cash instead, so the ladder keeps its
+rung, and a rebirth gives back the earned desks without taking the stop loss
+away.
 
 **Nothing is for sale.** Every unlock that would normally sit behind a purchase
 (the permanent-edge upgrades, the extra algo slot, simulating a day or a week)
@@ -262,7 +273,8 @@ Accounts are off until you configure them. With `supabaseUrl` and
 `supabaseAnonKey` blank the game runs entirely in the browser with a local save,
 no sign-in ever appears, and the sign-up timer never fires.
 
-To turn them on:
+This repository is already pointed at a project; the steps below are what a
+fork would do.
 
 1. Create a Supabase project, or pick an existing one.
 2. Apply `supabase/migrations/0001_auth_saves_consents.sql`. It creates
@@ -271,9 +283,15 @@ To turn them on:
    `consent_events` deliberately has no update or delete policy: a record of
    what was agreed to is the point of it, so nobody can rewrite it, including
    the person it belongs to.
-3. In the Supabase dashboard enable the **Email** provider and turn on email
-   OTP. Set the confirmation template to send `{{ .Token }}` rather than a magic
-   link, since this client verifies a six digit code.
+3. In the Supabase dashboard enable the **Email** provider.
+
+   Supabase's stock template sends a magic **link**, not a code. Both work:
+   pasting the six digit code needs `{{ .Token }}` added to the Magic Link
+   template, and clicking the link works with no change at all, because the
+   client reads the tokens Supabase puts in the URL fragment and wipes the
+   fragment immediately afterwards. A link arrival skips the consent step it
+   never saw, so the agreement is collected on the next load before anything
+   syncs.
 4. Paste the project URL and its publishable (anon) key into the
    `BROWSERMARKET_CONFIG` block at the bottom of `index.html`. Anything that
    sets `window.BROWSERMARKET_CONFIG` before that script runs wins, so a

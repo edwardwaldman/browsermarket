@@ -133,22 +133,53 @@ export class MobileTrade {
     ]);
 
     r.feeNote = el('span', { class: 'mrow-note' });
-    r.bracketToggle = el('button', {
-      class: 'mrow-link',
-      onclick: () => { this.showBrackets = !this.showBrackets; this.update(); },
-    });
-    const metaRow = el('div', { class: 'mrow mrow-meta' }, [r.feeNote, r.bracketToggle]);
+    r.riskNote = el('span', { class: 'mrow-note' });
+    const metaRow = el('div', { class: 'mrow mrow-meta' }, [r.feeNote, r.riskNote]);
 
     r.limitInput = el('input', { type: 'text', inputmode: 'decimal', placeholder: 'Limit price' });
     r.limitField = el('label', { class: 'mfield', hidden: true }, [
       el('span', { text: 'LIMIT PRICE' }), r.limitInput,
     ]);
-    r.tpInput = el('input', { type: 'text', inputmode: 'decimal', placeholder: 'e.g. 10%' });
-    r.slInput = el('input', { type: 'text', inputmode: 'decimal', placeholder: 'e.g. 5%' });
-    r.brackets = el('div', { class: 'mfields', hidden: true }, [
-      el('label', { class: 'mfield' }, [el('span', { text: 'TAKE PROFIT' }), r.tpInput]),
-      el('label', { class: 'mfield' }, [el('span', { text: 'STOP LOSS' }), r.slInput]),
+    /**
+     * TAKE PROFIT AND STOP LOSS, IN THE FORM.
+     *
+     * They used to be behind a link that said TP/SL not set, which is a label
+     * describing the problem rather than a control that fixes it. They are two
+     * fields on the order now, beside the amount, with one-tap presets: on a
+     * phone, typing "10%" while a position is moving is the step people skip.
+     *
+     * A bare number is read as a price, a number with a percent sign as that
+     * much in your favour, which is the same rule the desk ticket uses.
+     */
+    r.tpInput = el('input', { type: 'text', inputmode: 'decimal', placeholder: 'none' });
+    r.slInput = el('input', { type: 'text', inputmode: 'decimal', placeholder: 'none' });
+    r.tpInput.addEventListener('input', () => this.update({ keepAmount: true }));
+    r.slInput.addEventListener('input', () => this.update({ keepAmount: true }));
+
+    const preset = (input, value) => el('button', {
+      class: 'mpreset', text: `${value}%`,
+      onclick: () => {
+        input.value = input.value === `${value}%` ? '' : `${value}%`;
+        this.update({ keepAmount: true });
+      },
+    });
+
+    r.brackets = el('div', { class: 'mbrackets' }, [
+      el('div', { class: 'mbracket' }, [
+        el('label', { class: 'mfield' }, [
+          el('span', { class: 'up', text: 'TAKE PROFIT' }), r.tpInput,
+        ]),
+        el('div', { class: 'mpresets' }, [5, 10, 25, 50].map((v) => preset(r.tpInput, v))),
+      ]),
+      el('div', { class: 'mbracket' }, [
+        el('label', { class: 'mfield' }, [
+          el('span', { class: 'down', text: 'STOP LOSS' }), r.slInput,
+        ]),
+        el('div', { class: 'mpresets' }, [2, 5, 10, 20].map((v) => preset(r.slInput, v))),
+      ]),
+      el('div', { class: 'mbracket-note', id: 'm-bracket-note' }),
     ]);
+    r.bracketNote = r.brackets.querySelector('#m-bracket-note');
 
     r.submit = el('button', { class: 'msubmit', onclick: () => this.submit() });
     r.note = el('div', { class: 'mnote' });
@@ -261,6 +292,8 @@ export class MobileTrade {
       ? this.game.placeOrder({ ...args, limit: parseAmount(this.refs.limitInput.value) })
       : this.game.openPosition(args);
     if (!res.ok) { this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+    // The bracket is part of the order that just went in, not a sticky
+    // preference, so it clears with it.
     this.refs.tpInput.value = '';
     this.refs.slInput.value = '';
     this.onTrade?.({ type: 'filled', result: res });
@@ -335,12 +368,20 @@ export class MobileTrade {
     const liq = this.side === 'LONG' ? fill * (1 - room) : fill * (1 + room);
 
     r.feeNote.textContent = this.margin > 0 ? `Fee ${money(fee)}` : 'No size set';
-    const hasBrackets = this.game.prog.has('BRACKETS');
-    r.bracketToggle.textContent = hasBrackets
-      ? (r.tpInput.value || r.slInput.value ? 'TP/SL set' : 'TP/SL not set')
-      : 'TP/SL · LV 7';
-    r.bracketToggle.classList.toggle('is-locked', !hasBrackets);
-    r.brackets.hidden = !this.showBrackets || !hasBrackets;
+
+    // What the brackets would actually do at this size, in money, because a
+    // percentage of a levered notional is not a number anybody reads off a
+    // phone while a position is moving against them.
+    const tp = resolveBracket(r.tpInput.value, fill, this.side, 'tp');
+    const sl = resolveBracket(r.slInput.value, fill, this.side, 'sl');
+    const dir = this.side === 'LONG' ? 1 : -1;
+    const parts = [];
+    if (tp) parts.push(`Take ${signed(((tp - fill) * dir * quantity) * mult)} at ${fmtPrice(tp)}`);
+    if (sl) parts.push(`Stop ${signed(((sl - fill) * dir * quantity) * mult)} at ${fmtPrice(sl)}`);
+    r.bracketNote.textContent = this.margin > 0 ? parts.join(' · ') : '';
+    r.bracketNote.hidden = !parts.length || !(this.margin > 0);
+    r.riskNote.textContent = sl ? 'Stop set' : 'No stop set';
+    r.riskNote.classList.toggle('down', !sl);
 
     const word = this.side === 'LONG' ? 'BUY' : 'SHORT';
     r.submit.className = cls('msubmit', this.side === 'LONG' ? 'buy' : 'sell');
