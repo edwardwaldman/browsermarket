@@ -29,6 +29,15 @@ page.on('pageerror', (e) => errors.push(`PAGEERROR: ${e.message}`));
 
 await page.addInitScript(() => {
   window.BROWSERMARKET_CONFIG = { signupAfterMs: 36_000_000 };
+  // The first-run pointers are tested on purpose further down. Everywhere else
+  // they would be an overlay standing between this suite and the controls it
+  // is trying to press, so the run starts as a returning player.
+  try {
+    const k = 'browsermarket.settings.v1';
+    const v = JSON.parse(localStorage.getItem(k) || '{}');
+    v.coachDone = true;
+    localStorage.setItem(k, JSON.stringify(v));
+  } catch { /* private mode */ }
 });
 await page.goto(URL, { waitUntil: 'networkidle' });
 await page.waitForTimeout(4500);
@@ -1257,6 +1266,78 @@ check('nothing drawn on screen is an emoji any more', await page.evaluate(async 
   window.__emojiLeft = [...new Set(bad)];
   return window.__emojiLeft.length === 0;
 }), (await page.evaluate(() => (window.__emojiLeft || []).join(' | '))));
+
+// ── the first-run pointers ───────────────────────────────────────────────
+await page.setViewportSize({ width: 390, height: 844 });
+await page.waitForTimeout(400);
+
+check('the pointers start on the ticker and say what it does', await page.evaluate(async () => {
+  ui.coach.start((await import('/src/ui/coach.js')).coachSteps(true));
+  await new Promise((r) => setTimeout(r, 300));
+  const t = document.querySelector('.coach-bubble')?.textContent || '';
+  return !document.querySelector('#coach-root').hidden
+    && /tap the ticker/i.test(t) && /1 of 3/.test(t);
+}));
+
+check('the halo lands on the control, not near it', await page.evaluate(() => {
+  const h = document.querySelector('.coach-halo').getBoundingClientRect();
+  const t = document.querySelector('#ah-pick').getBoundingClientRect();
+  // The phone renders inside a CSS zoom and this overlay sits in it too, so
+  // this is the check that the two coordinate spaces were reconciled.
+  window.__haloOff = `${(h.left - (t.left - 6)).toFixed(1)}, ${(h.top - (t.top - 6)).toFixed(1)}`;
+  return Math.abs(h.left - (t.left - 6)) < 3 && Math.abs(h.top - (t.top - 6)) < 3
+    && Math.abs(h.width - (t.width + 12)) < 4;
+}), await page.evaluate(() => window.__haloOff));
+
+check('the control underneath is still reachable through the overlay', await page.evaluate(() => {
+  const t = document.querySelector('#ah-pick').getBoundingClientRect();
+  const hit = document.elementFromPoint(t.left + t.width / 2, t.top + t.height / 2);
+  return Boolean(hit?.closest('#ah-pick'));
+}));
+
+check('doing the thing is what advances it', await page.evaluate(async () => {
+  document.querySelector('#ah-pick').click();
+  await new Promise((r) => setTimeout(r, 600));
+  document.querySelector('.explorer-close')?.click();
+  await new Promise((r) => setTimeout(r, 400));
+  return /2 of 3/.test(document.querySelector('.coach-bubble')?.textContent || '');
+}));
+
+check('the last pointer is the folded exits', await page.evaluate(async () => {
+  document.querySelector('.mbtn.buy').click();
+  await new Promise((r) => setTimeout(r, 800));
+  const t = document.querySelector('.coach-bubble')?.textContent || '';
+  const h = document.querySelector('.coach-halo').getBoundingClientRect();
+  const f = document.querySelector('.mfold').getBoundingClientRect();
+  return /take profit and stop loss/i.test(t) && /3 of 3/.test(t)
+    && Math.abs(h.top - (f.top - 6)) < 3;
+}));
+
+check('finishing latches so it never opens again', await page.evaluate(async () => {
+  document.querySelector('.mfold').click();
+  await new Promise((r) => setTimeout(r, 600));
+  const saved = JSON.parse(localStorage.getItem('browsermarket.settings.v1') || '{}');
+  return document.querySelector('#coach-root').hidden === true && saved.coachDone === true;
+}));
+
+check('skip latches it just the same', await page.evaluate(async () => {
+  const m = await import('/src/ui/coach.js');
+  const { settings } = await import('/src/engine/settings.js');
+  settings.set('coachDone', false);
+  ui.coach.start(m.coachSteps(true));
+  await new Promise((r) => setTimeout(r, 300));
+  document.querySelector('.coach-skip').click();
+  await new Promise((r) => setTimeout(r, 200));
+  return document.querySelector('#coach-root').hidden === true
+    && settings.get('coachDone') === true;
+}));
+
+check('the desk skips the phone-only step', await page.evaluate(async () => {
+  const m = await import('/src/ui/coach.js');
+  const desk = m.coachSteps(false);
+  return desk.filter(Boolean).length === 2
+    && !desk.some((s) => s?.target === '.mbtn.buy');
+}));
 
 check('no console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

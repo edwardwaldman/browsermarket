@@ -355,6 +355,12 @@ export class Modals {
     ]));
     this.settingsAccount(body);
 
+    body.append(html('<h4>HELP</h4>'));
+    body.append(el('button', {
+      class: 'bigrow plain', text: 'SHOW THE POINTERS AGAIN',
+      onclick: () => { this.close(); this.onReplayCoach?.(); },
+    }));
+
     body.append(el('button', {
       class: 'bigrow', style: { borderColor: 'rgba(255,77,106,.35)', color: 'var(--down)', background: 'rgba(255,77,106,.1)' },
       text: '▶ RESET ACCOUNT | WATCH A 2 MINUTE PLACEMENT',

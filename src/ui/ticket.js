@@ -146,7 +146,7 @@ export class Ticket {
     r.slInput = el('input', { type: 'text', inputmode: 'decimal', placeholder: 'price or %' });
     manual(r.tpInput);
     manual(r.slInput);
-    r.brackets = el('div', { class: 'field2' }, [
+    r.brackets = el('div', { class: 'field2', id: 'ticket-brackets' }, [
       el('div', { class: 'field' }, [el('label', { text: 'TAKE PROFIT' }), r.tpInput]),
       el('div', { class: 'field' }, [el('label', { text: 'STOP LOSS' }), r.slInput]),
     ]);
