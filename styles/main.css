@@ -1188,12 +1188,7 @@ table.grid tr:hover td { background: var(--panel-2); }
     padding-bottom: env(safe-area-inset-bottom);
   }
   .msheet-root.is-open .msheet { transform: translateY(0); }
-  /* Holding something costs a little of the chart. The position strip sits
-     above the form, and without more room for the sheet it pushes BUY off the
-     bottom, which is the exact problem the form was rearranged to fix. The
-     chart gives up the difference: with a position open, seeing it and the
-     button matters more than another tenth of a screen of candles. */
-  .msheet-root.has-positions .msheet { max-height: 72dvh; }
+
 
   .msheet-head {
     display: flex; align-items: center; gap: 8px; padding: 10px 12px;
@@ -1300,20 +1295,29 @@ table.grid tr:hover td { background: var(--panel-2); }
   /* Above the form, so a fresh fill needs no scrolling to look at, and capped
      so that holding several names cannot push the form off the screen: past
      two cards the block scrolls inside itself instead of growing. */
-  /* A block, not a grid item that scrolls. The sheet body is itself a grid, and
-     a track carrying both max-height and overflow gets squeezed to nothing by
-     it: the row was in the DOM, the right size, and clipped to a sliver. The
-     cap lives on the list inside instead, where nothing is competing for the
-     height. */
-  .mpositions-wrap {
-    display: block; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  /* THE STRIP, ABOVE WHICHEVER BAR IS SHOWING.
+     Closed it rides on the BUY and SHORT bar; open, on the sheet, whose height
+     is already published as --sheet-h for the chart to size against. Its own
+     z-index sits between the two so it is never behind the thing it is
+     standing on. */
+  .mposbar {
+    position: fixed; left: 0; right: 0; z-index: 46;
+    bottom: calc(78px + env(safe-area-inset-bottom));
+    padding: 0 8px 6px;
+    pointer-events: auto;
   }
-  .mpositions-wrap[hidden] { display: none; }
-  .mpositions-head {
-    font-size: 11px; letter-spacing: 1.2px; color: var(--dim-2); padding: 0 0 6px;
+  .mposbar[hidden] { display: none; }
+  /* Divided by the zoom the app is rendered at, because --panel-h is measured
+     in viewport pixels and spent here inside that zoom. Without it the strip
+     lands four fifths of the way up and overlaps the sheet it is meant to be
+     standing on. */
+  body.sheet-open .mposbar {
+    z-index: 71;
+    bottom: calc(var(--panel-h, 40dvh) / var(--zoom));
   }
+
   .mpositions {
-    display: grid; gap: 6px; max-height: 164px; overflow-y: auto;
+    display: grid; gap: 5px; max-height: 148px; overflow-y: auto;
     overscroll-behavior: contain;
   }
   .mpos { background: var(--panel-2); border: 1px solid var(--line); }

@@ -702,20 +702,21 @@ check('a bracket preset states what it is worth in money', await page.evaluate(a
   return /Take \+\$/.test(note) && /Stop -\$/.test(note);
 }));
 
-check('an open position sits above the order form, not below it', await page.evaluate(() => {
-  const wrap = document.querySelector('.mpositions-wrap');
-  const seg = document.querySelector('.mseg-btn.buy');
-  if (!wrap || wrap.hidden) return false;
-  // Above the Buy/Short segment, so a fresh fill needs no scrolling to see.
-  return wrap.getBoundingClientRect().bottom <= seg.getBoundingClientRect().top + 1;
+check('an open position sits above the sheet, not inside it', await page.evaluate(() => {
+  const bar = document.querySelector('.mposbar');
+  const sheet = document.querySelector('.msheet');
+  if (!bar || bar.hidden) return false;
+  // Its own strip, clear of the panel rather than a row scrolled to inside it.
+  return !sheet.contains(bar)
+    && bar.getBoundingClientRect().bottom <= sheet.getBoundingClientRect().top + 2;
 }));
 
-check('the positions block is not there at all when nothing is open', await page.evaluate(async () => {
+check('the strip is not there at all when nothing is open', await page.evaluate(async () => {
   const held = game.account.positions.slice();
   game.account.positions.length = 0;
   ui.mobile.update();
   await new Promise((r) => setTimeout(r, 150));
-  const hidden = document.querySelector('.mpositions-wrap').hidden === true;
+  const hidden = document.querySelector('.mposbar').hidden === true;
   game.account.positions.push(...held);
   ui.mobile.update();
   await new Promise((r) => setTimeout(r, 150));
@@ -725,7 +726,7 @@ check('the positions block is not there at all when nothing is open', await page
 check('the position row is actually drawn, not clipped to a sliver', await page.evaluate(() => {
   // It was once in the DOM at the right size and squeezed to nothing by the
   // sheet body's grid, which looks exactly like not rendering at all.
-  const wrap = document.querySelector('.mpositions-wrap');
+  const wrap = document.querySelector('.mposbar');
   const row = document.querySelector('.mpos-row');
   if (!row) return false;
   const w = wrap.getBoundingClientRect();
@@ -805,6 +806,19 @@ check('reopening the sheet starts folded again', await page.evaluate(async () =>
   document.querySelector('.mbtn.buy').click();
   await new Promise((r) => setTimeout(r, 400));
   return document.querySelector('.mbrackets').hidden === true;
+}));
+
+check('the strip is still there with the sheet shut, on the buy bar', await page.evaluate(async () => {
+  document.querySelector('.msheet-collapse').click();
+  await new Promise((r) => setTimeout(r, 450));
+  const bar = document.querySelector('.mposbar');
+  const buy = document.querySelector('.mbtn.buy');
+  const shut = !document.querySelector('#mobile-sheet').classList.contains('is-open');
+  // Standing on the buy bar rather than behind it or off the bottom.
+  const sits = bar.getBoundingClientRect().bottom <= buy.getBoundingClientRect().top + 2;
+  document.querySelector('.mbtn.buy').click();
+  await new Promise((r) => setTimeout(r, 450));
+  return !bar.hidden && shut && sits;
 }));
 
 check('tapping the ticker opens the picker full screen', await page.evaluate(async () => {
