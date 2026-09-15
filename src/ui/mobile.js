@@ -3,7 +3,7 @@
 // On a small screen the terminal collapses to three things: the price, the
 // chart, and a pair of full-width BUY and SELL buttons pinned to the bottom.
 // Pressing either one expands the trade sheet, which carries the whole order
-// form: type, side, amount, a percentage slider, leverage, brackets and the
+// form: type, side, amount, the size buttons, leverage, brackets and the
 // positions you already have open.
 
 import { el, clear, cls } from '../util/dom.js';
@@ -29,7 +29,7 @@ export class MobileTrade {
     this.type = 'MARKET';
     this.leverage = 1;
     this.margin = 0;
-    this.fraction = null;     // set by the slider, cleared by typing
+    this.fraction = null;     // set by a size button, cleared by typing
     this.showLeverage = false;
     this.showBrackets = false;
     this.editingSizes = false;
@@ -118,7 +118,7 @@ export class MobileTrade {
     r.presetRow = el('div', { class: 'msizes' });
     r.presetEdit = el('button', {
       class: 'msizes-edit',
-      onclick: () => { this.editingSizes = !this.editingSizes; this.buildPresets(); },
+      onclick: () => { this.editingSizes = !this.editingSizes; this.buildPresets(true); },
     });
     const sizeRow = el('div', { class: 'msize-row' }, [r.presetRow, r.presetEdit]);
     this.buildPresets();
@@ -215,11 +215,16 @@ export class MobileTrade {
    * and four number fields in the other, and a swap is clearer than a set of
    * toggles over shared nodes.
    */
-  buildPresets() {
+  buildPresets(force = false) {
     const r = this.refs;
     if (!r.presetRow) return;
-    clear(r.presetRow);
     const presets = settings.get('sizePresets');
+    // update() runs on every tick, so the row is only torn down when what it
+    // would say has actually changed.
+    const sig = `${this.editingSizes}|${this.fraction}|${presets.join(',')}`;
+    if (!force && sig === this.presetSig) return;
+    this.presetSig = sig;
+    clear(r.presetRow);
     r.presetEdit.textContent = this.editingSizes ? 'DONE' : 'EDIT';
     r.presetEdit.classList.toggle('is-on', Boolean(this.editingSizes));
 
@@ -234,7 +239,7 @@ export class MobileTrade {
           next[i] = Number.isFinite(n) && n >= 1 && n <= 100 ? n : value;
           input.value = String(next[i]);
           settings.set('sizePresets', next);
-          this.buildPresets();
+          this.buildPresets(true);
         });
         r.presetRow.append(input);
         return;
@@ -431,7 +436,7 @@ export class MobileTrade {
     r.submit.disabled = !gate.ok;
 
     if (!gate.ok) r.note.textContent = gate.reason;
-    else if (!(this.margin > 0)) r.note.textContent = 'Drag the slider or type an amount.';
+    else if (!(this.margin > 0)) r.note.textContent = 'Tap a size or type an amount.';
     else if (this.margin > this.account.cash) {
       r.note.textContent = `Needs ${money(this.margin, 0)}, you have ${money(this.account.cash, 0)}`;
     } else r.note.textContent = '';

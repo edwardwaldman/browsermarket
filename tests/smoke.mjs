@@ -202,6 +202,68 @@ check('max sizing fills at 50x', await page.evaluate(async () => {
   return !label.includes('NOT ENOUGH');
 }));
 
+check('the desk sizes with buttons, not a slider', await page.evaluate(() => {
+  if (document.querySelector('#ticket input[type="range"]')) return false;
+  const row = [...document.querySelectorAll('.quickwrap .quick')];
+  return row.length === 4 && Boolean(document.querySelector('.quick-edit'));
+}));
+
+check('the desk size buttons can be edited and the edit sticks', await page.evaluate(async () => {
+  const edit = document.querySelector('.quick-edit');
+  edit.click();
+  await new Promise((r) => setTimeout(r, 150));
+  const fields = [...document.querySelectorAll('.quick-input')];
+  if (fields.length !== 4) return false;
+  fields[0].value = '7';
+  fields[0].dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 150));
+  document.querySelector('.quick-edit').click();
+  await new Promise((r) => setTimeout(r, 200));
+  const labels = [...document.querySelectorAll('.quickwrap .quick')].map((b) => b.textContent);
+  const saved = JSON.parse(localStorage.getItem('browsermarket.settings.v1') || '{}');
+  return labels[0] === '7%' && saved.sizePresets?.[0] === 7;
+}));
+
+check('an edited desk button sizes the margin to match', await page.evaluate(async () => {
+  game.account.cash = 20000;
+  [...document.querySelectorAll('.lev')].find((b) => b.textContent === '1X')?.click();
+  await new Promise((r) => setTimeout(r, 150));
+  const seven = [...document.querySelectorAll('.quickwrap .quick')].find((b) => b.textContent === '7%');
+  seven.click();
+  await new Promise((r) => setTimeout(r, 250));
+  const shown = Number(document.querySelector('#ticket input[inputmode="decimal"]').value);
+  return Math.abs(shown - game.account.maxMargin(1, 0.07)) < 1;
+}));
+
+check('tapping the live desk button takes the size back off', await page.evaluate(async () => {
+  const seven = [...document.querySelectorAll('.quickwrap .quick')].find((b) => b.textContent === '7%');
+  if (!seven.classList.contains('is-active')) return false;
+  seven.click();
+  await new Promise((r) => setTimeout(r, 250));
+  return !document.querySelector('.quickwrap .quick.is-active');
+}));
+
+check('the size row survives a market tick without losing its state', await page.evaluate(async () => {
+  const pick = [...document.querySelectorAll('.quickwrap .quick')].find((b) => b.textContent === '50%');
+  pick.click();
+  await new Promise((r) => setTimeout(r, 1400));
+  const on = document.querySelector('.quickwrap .quick.is-active');
+  return on?.textContent === '50%';
+}));
+
+// Put the desk back on the shipped defaults so later checks read what a new
+// player would see.
+await page.evaluate(async () => {
+  document.querySelector('.quick-edit').click();
+  await new Promise((r) => setTimeout(r, 150));
+  const first = document.querySelector('.quick-input');
+  first.value = '10';
+  first.dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 150));
+  document.querySelector('.quick-edit').click();
+  await new Promise((r) => setTimeout(r, 200));
+});
+
 check('auto take profit prefills the ticket', await page.evaluate(async () => {
   const { settings } = await import('/src/engine/settings.js');
   settings.set('autoTakeProfit', true);

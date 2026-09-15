@@ -6,10 +6,8 @@ import { LEVERAGE_TIERS } from '../engine/progression.js';
 import { CONTRACT_SIZE, markOption, EXPIRIES } from '../engine/options.js';
 import { settings } from '../engine/settings.js';
 
-const QUICK = [
-  { label: '25%', f: 0.25 }, { label: '50%', f: 0.5 },
-  { label: '75%', f: 0.75 }, { label: 'MAX', f: 1 },
-];
+// 100 is the whole balance, which every trading screen calls MAX.
+const sizeLabel = (v) => (v >= 100 ? 'MAX' : `${v}%`);
 
 export class Ticket {
   constructor({ root, game, getSymbol, onTrade }) {
@@ -27,6 +25,7 @@ export class Ticket {
     this.leverage = 1;
     this.margin = 0;
     this.quick = null;
+    this.editingSizes = false;
     this.refs = {};
     this.mount();
   }
@@ -35,6 +34,60 @@ export class Ticket {
 
   maxMarginFor(fraction = 1) {
     return this.account.maxMargin(this.leverage, fraction);
+  }
+
+  /**
+   * Rebuilt rather than patched, because the row is four buttons in one mode
+   * and four number fields in the other, and a swap is clearer than a set of
+   * toggles over shared nodes. EDIT exists because a player who always risks
+   * 5% should not have to type it on every order.
+   */
+  buildPresets(force = false) {
+    const r = this.refs;
+    if (!r.quickRow) return;
+    const presets = settings.get('sizePresets');
+    // update() runs on every tick, so the row is only torn down when what it
+    // would say has actually changed.
+    const sig = `${this.editingSizes}|${this.quick}|${presets.join(',')}`;
+    if (!force && sig === this.presetSig) return;
+    this.presetSig = sig;
+    clear(r.quickRow);
+    r.quickEdit.textContent = this.editingSizes ? 'DONE' : 'EDIT';
+    r.quickEdit.classList.toggle('is-on', Boolean(this.editingSizes));
+
+    presets.forEach((value, i) => {
+      if (this.editingSizes) {
+        const input = el('input', {
+          class: 'quick-input', type: 'text', inputmode: 'numeric', value: String(value),
+        });
+        input.addEventListener('change', () => {
+          const next = presets.slice();
+          const n = Math.round(Number(String(input.value).replace(/[^0-9]/g, '')));
+          next[i] = Number.isFinite(n) && n >= 1 && n <= 100 ? n : value;
+          input.value = String(next[i]);
+          settings.set('sizePresets', next);
+          this.buildPresets(true);
+        });
+        r.quickRow.append(input);
+        return;
+      }
+      const f = value / 100;
+      const active = this.quick !== null && Math.abs(this.quick - f) < 1e-9;
+      r.quickRow.append(el('button', {
+        class: cls('quick', active && 'is-active'),
+        text: sizeLabel(value),
+        onclick: () => {
+          // Tapping the live one clears it, so a size can be taken back off.
+          this.quick = active ? null : f;
+          if (this.quick !== null) {
+            this.margin = this.maxMarginFor(this.quick);
+            r.marginInput.value = String(this.margin);
+          }
+          this.buildPresets();
+          this.update();
+        },
+      }));
+    });
   }
 
   mount() {
@@ -77,19 +130,15 @@ export class Ticket {
     r.limitInput = el('input', { type: 'text', inputmode: 'decimal', placeholder: 'trigger price' });
     r.limitField = el('div', { class: 'field', hidden: true }, [el('label', { text: 'LIMIT PRICE' }), r.limitInput]);
 
-    r.quickRow = el('div', { class: 'quickrow' }, QUICK.map((q) => el('button', {
-      class: 'quick', text: q.label,
-      onclick: () => {
-        this.quick = this.quick === q.f ? null : q.f;
-        for (const b of r.quickRow.children) b.classList.remove('is-active');
-        if (this.quick !== null) {
-          this.margin = this.maxMarginFor(q.f);
-          r.marginInput.value = String(this.margin);
-          r.quickRow.children[QUICK.indexOf(q)].classList.add('is-active');
-        }
-        this.update();
-      },
-    })));
+    // The same four percentages the phone uses, from the same setting, so a
+    // size you set on one screen is the size you get on the other.
+    r.quickRow = el('div', { class: 'quickrow' });
+    r.quickEdit = el('button', {
+      class: 'quick-edit',
+      onclick: () => { this.editingSizes = !this.editingSizes; this.buildPresets(true); },
+    });
+    r.quickWrap = el('div', { class: 'quickwrap' }, [r.quickRow, r.quickEdit]);
+    this.buildPresets();
 
     const manual = (input) => input.addEventListener('input', () => { delete input.dataset.auto; });
     r.tpInput = el('input', { type: 'text', inputmode: 'decimal', placeholder: 'price or %' });
@@ -164,7 +213,7 @@ export class Ticket {
     ]);
     r.orderPane = el('div', { style: { display: 'grid', gap: '9px' } }, [
       r.sideToggle, r.typeToggle, r.marginField, r.limitField,
-      r.quickRow, r.brackets, r.trailField, r.levField, r.preview,
+      r.quickWrap, r.brackets, r.trailField, r.levField, r.preview,
       el('div', {}, [r.action, r.actionNote]),
       r.posWrap,
     ]);
@@ -461,6 +510,7 @@ export class Ticket {
       this.margin = this.maxMarginFor(this.quick);
       if (document.activeElement !== r.marginInput) r.marginInput.value = String(this.margin);
     }
+    if (!this.editingSizes) this.buildPresets();
 
     const notional = this.margin * this.leverage;
     const mult0 = ins.kind === 'FUTURE' ? (ins.def.mult || 1) : 1;
@@ -488,7 +538,11 @@ export class Ticket {
 
     if (!gate.ok) { disabled = true; label = 'LOCKED'; note = gate.reason; }
     else if (short && !prog.has('SHORTS')) { disabled = true; label = `SHORT ${sym}`; note = 'Shorts unlock at level 3'; }
-    else if (!(this.margin > 0)) { disabled = true; label = 'ENTER A SIZE'; note = 'Type a margin amount or tap 25% / 50% / MAX'; }
+    else if (!(this.margin > 0)) {
+      disabled = true;
+      label = 'ENTER A SIZE';
+      note = `Type a margin amount or tap ${settings.get('sizePresets').map(sizeLabel).join(' / ')}`;
+    }
     else if (this.account.cash < needed) {
       disabled = true;
       label = 'NOT ENOUGH CASH';
