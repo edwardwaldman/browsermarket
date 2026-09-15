@@ -1861,3 +1861,54 @@ button > .ico-svg { pointer-events: none; }
   .wipe-card { padding: 22px 16px; }
   .wipe-alt { font-size: 13.5px; }
 }
+
+/* ── first-run pointers ───────────────────────────────────────────────── */
+/* The root takes no taps: every step is dismissed by using the control it
+   points at, so the control has to stay reachable through it. */
+.coach-root { position: fixed; inset: 0; z-index: 88; pointer-events: none; }
+.coach-root[hidden] { display: none; }
+
+/* The dimming is the halo's own shadow, spread far enough to cover the
+   screen, which cuts a hole exactly where the control is. */
+.coach-halo {
+  position: absolute; border-radius: 2px;
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .64), 0 0 22px rgba(76, 155, 255, .55);
+  transition: none;
+}
+
+.coach-bubble {
+  position: absolute; pointer-events: auto;
+  width: min(290px, calc(100vw - 20px));
+  background: var(--accent); color: #fff; border-radius: 4px;
+  padding: 13px 14px 10px; font-size: 13.5px; line-height: 1.55;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .55);
+  animation: coach-in .22s ease-out;
+}
+@keyframes coach-in { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
+:root[data-motion="reduced"] .coach-bubble { animation: none; }
+
+/* Drawn as a rotated square so it takes the bubble's own colour. */
+.coach-arrow {
+  position: absolute; top: -5px; width: 12px; height: 12px;
+  background: var(--accent); transform: translateX(-50%) rotate(45deg);
+}
+.coach-bubble.is-above .coach-arrow { top: auto; bottom: -5px; }
+
+.coach-text b { font-weight: 700; }
+.coach-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 9px; font-size: 11.5px;
+}
+.coach-count { opacity: .75; letter-spacing: 1px; }
+.coach-skip {
+  border-radius: 0; background: none; border: 0; padding: 3px 2px;
+  color: #fff; opacity: .8; font-size: 11.5px; letter-spacing: 1px;
+}
+.coach-skip:hover { opacity: 1; text-decoration: underline; }
+.coach-got {
+  display: block; width: 100%; margin-top: 11px; min-height: 36px; border-radius: 3px;
+  background: rgba(255, 255, 255, .16); border: 1px solid rgba(255, 255, 255, .4);
+  color: #fff; font-size: 13px; font-weight: 600;
+}
+.coach-got:hover { background: rgba(255, 255, 255, .26); }

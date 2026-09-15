@@ -20,6 +20,7 @@ import { IndicatorLibrary } from './engine/custom.js';
 import { AdOverlay } from './ui/adgate.js';
 import { icon as iconNode, iconMarkup } from './ui/icons.js';
 import { WipeoutGate } from './ui/wipeout.js';
+import { Coach, coachSteps } from './ui/coach.js';
 import { $, el, clear, cls, esc, on } from './util/dom.js';
 import {
   money, moneyShort, price as fmtPrice, pct, signed, num, compact, qty as fmtQty,
@@ -162,11 +163,17 @@ function startGame(g, resumed = false) {
       icon: 'moon',
     });
   }
-  // NO ONBOARDING. A first-time player used to meet a card explaining the three
-  // things the screen already shows: the side is set, the size buttons are
-  // under the amount, and BUY is the big green one. Reading that is slower than
-  // pressing it, and it stood between somebody who came to trade and the trade.
-  // The card is still reachable from Settings for anyone who wants the tour.
+  // STILL NO ONBOARDING CARD. A first-time player used to meet a wall of text
+  // explaining the three things the screen already shows, which stood between
+  // somebody who came to trade and the trade.
+  //
+  // What replaced it points instead of explains: two or three short lines,
+  // each pinned to the one control it is about, each dismissed by using that
+  // control. It only covers what the screen genuinely does not say for itself,
+  // which is that the ticker opens a list of everything and that the exits are
+  // folded away. Anyone who has seen it never sees it again, and it is in
+  // Settings for anyone who wants it back.
+  startCoach();
 
   setInterval(() => { game.save(); markCloudDirty(); pushCloudSave(); }, 10000);
   startSignupGate();
@@ -177,6 +184,19 @@ function startGame(g, resumed = false) {
     if (document.hidden) { game.save(); game.stop(); }
     else { game.catchUp(); game.start(); render(true); }
   });
+}
+
+/**
+ * Held back a beat: the pointers measure the controls they point at, and on
+ * the first paint the chart has not sized itself yet, so a halo drawn now
+ * would be around the wrong rectangle.
+ */
+function startCoach(force = false) {
+  if (!force && settings.get('coachDone')) return;
+  setTimeout(() => {
+    const phone = window.matchMedia('(max-width: 760px)').matches;
+    ui.coach.start(coachSteps(phone));
+  }, force ? 80 : 900);
 }
 
 function onSettingChange(id) {
@@ -299,6 +319,11 @@ function buildUi() {
   ui.ads = new AdOverlay($('#ad-root'), game.ads, game.store);
   ui.ads.onStore = (cat) => { ui.modals.storeCat = cat; ui.modals.open('store'); };
 
+  ui.coach = new Coach({
+    root: $('#coach-root'),
+    onDone: () => settings.set('coachDone', true),
+  });
+
   ui.wipeout = new WipeoutGate({
     root: $('#wipe-root'),
     onSound: () => tradeSound('wipeout'),
@@ -314,6 +339,7 @@ function buildUi() {
     },
   });
   ui.modals.onWatchAd = (placement) => ui.ads.play(placement);
+  ui.modals.onReplayCoach = () => startCoach(true);
   ui.modals.toast = (t) => ui.toasts.push(t);
   ui.modals.onReplayTutorial = () => { game.flags.tutorialDone = false; showPromo(); };
 

@@ -39,6 +39,9 @@ export const DEFAULTS = {
      player who always risks 5% should not have to type it every time. 100 is
      kept as the last one and reads as MAX. */
   sizePresets: [10, 25, 50, 100],
+  /* Latched once the first-run pointers have been seen or skipped, so they
+     never appear over a desk somebody already knows how to use. */
+  coachDone: false,
   dockHeight: 240,
   autoTakeProfit: false,
   takeProfitPct: 10,
