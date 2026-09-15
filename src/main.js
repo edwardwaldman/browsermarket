@@ -286,6 +286,7 @@ function buildUi() {
   ui.mobile = new MobileTrade({
     bar: $('#mobile-bar'),
     sheet: $('#mobile-sheet'),
+    posbar: $('#mobile-positions'),
     game,
     getSymbol: () => symbol,
     onTrade: (e) => ui.ticket.onTrade?.(e),

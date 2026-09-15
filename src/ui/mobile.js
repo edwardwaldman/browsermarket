@@ -13,7 +13,7 @@ import { icon as iconNode } from './icons.js';
 import { settings } from '../engine/settings.js';
 
 export class MobileTrade {
-  constructor({ bar, sheet, game, getSymbol, onTrade, onSymbolPick, toast, openModal, onLayoutChange, onWatchAd }) {
+  constructor({ bar, sheet, posbar, game, getSymbol, onTrade, onSymbolPick, toast, openModal, onLayoutChange, onWatchAd }) {
     this.bar = bar;
     this.sheet = sheet;
     this.game = game;
@@ -24,6 +24,7 @@ export class MobileTrade {
     this.onSymbolPick = onSymbolPick;
     this.toast = toast;
     this.openModal = openModal;
+    this.posbar = posbar;
     this.onWatchAd = onWatchAd;
 
     this.open = false;
@@ -208,29 +209,23 @@ export class MobileTrade {
     r.submit = el('button', { class: 'msubmit', onclick: () => this.submit() });
     r.note = el('div', { class: 'mnote' });
     r.preview = el('div', { class: 'mpreview' });
-    r.positions = el('div', { class: 'mpositions' });
     /**
-     * WHAT YOU ARE ALREADY IN COMES FIRST.
+     * WHAT YOU ARE HOLDING IS NOT PART OF THE ORDER FORM.
      *
-     * This used to sit under the order form, past the size buttons, the
-     * brackets and the BUY button, which meant that the moment after placing a
-     * trade the one thing anybody wants to look at was the one thing off the
-     * bottom of the screen. It is above the form now: open the sheet and your
-     * position and its live P&L are the first thing under the tabs.
+     * It started under the form, past the size buttons and the brackets and
+     * the BUY button, so the moment after placing a trade the one thing
+     * anybody wants to look at was the one thing off the bottom of the screen.
+     * Moving it to the top of the form only traded one scroll for another: it
+     * was still inside a panel about placing the next order, competing with it
+     * for the same height.
      *
-     * Hidden outright when nothing is open, because an empty section pushing
-     * the form down is the same problem the other way round, and capped in
-     * height so that somebody holding six names still has the form on screen.
+     * So it is a strip of its own, mounted above whichever of the two is
+     * showing. Closed, it sits on the BUY and SHORT bar; open, on the sheet.
+     * Either way it is on screen without opening or scrolling anything.
      */
-    r.posWrap = el('div', { class: 'mpositions-wrap', hidden: true }, [
-      el('div', { class: 'mpositions-head', text: 'YOUR POSITIONS' }),
-      r.positions,
-    ]);
-
     r.panel = el('div', { class: 'msheet' }, [
       head,
       el('div', { class: 'msheet-body' }, [
-        r.posWrap,
         seg, amountRow, sizeRow, r.levRow,
         balanceRow, metaRow, r.limitField, r.bracketToggle, r.brackets,
         r.submit, r.note, r.preview,
@@ -239,6 +234,16 @@ export class MobileTrade {
 
     this.sheet.append(r.scrim, r.panel);
     this.sheet.hidden = true;
+    this.mountPositions();
+  }
+
+  mountPositions() {
+    const r = this.refs;
+    if (!this.posbar) return;
+    clear(this.posbar);
+    r.positions = el('div', { class: 'mpositions' });
+    this.posbar.append(r.positions);
+    this.posbar.hidden = true;
   }
 
   /**
@@ -313,11 +318,27 @@ export class MobileTrade {
    */
   measure() {
     const h = this.open ? Math.round(this.refs.panel.getBoundingClientRect().height) : 0;
-    if (h === this._lastHeight) return;
-    this._lastHeight = h;
+    // The strip rides on top of the sheet, so the chart has to know about both
+    // or its bottom rows end up underneath the thing describing them.
+    const strip = this.posbar && !this.posbar.hidden
+      ? Math.round(this.posbar.getBoundingClientRect().height)
+      : 0;
+    const total = h ? h + strip : 0;
+    if (total === this._lastHeight) return;
+    this._lastHeight = total;
     const root = document.documentElement;
-    if (h) root.style.setProperty('--sheet-h', `${h}px`);
-    else root.style.removeProperty('--sheet-h');
+    if (total) {
+      // Two numbers, because they answer different questions. --sheet-h is how
+      // much of the screen is spoken for at the bottom, which is what the
+      // chart sizes against. --panel-h is the sheet alone, which is what the
+      // strip stands on: given the total it would be pushed up by its own
+      // height and float away from the thing it is sitting on.
+      root.style.setProperty('--sheet-h', `${total}px`);
+      root.style.setProperty('--panel-h', `${h}px`);
+    } else {
+      root.style.removeProperty('--sheet-h');
+      root.style.removeProperty('--panel-h');
+    }
     this.onLayoutChange?.(this.open);
   }
 
@@ -555,10 +576,11 @@ export class MobileTrade {
     const key = list.map((p) => `${p.id}:${p.qty.toFixed(4)}:${p.flip ? 1 : 0}`).join('|');
     // Nothing open is said by the section not being there, not by a line of
     // text taking up the space the order form wants.
-    this.refs.posWrap.hidden = !list.length;
-    // The sheet is allowed to be taller while something is open, so that the
-    // strip does not buy its place at the button's expense.
-    this.sheet.classList.toggle('has-positions', list.length > 0);
+    if (this.posbar) {
+      const was = this.posbar.hidden;
+      this.posbar.hidden = !list.length;
+      if (was !== this.posbar.hidden) this.measure();
+    }
 
     if (node.__key !== key) {
       node.__key = key;
