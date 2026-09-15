@@ -758,6 +758,64 @@ check('picking from the picker closes it and switches the chart', await page.eva
     && document.querySelector('.ah-sym').textContent.startsWith(want);
 }));
 
+check('a toast on a phone is centred, not shoved to one side', await page.evaluate(async () => {
+  document.querySelector('#toasts').innerHTML = '';
+  ui.toasts.push({ tone: 'good', icon: 'up', text: 'Bought 1.0000 MKTX' });
+  await new Promise((r) => setTimeout(r, 200));
+  const t = document.querySelector('#toasts .toast');
+  const words = t.querySelector('.grow');
+  const tb = t.getBoundingClientRect();
+  const wb = words.getBoundingClientRect();
+  // The gap either side of the icon-and-words group matches, within a pixel.
+  const left = wb.left - tb.left;
+  const right = tb.right - wb.right;
+  window.__toastGaps = `${left.toFixed(1)} / ${right.toFixed(1)}`;
+  return getComputedStyle(t).textAlign === 'center' && Math.abs(left - right) < 24;
+}), await page.evaluate(() => window.__toastGaps));
+
+check('the wipeout screen opens on a desk with nothing left', await page.evaluate(async () => {
+  game.account.positions.length = 0;
+  game.account.options.length = 0;
+  game.account.cash = 0.4;
+  game.wipedOut = false;
+  game.checkWipeout();
+  await new Promise((r) => setTimeout(r, 300));
+  const root = document.querySelector('#wipe-root');
+  const t = root.textContent;
+  return root.hidden === false
+    && /WIPED OUT/.test(t)
+    && /buy more money/i.test(t)
+    && /watch an ad/i.test(t)
+    && /reset your account/i.test(t);
+}));
+
+check('it says what is actually left on the desk', await page.evaluate(
+  () => /\$0\.40/.test(document.querySelector('.wipe-sub').textContent)));
+
+check('it outranks everything else on the screen', await page.evaluate(() => {
+  const z = (sel) => Number(getComputedStyle(document.querySelector(sel)).zIndex) || 0;
+  // It is the thing that opens the ad overlay, so it has to sit above it.
+  return z('#wipe-root') > z('#ad-root') && z('#wipe-root') > z('#toasts');
+}));
+
+check('a stray tap does not dismiss it', await page.evaluate(async () => {
+  document.querySelector('.wipe-scrim').click();
+  await new Promise((r) => setTimeout(r, 250));
+  return document.querySelector('#wipe-root').hidden === false;
+}));
+
+check('buy more money closes it and opens the capital packs', await page.evaluate(async () => {
+  [...document.querySelectorAll('.wipe-go')][0].click();
+  await new Promise((r) => setTimeout(r, 350));
+  const open = document.querySelector('#modal-root');
+  return document.querySelector('#wipe-root').hidden === true
+    && open.hidden === false
+    && ui.modals.storeCat === 'capital';
+}));
+
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+
 await page.setViewportSize({ width: 1280, height: 800 });
 await page.waitForTimeout(400);
 check('the desk ticket comes back on a wide screen', await page.evaluate(

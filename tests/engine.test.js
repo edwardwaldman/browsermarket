@@ -17,7 +17,7 @@ import {
 } from '../src/engine/progression.js';
 import { BotDesk, BOT_TYPES, upgradeCost } from '../src/engine/bots.js';
 import { Leaderboard } from '../src/engine/leaderboard.js';
-import { Game, SHOP, REWIND_WINDOW } from '../src/engine/game.js';
+import { Game, SHOP, REWIND_WINDOW, WIPEOUT_FLOOR } from '../src/engine/game.js';
 import {
   Auth, LEGAL, CODE_LENGTH, MIN_PASSWORD, looksLikeEmail, normaliseEmail, passwordProblem,
 } from '../src/engine/auth.js';
@@ -2119,4 +2119,100 @@ test('a reset that signs in but fails to set the password says exactly that', as
   const res = await auth.resetWithCode('player@example.com', '123456', 'correcthorse1');
   assert.equal(res.ok, false);
   assert.match(res.reason, /password did not change/i);
+});
+
+
+// ── wiped out ────────────────────────────────────────────────────────────
+
+function brokeGame(cash) {
+  const g = new Game({ seed: 31, warmUpDays: 0 });
+  g.account.cash = cash;
+  g.account.positions.length = 0;
+  g.account.options.length = 0;
+  return g;
+}
+
+test('a desk at a dollar or less is called wiped out', () => {
+  for (const cash of [WIPEOUT_FLOOR, 0.4, 0]) {
+    const g = brokeGame(cash);
+    const seen = [];
+    g.on((e) => { if (e.type === 'wipeout') seen.push(e); });
+    g.checkWipeout();
+    assert.equal(seen.length, 1, `${cash} should wipe out`);
+    assert.equal(seen[0].netWorth, cash);
+  }
+});
+
+test('a desk with money left is not', () => {
+  const g = brokeGame(WIPEOUT_FLOOR + 0.01);
+  const seen = [];
+  g.on((e) => { if (e.type === 'wipeout') seen.push(e); });
+  g.checkWipeout();
+  assert.equal(seen.length, 0);
+});
+
+test('a desk with a position still open is not wiped out, it is just down', () => {
+  // Something left to sell is something left to trade, however little cash is
+  // sitting beside it.
+  const g = new Game({ seed: 32, warmUpDays: 0 });
+  g.openPosition({ sym: 'OBBY', side: 'LONG', margin: 500, leverage: 1 });
+  g.account.cash = 0;
+  const seen = [];
+  g.on((e) => { if (e.type === 'wipeout') seen.push(e); });
+  g.checkWipeout();
+  assert.equal(seen.length, 0);
+});
+
+test('the wipeout is announced once, not on every check', () => {
+  const g = brokeGame(0.5);
+  const seen = [];
+  g.on((e) => { if (e.type === 'wipeout') seen.push(e); });
+  g.checkWipeout();
+  g.checkWipeout();
+  g.checkWipeout();
+  assert.equal(seen.length, 1);
+});
+
+test('money back on the desk rearms the wipeout for next time', () => {
+  const g = brokeGame(0.5);
+  const seen = [];
+  g.on((e) => { if (e.type === 'wipeout') seen.push(e); });
+  g.checkWipeout();
+  g.account.cash = 5000;
+  g.checkWipeout();                 // clears the latch
+  assert.equal(g.wipedOut, false);
+  g.account.cash = 0;
+  g.checkWipeout();
+  assert.equal(seen.length, 2, 'a second wipeout is its own event');
+});
+
+test('the free daily stake holds off while a desk is wiped out', () => {
+  // Telling somebody they are finished and then handing them $500 a minute
+  // later would make both messages worthless.
+  const g = brokeGame(0.5);
+  g.checkWipeout();
+  const before = g.account.cash;
+  g.maybeBailout();
+  assert.equal(g.account.cash, before, 'no stake while wiped out');
+
+  // Still there for a desk that is merely broke rather than finished.
+  const broke = brokeGame(20);
+  broke.checkWipeout();
+  broke.maybeBailout();
+  assert.ok(broke.account.cash > 20, 'a stake for a desk that is only down');
+});
+
+test('a losing close that empties the desk raises the wipeout by itself', () => {
+  const g = new Game({ seed: 33, warmUpDays: 0 });
+  const seen = [];
+  g.on((e) => { if (e.type === 'wipeout') seen.push(e); });
+  g.account.cash = 500;
+  const opened = g.openPosition({ sym: 'OBBY', side: 'LONG', margin: 200, leverage: 1 });
+  assert.equal(opened.ok, true, opened.reason);
+  // Wherever the price went, take the proceeds off the desk so the close
+  // lands on an empty account, which is the case this is about.
+  const pos = g.account.positions[0];
+  g.on((e) => { if (e.type === 'fill' && e.action === 'close') g.account.cash = 0; });
+  g.closePosition(pos.id, 1);
+  assert.equal(seen.length, 1, 'no waiting for the next day roll');
 });

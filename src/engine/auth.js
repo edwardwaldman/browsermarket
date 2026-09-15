@@ -404,8 +404,26 @@ export class Auth {
     }
 
     if (!data?.access_token) {
-      // Confirmation is on. The consents ride along in storage until the
-      // confirmation link brings them back.
+      /**
+       * AN ADDRESS THAT IS ALREADY CONFIRMED GETS NO CODE, SO IT MUST NOT BE
+       * SENT TO THE CODE BOX.
+       *
+       * Signing up again with an address that already has a confirmed account
+       * does not fail: Supabase answers 200 with a decoy user and no session,
+       * deliberately, so that this endpoint cannot be used to find out who has
+       * registered. Nothing is emailed, because there is nothing left to
+       * confirm. Taken at face value that is a dead end, somebody sitting in
+       * front of a code box waiting for a mail that is never coming.
+       *
+       * The tell is `identities`: a real new signup comes back with one, the
+       * decoy comes back with an empty array. That sends them to log in, which
+       * is what they actually needed.
+       */
+      if (Array.isArray(data?.user?.identities) && data.user.identities.length === 0) {
+        return { ok: false, reason: 'That address already has an account. Log in instead.', existing: true };
+      }
+      // Confirmation is on. The consents ride along in storage until the code
+      // is typed.
       this.stashConsents(consents);
       return { ok: true, confirm: true, email };
     }
