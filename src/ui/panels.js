@@ -1,6 +1,7 @@
 // Bottom dock: positions, resting orders, order flow, the P&L calendar,
 // the activity feed, trade history and the news wire.
 
+import { icon as iconNode, iconMarkup } from './icons.js';
 import { el, clear, cls, esc } from '../util/dom.js';
 import {
   money, moneyShort, price as fmtPrice, qty as fmtQty, pct, signed, compact,
@@ -38,7 +39,7 @@ export class BottomDock {
         class: cls('tabbtn', this.tab === t.id && 'is-active'),
         onclick: () => { this.tab = t.id; this.renderTabs(); this.render(true); },
       });
-      btn.innerHTML = `${locked ? '🔒 ' : ''}${t.label}`
+      btn.innerHTML = `${locked ? `${iconMarkup('lock')} ` : ''}${t.label}`
         + (t.id === 'positions' && open ? ` <i class="count">${open}</i>` : '');
       this.tabsNode.append(btn);
     }
@@ -75,7 +76,7 @@ export class BottomDock {
   render_positions() {
     const { account, market } = this.game;
     if (!account.positions.length && !account.options.length) {
-      this.empty('🏳 No open positions',
+      this.empty('No open positions',
         'Pick an asset in the market explorer, choose LONG or SHORT on the order ticket, then press BUY. Your live P&L shows up here.');
       return;
     }
@@ -324,7 +325,7 @@ export class BottomDock {
   render_news() {
     const { market, prog } = this.game;
     if (!prog.has('NEWSWIRE')) {
-      this.empty('🔒 Market news wire offline',
+      this.empty('Market news wire offline',
         'The wire installs at level 20. Until then headlines still move prices, you just have to read it in the tape.');
       return;
     }

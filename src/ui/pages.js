@@ -10,6 +10,7 @@ import { REGIMES } from '../engine/market.js';
 import { EVENT_KINDS } from '../engine/calendar.js';
 import { clockTime, dayName } from '../util/format.js';
 import { sparkline } from './explorer.js';
+import { iconMarkup } from './icons.js';
 
 export class ResearchPage {
   constructor({ root, game, onSelect }) {
@@ -30,7 +31,7 @@ export class ResearchPage {
     </div>`));
 
     const nav = el('div', { class: 'subnav' });
-    for (const [id, label] of [['CALENDAR', '📅 CALENDAR'], ['SECTORS', '▦ SECTORS'], ['MOVERS', '⚡ MOVERS']]) {
+    for (const [id, label] of [['CALENDAR', 'CALENDAR'], ['SECTORS', 'SECTORS'], ['MOVERS', 'MOVERS']]) {
       nav.append(el('button', {
         class: cls('subtab', this.tab === id && 'is-active'),
         text: label,
@@ -63,7 +64,7 @@ export class ResearchPage {
       const def = EVENT_KINDS[e.kind] || { label: e.kind.toLowerCase(), icon: '•' };
       const ins = game.market.get(e.sym);
       return `<div class="calrow" data-sym="${esc(e.sym)}" style="cursor:pointer">
-        <span class="calrow-icon">${def.icon}</span>
+        <span class="calrow-icon">${iconMarkup(def.icon)}</span>
         <div class="calrow-body">
           <div class="calrow-title"><b>${esc(e.sym)}</b> ${esc(def.label)}</div>
           <div class="calrow-sub">${esc(e.slot)} | ${dayName(e.day)} | DAY ${e.day} | ${clockTime(e.minute)}</div>

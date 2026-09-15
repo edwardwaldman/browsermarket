@@ -6,11 +6,11 @@ const SESSION_SLOTS = [
 ];
 
 export const EVENT_KINDS = {
-  EARNINGS: { label: 'earnings', icon: '📅', weight: 60 },
-  DIVIDEND: { label: 'ex-dividend', icon: '💰', weight: 14 },
-  PRODUCT: { label: 'product event', icon: '🚀', weight: 10 },
-  GUIDANCE: { label: 'guidance update', icon: '📊', weight: 8 },
-  LOCKUP: { label: 'lockup expiry', icon: '🔓', weight: 8 },
+  EARNINGS: { label: 'earnings', icon: 'calendar', weight: 60 },
+  DIVIDEND: { label: 'ex-dividend', icon: 'coins', weight: 14 },
+  PRODUCT: { label: 'product event', icon: 'rocket', weight: 10 },
+  GUIDANCE: { label: 'guidance update', icon: 'bars', weight: 8 },
+  LOCKUP: { label: 'lockup expiry', icon: 'unlock', weight: 8 },
 };
 
 /**

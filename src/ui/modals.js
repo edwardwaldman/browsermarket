@@ -21,6 +21,7 @@ import {
 } from '../engine/custom.js';
 import { sparkline } from './explorer.js';
 import { rankFor } from './pages.js';
+import { icon as iconNode, iconMarkup, ICON_NAMES } from './icons.js';
 
 export class Modals {
   constructor({ root, game, onSelect, refresh }) {
@@ -176,7 +177,7 @@ export class Modals {
         const have = prog.collection[c.id];
         const r = have ? RARITIES.find((x) => x.id === have.rarity) : null;
         return `<div class="collectcell ${have ? 'have' : ''}" style="${r ? `color:${r.color}` : ''}">
-          <div class="ci">${c.icon}</div>
+          <div class="ci">${iconMarkup(c.icon, { size: '1.6em' })}</div>
           <div class="cn">${esc(c.name)}</div>
           <div class="cr">${have ? `${esc(have.rarity)}${have.count > 1 ? ` x${have.count}` : ''}` : '-'}</div>
         </div>`;
@@ -188,7 +189,7 @@ export class Modals {
     body.append(html(`<div class="cardgrid">${BADGES.map((b) => {
       const day = prog.badges[b.id];
       return `<div class="ccard ${day ? '' : 'locked'}">
-        <div class="ccard-title">${day ? '🏅' : '🔒'} ${esc(b.name)}</div>
+        <div class="ccard-title">${iconMarkup(day ? 'medal' : 'lock')} ${esc(b.name)}</div>
         <div class="ccard-sub">${esc(b.desc)}</div>
         <div class="ccard-foot"><span class="pill ${day ? 'on' : ''}">${day ? `DAY ${day}` : 'LOCKED'}</span></div>
       </div>`;
@@ -218,7 +219,7 @@ export class Modals {
       const placement = item.placement || 'SHOP_UNLOCK';
       const left = game.ads.remaining(placement);
       grid.append(el('div', { class: cls('ccard', owned && 'locked') }, [
-        html(`<div class="ccard-title">✨ ${esc(item.name)}</div>
+        html(`<div class="ccard-title">${iconMarkup('sparkle')} ${esc(item.name)}</div>
           <div class="ccard-sub">${esc(item.tag)}</div>
           <div class="promo-perks" style="margin:9px 0">${item.perks.map((p) => `<div class="promo-perk full">${esc(p)}</div>`).join('')}</div>
           <div class="ccard-sub">${owned ? 'Unlocked' : `${left} placement${left === 1 ? '' : 's'} left today`}</div>`),
@@ -231,11 +232,11 @@ export class Modals {
             const res = await this.onWatchAd?.(placement);
             if (!res?.ok) {
               e.target.disabled = false;
-              this.toast?.({ tone: 'bad', icon: '⚠', text: res?.reason || 'No reward' });
+              this.toast?.({ tone: 'bad', icon: 'warning', text: res?.reason || 'No reward' });
               return;
             }
             const claim = game.claimShopItem(item.id, { adCompleted: true });
-            if (!claim.ok) this.toast?.({ tone: 'bad', icon: '⚠', text: claim.reason });
+            if (!claim.ok) this.toast?.({ tone: 'bad', icon: 'warning', text: claim.reason });
             this.rerender();
             this.refresh?.();
           },
@@ -371,7 +372,7 @@ export class Modals {
           btn.disabled = false;
           delete btn.dataset.armed;
           btn.textContent = '▶ RESET ACCOUNT | WATCH A 2 MINUTE PLACEMENT';
-          this.toast?.({ tone: 'bad', icon: '⚠', text: `${ad?.reason || 'No reward'}, save kept` });
+          this.toast?.({ tone: 'bad', icon: 'warning', text: `${ad?.reason || 'No reward'}, save kept` });
           return;
         }
         // Latches `wiped` and stops the loop, so neither the autosave timer
@@ -515,7 +516,7 @@ export class Modals {
       const cost = upgradeCost(bot.type, bot.level);
       const card = el('div', { class: 'ccard botcard' });
       card.append(el('div', { class: 'botcard-head' }, [
-        el('div', { class: 'boticon', style: { color: def.color }, text: def.icon }),
+        el('div', { class: 'boticon', style: { color: def.color } }, [iconNode(def.icon, { size: '1.5em' })]),
         el('div', { class: 'grow' }, [
           el('div', { class: 'ccard-title', text: `${def.name} | L${bot.level}` }),
           el('div', { class: 'ccard-sub', text: bot.focus ? `Working ${bot.focus}` : 'Scanning for a setup' }),
@@ -572,7 +573,7 @@ export class Modals {
         const afford = account.cash >= def.cost;
         const room = bots.bots.length < game.botSlots();
         grid.append(el('div', { class: cls('ccard', (!afford || !room) && 'locked') }, [
-          html(`<div class="ccard-title">${def.icon} ${esc(def.name)}</div>
+          html(`<div class="ccard-title">${iconMarkup(def.icon)} ${esc(def.name)}</div>
             <div class="ccard-sub">${esc(def.blurb)}</div>
             <div class="ccard-sub">Edge ${(def.edge * 6).toFixed(1)}%/day base | risk ${def.risk.toFixed(2)}x</div>`),
           el('button', {
@@ -653,7 +654,7 @@ export class Modals {
           onclick: async (e) => {
             if (opt.free) {
               const res = this.game.runTimeMachine(opt.id);
-              if (!res.ok) this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason });
+              if (!res.ok) this.toast?.({ tone: 'bad', icon: 'warning', text: res.reason });
               this.rerender();
               this.refresh?.();
               return;
@@ -662,11 +663,11 @@ export class Modals {
             const ad = await this.onWatchAd?.(opt.placement);
             if (!ad?.ok) {
               e.target.disabled = false;
-              this.toast?.({ tone: 'bad', icon: '⚠', text: ad?.reason || 'No reward' });
+              this.toast?.({ tone: 'bad', icon: 'warning', text: ad?.reason || 'No reward' });
               return;
             }
             const res = this.game.runTimeMachine(opt.id, { adCompleted: true });
-            if (!res.ok) this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason });
+            if (!res.ok) this.toast?.({ tone: 'bad', icon: 'warning', text: res.reason });
             this.rerender();
             this.refresh?.();
           },
@@ -704,7 +705,7 @@ export class Modals {
       const eligible = r.eligible ? r.eligible(game) : true;
       list.append(el('div', { class: 'tmrow' }, [
         el('div', { class: 'tmrow-body' }, [
-          el('div', { class: 'tmrow-title', text: `${r.icon} ${r.title}` }),
+          el('div', { class: 'tmrow-title' }, [iconNode(r.icon), el('span', { text: r.title })]),
           el('div', { class: 'tmrow-desc', text: r.desc }),
           el('div', { class: 'tmrow-desc up', text: `+${money(r.cash, 0)}` }),
         ]),
@@ -769,11 +770,11 @@ export class Modals {
     const arm = () => {
       const sym = symInput.value.trim();
       const ins = market.get(sym);
-      if (!ins) { this.toast?.({ tone: 'bad', icon: '⚠', text: `No instrument called ${sym || '--'}` }); return; }
+      if (!ins) { this.toast?.({ tone: 'bad', icon: 'warning', text: `No instrument called ${sym || '--'}` }); return; }
       const level = Number(String(priceInput.value).replace(/[^0-9.\-]/g, ''));
       const res = this.game.addAlert(ins.sym, level, ins.price);
-      if (!res.ok) { this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
-      this.toast?.({ tone: 'good', icon: '🔔', text: `${ins.sym} alert armed at ${fmtPrice(level)}` });
+      if (!res.ok) { this.toast?.({ tone: 'bad', icon: 'warning', text: res.reason }); return; }
+      this.toast?.({ tone: 'good', icon: 'bell', text: `${ins.sym} alert armed at ${fmtPrice(level)}` });
       this.refresh?.();
       this.rerender();
     };
@@ -781,7 +782,7 @@ export class Modals {
     body.append(el('div', { class: 'alert-form' }, [
       el('div', { class: 'field' }, [el('label', { text: 'SYMBOL' }), symInput]),
       el('div', { class: 'field' }, [el('label', { text: 'PRICE LEVEL' }), priceInput]),
-      el('button', { class: 'bigrow', text: '🔔 ARM', onclick: arm }),
+      el('button', { class: 'bigrow', onclick: arm }, [iconNode('bell'), el('span', { text: 'ARM' })]),
     ]));
     body.append(hint);
 
@@ -892,7 +893,7 @@ export class Modals {
       body.append(html(`<div class="ccard-sub">Your desk is saved in this browser only.
         An account keeps it on every device you play on.</div>`));
       body.append(el('button', {
-        class: 'bigrow', text: '✉ SIGN IN OR CREATE AN ACCOUNT',
+        class: 'bigrow', text: 'SIGN IN OR CREATE AN ACCOUNT',
         onclick: () => { this.close(); this.onSignIn?.(); },
       }));
       return;
@@ -914,7 +915,7 @@ export class Modals {
           sw.disabled = true;
           const res = await auth.setMarketing(next);
           sw.disabled = false;
-          if (!res.ok) { this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+          if (!res.ok) { this.toast?.({ tone: 'bad', icon: 'warning', text: res.reason }); return; }
           sw.className = cls('switch', next && 'on');
           sw.textContent = next ? 'ON' : 'OFF';
         };
@@ -933,7 +934,7 @@ export class Modals {
     }));
 
     const del = el('button', {
-      class: 'bigrow plain', text: '☁ DELETE MY CLOUD SAVE',
+      class: 'bigrow plain', text: 'DELETE MY CLOUD SAVE',
       onclick: async () => {
         if (!del.dataset.armed) {
           del.dataset.armed = '1';
@@ -944,10 +945,10 @@ export class Modals {
         const res = await auth.deleteAccountData();
         del.disabled = false;
         delete del.dataset.armed;
-        del.textContent = '☁ DELETE MY CLOUD SAVE';
+        del.textContent = 'DELETE MY CLOUD SAVE';
         this.toast?.(res.ok
-          ? { tone: 'good', icon: '✓', text: 'Cloud save deleted. This device keeps its own copy.' }
-          : { tone: 'bad', icon: '⚠', text: res.reason });
+          ? { tone: 'good', icon: 'check', text: 'Cloud save deleted. This device keeps its own copy.' }
+          : { tone: 'bad', icon: 'warning', text: res.reason });
       },
     });
     body.append(del);
@@ -1165,11 +1166,11 @@ export class Modals {
         if (!res.ok) {
           buy.disabled = false;
           buy.textContent = `$${item.price.toFixed(2)}`;
-          this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason });
+          this.toast?.({ tone: 'bad', icon: 'warning', text: res.reason });
           return;
         }
         this.game.account.vipDiscount = store.vipFeeDiscount();
-        this.toast?.({ tone: 'good', icon: '🧾', text: `${item.name} unlocked` });
+        this.toast?.({ tone: 'good', icon: 'receipt', text: `${item.name} unlocked` });
         this.refresh?.();
         this.rerender();
       },
@@ -1206,15 +1207,15 @@ export class Modals {
     ]));
 
     if (!can.ok) {
-      body.append(html(`<div class="ccard-sub" style="margin-top:12px">🚫 ${esc(can.reason)}</div>`));
+      body.append(html(`<div class="ccard-sub" style="margin-top:12px">${iconMarkup('warning')} ${esc(can.reason)}</div>`));
       return;
     }
 
     const run = (pay) => {
       const res = pay();
-      if (res && res.ok === false) { this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+      if (res && res.ok === false) { this.toast?.({ tone: 'bad', icon: 'warning', text: res.reason }); return; }
       const done = game.rewind();
-      if (!done.ok) { this.toast?.({ tone: 'bad', icon: '⚠', text: done.reason }); return; }
+      if (!done.ok) { this.toast?.({ tone: 'bad', icon: 'warning', text: done.reason }); return; }
       this.refresh?.();
       this.close();
     };
@@ -1241,7 +1242,7 @@ export class Modals {
         const ad = await this.onWatchAd?.('REWIND');
         adBtn.disabled = false;
         adBtn.textContent = '▶ WATCH A PLACEMENT TO UNDO';
-        if (!ad?.ok) { this.toast?.({ tone: 'bad', icon: '⚠', text: ad?.reason || 'No reward' }); return; }
+        if (!ad?.ok) { this.toast?.({ tone: 'bad', icon: 'warning', text: ad?.reason || 'No reward' }); return; }
         run(() => null);
       },
     });
@@ -1402,21 +1403,21 @@ export class Modals {
       class: 'bigrow', text: '▶ APPLY TO CHART',
       onclick: () => {
         const res = lib.save(draft);
-        if (!res.ok) { this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+        if (!res.ok) { this.toast?.({ tone: 'bad', icon: 'warning', text: res.reason }); return; }
         lib.apply(res.def.id);
         this.draft = { ...res.def };
-        this.toast?.({ tone: 'good', icon: '📐', text: `${res.def.name} is on the chart` });
+        this.toast?.({ tone: 'good', icon: 'ruler', text: `${res.def.name} is on the chart` });
         this.refresh?.();
         this.rerender();
       },
     }));
     actions.append(el('button', {
-      class: 'bigrow plain', text: '💾 SAVE TO LIBRARY',
+      class: 'bigrow plain', text: 'SAVE TO LIBRARY',
       onclick: () => {
         const res = lib.save(draft);
-        if (!res.ok) { this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+        if (!res.ok) { this.toast?.({ tone: 'bad', icon: 'warning', text: res.reason }); return; }
         this.draft = { ...res.def };
-        this.toast?.({ tone: 'good', icon: '💾', text: `${res.def.name} saved` });
+        this.toast?.({ tone: 'good', icon: 'save', text: `${res.def.name} saved` });
         this.rerender();
       },
     }));
@@ -1469,7 +1470,7 @@ export class Modals {
   view_scanner(body) {
     const { market, prog } = this.game;
     if (!prog.has('SCANNER')) {
-      body.append(html('<div class="ccard-sub">🔒 The scanner installs at level 15. Until then, read the tape yourself.</div>'));
+      body.append(html(`<div class="ccard-sub">${iconMarkup('lock')} The scanner installs at level 15. Until then, read the tape yourself.</div>`));
       return;
     }
     const pool = market.list((i) => i.kind === 'STOCK' || i.kind === 'CRYPTO');
@@ -1546,7 +1547,7 @@ export class Modals {
     const { market, prog, account } = this.game;
     const ipo = market.ipo;
     if (!prog.has('IPO')) {
-      body.append(html('<div class="ccard-sub">🔒 The launchpad opens at level 9.</div>'));
+      body.append(html(`<div class="ccard-sub">${iconMarkup('lock')} The launchpad opens at level 9.</div>`));
       return;
     }
     if (ipo) {
@@ -1556,7 +1557,7 @@ export class Modals {
       });
       const msg = el('div', { class: 'ccard-sub' });
       body.append(html(`<div class="ccard">
-        <div class="ccard-title">🚀 ${esc(ipo.name)} | ${esc(ipo.sym)}</div>
+        <div class="ccard-title">${iconMarkup('rocket')} ${esc(ipo.name)} | ${esc(ipo.sym)}</div>
         <div class="ccard-sub">Offer price ${money(ipo.offer)} | lists day ${ipo.listDay} | book closes at the open.
         Hot books scale you back; cold books fill in full and can break issue.</div>
       </div><h4>SUBSCRIBE</h4>`));
@@ -1590,26 +1591,26 @@ export class Modals {
 
 export const REWARDS = [
   {
-    id: 'FIRST_LOGIN', icon: '🎉', title: 'Welcome to the floor',
+    id: 'FIRST_LOGIN', icon: 'party', title: 'Welcome to the floor',
     desc: 'A starting stake, on the house.', cash: 5000,
   },
   {
-    id: 'FIRST_TRADE', icon: '📈', title: 'First fill bonus',
+    id: 'FIRST_TRADE', icon: 'up', title: 'First fill bonus',
     desc: 'Open and close your first position.', cash: 2500,
     eligible: (g) => g.account.stats.trades >= 1,
   },
   {
-    id: 'TEN_TRADES', icon: '🔥', title: 'Ten trades deep',
+    id: 'TEN_TRADES', icon: 'flame', title: 'Ten trades deep',
     desc: 'Close ten trades to unlock.', cash: 7500,
     eligible: (g) => g.account.stats.trades >= 10,
   },
   {
-    id: 'FIRST_STREAK', icon: '📆', title: 'Three-day streak',
+    id: 'FIRST_STREAK', icon: 'calendar', title: 'Three-day streak',
     desc: 'Trade three game days in a row.', cash: 10000,
     eligible: (g) => g.prog.bestStreak >= 3,
   },
   {
-    id: 'SIX_FIGURES', icon: '💎', title: 'Six figures',
+    id: 'SIX_FIGURES', icon: 'gem', title: 'Six figures',
     desc: 'Reach $100,000 portfolio value.', cash: 25000,
     eligible: (g) => g.account.netWorth(g.market) >= 100000,
   },

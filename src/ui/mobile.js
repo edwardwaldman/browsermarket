@@ -9,6 +9,7 @@
 import { el, clear, cls } from '../util/dom.js';
 import { money, price as fmtPrice, qty as fmtQty, pct, signed } from '../util/format.js';
 import { LEVERAGE_TIERS } from '../engine/progression.js';
+import { icon as iconNode } from './icons.js';
 import { settings } from '../engine/settings.js';
 
 export class MobileTrade {
@@ -75,9 +76,9 @@ export class MobileTrade {
       onclick: () => { this.showLeverage = !this.showLeverage; this.update(); },
     });
     r.moreChip = el('button', {
-      class: 'msheet-chip', text: '⚙', title: 'Settings',
+      class: 'msheet-chip', title: 'Settings',
       onclick: () => this.openModal?.('settings'),
-    });
+    }, [iconNode('gear')]);
 
     const head = el('div', { class: 'msheet-head' }, [
       r.collapse,
@@ -316,7 +317,7 @@ export class MobileTrade {
 
   setSide(side) {
     if (side === 'SHORT' && !this.game.prog.has('SHORTS')) {
-      this.toast?.({ tone: 'bad', icon: '🔒', text: 'Shorts unlock at level 3' });
+      this.toast?.({ tone: 'bad', icon: 'lock', text: 'Shorts unlock at level 3' });
       return;
     }
     this.side = side;
@@ -325,7 +326,7 @@ export class MobileTrade {
 
   setType(type) {
     if (type === 'LIMIT' && !this.game.prog.has('LIMIT')) {
-      this.toast?.({ tone: 'bad', icon: '🔒', text: 'Limit orders unlock at level 5' });
+      this.toast?.({ tone: 'bad', icon: 'lock', text: 'Limit orders unlock at level 5' });
       return;
     }
     this.type = type;
@@ -343,7 +344,7 @@ export class MobileTrade {
     const ins = this.game.market.get(sym);
     if (!ins) return;
     if (!(this.margin > 0)) {
-      this.toast?.({ tone: 'bad', icon: '⚠', text: 'Enter an amount first' });
+      this.toast?.({ tone: 'bad', icon: 'warning', text: 'Enter an amount first' });
       return;
     }
     const entry = ins.price;
@@ -358,7 +359,7 @@ export class MobileTrade {
     const res = this.type === 'LIMIT'
       ? this.game.placeOrder({ ...args, limit: parseAmount(this.refs.limitInput.value) })
       : this.game.openPosition(args);
-    if (!res.ok) { this.toast?.({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+    if (!res.ok) { this.toast?.({ tone: 'bad', icon: 'warning', text: res.reason }); return; }
     // The bracket is part of the order that just went in, not a sticky
     // preference, so it clears with it.
     this.refs.tpInput.value = '';
@@ -457,7 +458,9 @@ export class MobileTrade {
 
     const word = this.side === 'LONG' ? 'BUY' : 'SHORT';
     r.submit.className = cls('msubmit', this.side === 'LONG' ? 'buy' : 'sell');
-    r.submit.textContent = gate.ok ? `${word} ${ins.sym}` : '🔒 LOCKED';
+    clear(r.submit);
+    if (gate.ok) r.submit.textContent = `${word} ${ins.sym}`;
+    else r.submit.append(iconNode('lock'), el('span', { text: 'LOCKED' }));
     r.submit.disabled = !gate.ok;
 
     if (!gate.ok) r.note.textContent = gate.reason;

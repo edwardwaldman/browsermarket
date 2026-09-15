@@ -20,8 +20,8 @@
     </button>
 
     <nav class="viewnav" id="viewnav">
-      <button class="viewtab is-active" data-view="trade"><span class="ico">▦</span>TRADE</button>
-      <button class="viewtab" data-view="research"><span class="ico">◈</span>RESEARCH</button>
+      <button class="viewtab is-active" data-view="trade"><span class="ico" data-ico="chart"></span>TRADE</button>
+      <button class="viewtab" data-view="research"><span class="ico" data-ico="research"></span>RESEARCH</button>
     </nav>
 
     <div class="statcards">
@@ -47,20 +47,20 @@
     <button class="mobile-menu" id="btn-mobile-menu" title="Menu">MENU</button>
 
     <div class="toolstrip">
-      <button class="tool" id="btn-speed" data-modal="timemachine" title="Time machine">⏩<i class="tool-tag" id="speed-tag">1x</i></button>
-      <button class="tool" data-modal="missions" title="Missions">◎<i class="dot" id="mission-dot"></i></button>
-      <button class="tool" data-modal="desks" title="Algo desks">🤖</button>
-      <button class="tool" data-modal="collection" title="Collection">🎟️</button>
-      <button class="tool" data-modal="rewards" title="Free rewards">🎁</button>
-      <button class="tool" data-modal="leaderboard" title="Leaderboard">🏆</button>
-      <button class="tool" data-modal="badges" title="Badges">✨</button>
-      <button class="tool" data-modal="rewind" title="Undo a trade">⟲</button>
-      <button class="tool" data-modal="shop" title="Free perks">🎖️</button>
-      <button class="shopbtn" data-modal="store" title="Store">▣ STORE</button>
-      <button class="tool" data-modal="alerts" title="Alerts">🔔<i class="badge-count" id="alert-count">0</i></button>
-      <button class="tool" id="btn-theme" title="Light / dark mode">◐</button>
-      <button class="tool" data-modal="account" title="Account">👤</button>
-      <button class="tool" data-modal="settings" title="Settings">⚙</button>
+      <button class="tool" id="btn-speed" data-modal="timemachine" title="Time machine" data-ico="fastForward"><i class="tool-tag" id="speed-tag">1x</i></button>
+      <button class="tool" data-modal="missions" title="Missions" data-ico="target"><i class="dot" id="mission-dot"></i></button>
+      <button class="tool" data-modal="desks" title="Algo desks" data-ico="bot"></button>
+      <button class="tool" data-modal="collection" title="Collection" data-ico="tickets"></button>
+      <button class="tool" data-modal="rewards" title="Free rewards" data-ico="gift"></button>
+      <button class="tool" data-modal="leaderboard" title="Leaderboard" data-ico="trophy"></button>
+      <button class="tool" data-modal="badges" title="Badges" data-ico="sparkle"></button>
+      <button class="tool" data-modal="rewind" title="Undo a trade" data-ico="undo"></button>
+      <button class="tool" data-modal="shop" title="Free perks" data-ico="medal"></button>
+      <button class="shopbtn" data-modal="store" title="Store"><span data-ico="store"></span>STORE</button>
+      <button class="tool" data-modal="alerts" title="Alerts" data-ico="bell"><i class="badge-count" id="alert-count">0</i></button>
+      <button class="tool" id="btn-theme" title="Light / dark mode" data-ico="theme"></button>
+      <button class="tool" data-modal="account" title="Account" data-ico="person"></button>
+      <button class="tool" data-modal="settings" title="Settings" data-ico="gear"></button>
     </div>
   </header>
 
@@ -71,7 +71,7 @@
       <div class="panel-head">
         <span class="panel-title">MARKET EXPLORER</span>
         <span class="live-pill">● LIVE</span>
-        <button class="explorer-close" id="explorer-close" title="Close">✕</button>
+        <button class="explorer-close" id="explorer-close" title="Close" data-ico="close"></button>
       </div>
       <div class="searchrow">
         <span class="search-ico">⌕</span>

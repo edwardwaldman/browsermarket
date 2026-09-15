@@ -5,32 +5,32 @@ import { Rng, clamp } from '../util/rng.js';
 
 export const BOT_TYPES = {
   MOMENTUM: {
-    id: 'MOMENTUM', name: 'Momentum Desk', icon: '📈', cost: 25000,
+    id: 'MOMENTUM', name: 'Momentum Desk', icon: 'up', cost: 25000,
     blurb: 'Buys the strongest trend on the board and rides it.',
     edge: 0.14, risk: 1.3, color: '#16d97d',
   },
   REVERT: {
-    id: 'REVERT', name: 'Mean Reversion', icon: '🪃', cost: 40000,
+    id: 'REVERT', name: 'Mean Reversion', icon: 'boomerang', cost: 40000,
     blurb: 'Fades stretched moves back toward the moving average.',
     edge: 0.12, risk: 0.9, color: '#4c8dff',
   },
   MAKER: {
-    id: 'MAKER', name: 'Market Maker', icon: '⚖️', cost: 75000,
+    id: 'MAKER', name: 'Market Maker', icon: 'scales', cost: 75000,
     blurb: 'Quotes both sides and earns the spread. Hates volatility.',
     edge: 0.1, risk: 0.45, color: '#22d3ee',
   },
   ARB: {
-    id: 'ARB', name: 'Index Arbitrage', icon: '🧮', cost: 150000,
+    id: 'ARB', name: 'Index Arbitrage', icon: 'abacus', cost: 150000,
     blurb: 'Trades funds against their baskets. Small, steady, relentless.',
     edge: 0.09, risk: 0.3, color: '#a78bfa',
   },
   SENTIMENT: {
-    id: 'SENTIMENT', name: 'News Sentiment', icon: '📰', cost: 300000,
+    id: 'SENTIMENT', name: 'News Sentiment', icon: 'news', cost: 300000,
     blurb: 'Reads the wire and front-runs the reaction to headlines.',
     edge: 0.19, risk: 1.6, color: '#f5c451',
   },
   YIELD: {
-    id: 'YIELD', name: 'Yield Harvester', icon: '🌾', cost: 600000,
+    id: 'YIELD', name: 'Yield Harvester', icon: 'wheat', cost: 600000,
     blurb: 'Compounds dividends and financing. Boring, and it prints.',
     edge: 0.08, risk: 0.2, color: '#34d399',
   },
