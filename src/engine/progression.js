@@ -95,18 +95,18 @@ export const RARITIES = [
 ];
 
 export const COLLECTIBLES = [
-  { id: 'GREEN_TICKET', name: 'GREEN TICKET', icon: '🎟️' },
-  { id: 'BULL_PIN', name: 'BULL PIN', icon: '🐂' },
-  { id: 'BEAR_PIN', name: 'BEAR PIN', icon: '🐻' },
-  { id: 'GOLD_CHIP', name: 'GOLDEN CHIP', icon: '🪙' },
-  { id: 'TICKER_TAPE', name: 'TICKER TAPE', icon: '📜' },
-  { id: 'FLOOR_BADGE', name: 'FLOOR BADGE', icon: '🎫' },
-  { id: 'OPENING_BELL', name: 'OPENING BELL', icon: '🔔' },
-  { id: 'PAPER_HANDS', name: 'PAPER HANDS', icon: '🧻' },
-  { id: 'DIAMOND', name: 'DIAMOND HANDS', icon: '💎' },
-  { id: 'ROCKET', name: 'ROCKET FUEL', icon: '🚀' },
-  { id: 'CRYSTAL', name: 'CRYSTAL BALL', icon: '🔮' },
-  { id: 'BLACK_CARD', name: 'BLACK CARD', icon: '🖤' },
+  { id: 'GREEN_TICKET', name: 'GREEN TICKET', icon: 'tickets' },
+  { id: 'BULL_PIN', name: 'BULL PIN', icon: 'bull' },
+  { id: 'BEAR_PIN', name: 'BEAR PIN', icon: 'bear' },
+  { id: 'GOLD_CHIP', name: 'GOLDEN CHIP', icon: 'coin' },
+  { id: 'TICKER_TAPE', name: 'TICKER TAPE', icon: 'scroll' },
+  { id: 'FLOOR_BADGE', name: 'FLOOR BADGE', icon: 'ticket' },
+  { id: 'OPENING_BELL', name: 'OPENING BELL', icon: 'bell' },
+  { id: 'PAPER_HANDS', name: 'PAPER HANDS', icon: 'paper' },
+  { id: 'DIAMOND', name: 'DIAMOND HANDS', icon: 'gem' },
+  { id: 'ROCKET', name: 'ROCKET FUEL', icon: 'rocket' },
+  { id: 'CRYSTAL', name: 'CRYSTAL BALL', icon: 'crystal' },
+  { id: 'BLACK_CARD', name: 'BLACK CARD', icon: 'heart' },
 ];
 
 export const BADGES = [

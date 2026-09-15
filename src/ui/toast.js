@@ -1,6 +1,18 @@
 // Toast stack, full-screen celebration banners and the floating XP tick.
 
 import { el, clear } from '../util/dom.js';
+import { icon as iconNode, ICON_NAMES } from './icons.js';
+
+/**
+ * Callers name an icon; anything not in the set is shown as the text it is.
+ * That keeps a stray character from a save file or a collectible drop working
+ * without every call site having to know which is which.
+ */
+function mark(name) {
+  return ICON_NAMES.includes(name)
+    ? iconNode(name)
+    : el('span', { text: name });
+}
 
 export class Toasts {
   constructor(root) {
@@ -10,7 +22,7 @@ export class Toasts {
 
   push({ tone = 'info', icon = '•', text }) {
     const node = el('div', { class: `toast ${tone}` }, [
-      el('span', { text: icon }),
+      el('span', { class: 'toast-ico' }, [mark(icon)]),
       el('span', { class: 'grow', text }),
     ]);
     this.root.prepend(node);
@@ -47,7 +59,10 @@ export class Celebration {
     const gold = /BADGE|COLLECTIBLE|MOVED|REBIRTH|LEVEL/.test(item.title || '');
     clear(this.root).append(
       el('div', { class: `celebration-inner${gold ? ' gold' : ''}` }, [
-        el('div', { class: 'celebration-title', text: `${item.icon || '🏆'} ${item.title}` }),
+        el('div', { class: 'celebration-title' }, [
+          mark(item.icon || 'trophy'),
+          el('span', { text: item.title }),
+        ]),
         item.sub ? el('div', { class: 'celebration-sub', text: item.sub }) : null,
       ]),
     );

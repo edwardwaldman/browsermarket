@@ -18,6 +18,7 @@ import { SUPABASE, accountsConfigured, SIGNUP_AFTER_MS, DEFAULT_SYMBOL } from '.
 import { findItem as findStoreItem } from './engine/store.js';
 import { IndicatorLibrary } from './engine/custom.js';
 import { AdOverlay } from './ui/adgate.js';
+import { icon as iconNode, iconMarkup } from './ui/icons.js';
 import { $, el, clear, cls, esc, on } from './util/dom.js';
 import {
   money, moneyShort, price as fmtPrice, pct, signed, num, compact, qty as fmtQty,
@@ -147,7 +148,7 @@ function startGame(g, resumed = false) {
     ui.celebration.show({
       title: 'WHILE YOU WERE OUT',
       sub: `${report.days.toFixed(1)} trading days | account ${signed(report.equityDelta)}`,
-      icon: '🌙',
+      icon: 'moon',
     });
   }
   // NO ONBOARDING. A first-time player used to meet a card explaining the three
@@ -175,8 +176,26 @@ function onSettingChange(id) {
   render(true);
 }
 
+/**
+ * Fills in every `data-ico` in the markup. Done here rather than by writing
+ * twenty inline SVGs into index.html, which would make the one file somebody
+ * reads to see what the page is into an unreadable wall. Prepended, because
+ * several of these buttons carry a count or a dot that has to stay.
+ */
+function paintMute() {
+  clear(ui.muteBtn).append(iconNode(muted ? 'volumeOff' : 'volumeOn'));
+}
+
+function paintIcons(root = document) {
+  for (const node of root.querySelectorAll('[data-ico]')) {
+    if (node.querySelector(':scope > .ico-svg')) continue;
+    node.prepend(iconNode(node.dataset.ico, { size: '1.25em' }));
+  }
+}
+
 // ── ui construction ──────────────────────────────────────────────────────
 function buildUi() {
+  paintIcons();
   ui.toasts = new Toasts($('#toasts'));
   ui.celebration = new Celebration($('#celebration'));
 
@@ -199,7 +218,7 @@ function buildUi() {
     game,
     getSymbol: () => symbol,
     onTrade: (e) => {
-      if (e.type === 'locked') ui.toasts.push({ tone: 'info', icon: '🔒', text: e.reason });
+      if (e.type === 'locked') ui.toasts.push({ tone: 'info', icon: 'lock', text: e.reason });
     },
   });
 
@@ -223,8 +242,8 @@ function buildUi() {
     const ins = game.market.get(symbol);
     const res = game.addAlert(symbol, price, ins.price);
     ui.alertBtn.className = 'ctool';
-    if (!res.ok) { ui.toasts.push({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
-    ui.toasts.push({ tone: 'info', icon: '🔔', text: `Alert set @ ${fmtPrice(price)}` });
+    if (!res.ok) { ui.toasts.push({ tone: 'bad', icon: 'warning', text: res.reason }); return; }
+    ui.toasts.push({ tone: 'info', icon: 'bell', text: `Alert set @ ${fmtPrice(price)}` });
     renderChart(true);
     ui.explorer.renderList(true);
   };
@@ -262,7 +281,7 @@ function buildUi() {
   ui.modals.onSignIn = () => ui.authBox.show({ blocking: false });
   ui.modals.onSignOut = async () => {
     await ui.auth.signOut();
-    ui.toasts.push({ tone: 'info', icon: '👋', text: 'Signed out. This desk stays on this device.' });
+    ui.toasts.push({ tone: 'info', icon: 'signOut', text: 'Signed out. This desk stays on this device.' });
     ui.modals.rerender();
   };
 
@@ -297,7 +316,7 @@ function buildUi() {
 
   $('#btn-theme').addEventListener('click', () => {
     const next = settings.cycleTheme();
-    ui.toasts.push({ tone: 'info', icon: '◐', text: `Theme: ${next}` });
+    ui.toasts.push({ tone: 'info', icon: 'theme', text: `Theme: ${next}` });
   });
 
   $('#explorer-close')?.addEventListener('click', closeSymbolPicker);
@@ -413,9 +432,9 @@ function quickTrade(side) {
   const ins = game.market.get(symbol);
   if (!ins) return;
   const margin = ui.ticket.margin;
-  if (!(margin > 0)) { ui.toasts.push({ tone: 'bad', icon: '⚠', text: 'Set a size in the ticket first' }); return; }
+  if (!(margin > 0)) { ui.toasts.push({ tone: 'bad', icon: 'warning', text: 'Set a size in the ticket first' }); return; }
   const res = game.openPosition({ sym: symbol, side, margin, leverage: ui.ticket.leverage });
-  if (!res.ok) { ui.toasts.push({ tone: 'bad', icon: '⚠', text: res.reason }); return; }
+  if (!res.ok) { ui.toasts.push({ tone: 'bad', icon: 'warning', text: res.reason }); return; }
   ui.ticket.onTrade?.({ type: 'filled', result: res });
   ui.ticket.update();
   render(true);
@@ -453,9 +472,9 @@ function buildChartTools() {
 
   ui.alertBtn = el('button', {
     class: cls('ctool', ui.chart.alertMode && 'is-active'),
-    text: '🔔', title: 'Set a price alert (A)',
+    title: 'Set a price alert (A)',
     onclick: () => armAlert(),
-  });
+  }, [iconNode('bell')]);
   bar.append(ui.alertBtn);
   bar.append(el('button', {
     class: 'ctool wide', text: 'BOOK',
@@ -467,20 +486,20 @@ function buildChartTools() {
   }));
   bar.append(el('div', { class: 'toolsep' }));
   ui.muteBtn = el('button', {
-    class: 'ctool', text: muted ? '🔇' : '🔊',
-    onclick: () => { muted = !muted; ui.muteBtn.textContent = muted ? '🔇' : '🔊'; },
-  });
+    class: 'ctool', title: 'Sound',
+    onclick: () => { muted = !muted; paintMute(); },
+  }, [iconNode(muted ? 'volumeOff' : 'volumeOn')]);
   bar.append(ui.muteBtn);
   bar.append(el('button', { class: 'ctool', text: '−', onclick: () => ui.chart.zoom(20) }));
   bar.append(el('button', { class: 'ctool', text: '+', onclick: () => ui.chart.zoom(-20) }));
   bar.append(el('button', {
-    class: 'ctool mobile-only', text: '☰', title: 'Market explorer',
+    class: 'ctool mobile-only', title: 'Market explorer',
     onclick: () => $('#explorer').classList.toggle('mobile-open'),
-  }));
+  }, [iconNode('menu')]));
   bar.append(el('button', {
-    class: 'ctool mobile-only', text: '🎫', title: 'Order ticket',
+    class: 'ctool mobile-only', title: 'Order ticket',
     onclick: () => $('#ticket').classList.toggle('mobile-open'),
-  }));
+  }, [iconNode('ticket')]));
   if (!ui.indMenu?.hidden) fillIndicatorMenu();
 }
 
@@ -488,7 +507,7 @@ function armAlert() {
   ui.chart.alertMode = !ui.chart.alertMode;
   ui.alertBtn.className = cls('ctool', ui.chart.alertMode && 'is-active');
   ui.toasts.push({
-    tone: 'info', icon: '🔔',
+    tone: 'info', icon: 'bell',
     text: ui.chart.alertMode ? 'Click the chart at the level you want' : 'Alert cancelled',
   });
 }
@@ -569,7 +588,7 @@ function onKey(e) {
   } else if (e.key === ' ') {
     e.preventDefault();
     if (game.running) game.stop(); else game.start();
-    ui.toasts.push({ tone: 'info', icon: '⏯', text: game.running ? 'Market running' : 'Market paused' });
+    ui.toasts.push({ tone: 'info', icon: 'pause', text: game.running ? 'Market running' : 'Market paused' });
   }
 }
 
@@ -622,7 +641,7 @@ function handleEvent(e) {
       break;
     case 'news':
       if (game.prog.has('NEWSWIRE') && settings.get('marketAlerts')) {
-        ui.toasts.push({ tone: 'info', icon: '📰', text: e.item.headline });
+        ui.toasts.push({ tone: 'info', icon: 'news', text: e.item.headline });
       }
       break;
     case 'day':
@@ -632,7 +651,7 @@ function handleEvent(e) {
       render(true);
       break;
     case 'regime':
-      ui.toasts.push({ tone: 'info', icon: '🌐', text: `Regime shift | ${REGIMES[e.regime].label}` });
+      ui.toasts.push({ tone: 'info', icon: 'globe', text: `Regime shift | ${REGIMES[e.regime].label}` });
       break;
     case 'pnl-flash':
       flashCash(e.amount);
@@ -640,7 +659,7 @@ function handleEvent(e) {
     case 'bot-payout':
       if (Math.abs(e.amount) > 0.01) {
         ui.toasts.push({
-          tone: e.amount >= 0 ? 'good' : 'bad', icon: '🤖',
+          tone: e.amount >= 0 ? 'good' : 'bad', icon: 'bot',
           text: `Algo desks ${signed(e.amount)}`,
         });
       }
@@ -707,9 +726,9 @@ function syncOwnerEntry() {
   if (!isOwner()) { existing?.remove(); return; }
   if (existing) return;
   const btn = el('button', {
-    class: 'tool', title: 'Owner panel', text: '🛠', id: 'btn-owner',
+    class: 'tool', title: 'Owner panel', id: 'btn-owner',
     onclick: () => window.open('owner.html', '_blank'),
-  });
+  }, [iconNode('tools')]);
   strip.insertBefore(btn, $('[data-modal="settings"]', strip));
 }
 
@@ -751,11 +770,11 @@ function renderStatus() {
   $('#status-clock').textContent = `${dayName(market.day)} DAY ${market.day} ${clockTime(market.minuteOfDay)}`;
   $('#status-wire').textContent = prog.has('NEWSWIRE')
     ? `WIRE LIVE | ${market.news.length} STORIES`
-    : '🔒 MARKET NEWS WIRE OFFLINE | UNLOCKS AT LEVEL 20';
+    : 'MARKET NEWS WIRE OFFLINE | UNLOCKS AT LEVEL 20';
   const boost = prog.boostActive(market.tick);
   $('#status-tip').textContent = boost
-    ? `🔥 ${boost.sym} ${boost.mult}X XP | ${boost.until - market.tick}m left`
-    : (game.dailyPick ? `★ DAILY PICK | ${game.dailyPick.sym}` : 'SPACE pauses | B long | S short | ENTER submits');
+    ? `${boost.sym} ${boost.mult}X XP | ${boost.until - market.tick}m left`
+    : (game.dailyPick ? `DAILY PICK | ${game.dailyPick.sym}` : 'SPACE pauses | B long | S short | ENTER submits');
 }
 
 function renderAssetHead() {
@@ -789,7 +808,7 @@ function renderAssetHead() {
         <div class="ah-chg ${chg >= 0 ? 'up' : 'down'}">${pct(chg)}</div>
       </div>
       <div class="ah-right">
-        ${boost ? `<span class="boost-pill">🔥 ${esc(boost.sym)} ${boost.mult}X XP | ${boost.until - game.market.tick}m</span>` : ''}
+        ${boost ? `<span class="boost-pill">${iconMarkup('flame')} ${esc(boost.sym)} ${boost.mult}X XP | ${boost.until - game.market.tick}m</span>` : ''}
         <span class="mission-pill">◎ ${esc(symbol)} M${game.prog.missionTier} | ${Math.min(mission?.progress ?? 0, mission?.target ?? 0)}/${mission?.target ?? 0}</span>
       </div>
     </div>
@@ -992,7 +1011,7 @@ async function afterSignIn() {
   try { await ui.auth.fetchProfile(); } catch { /* shown on the next load */ }
   const pulled = await ui.auth.pullSave();
   if (!pulled.ok) {
-    ui.toasts.push({ tone: 'bad', icon: '⚠', text: `Cloud save unavailable: ${pulled.reason}` });
+    ui.toasts.push({ tone: 'bad', icon: 'warning', text: `Cloud save unavailable: ${pulled.reason}` });
     return;
   }
   const remote = pulled.save;
@@ -1011,7 +1030,7 @@ async function afterSignIn() {
  */
 function adoptCloudSave(remote) {
   if (!remote?.payload || !Game.fromJSON(remote.payload)) {
-    ui.toasts.push({ tone: 'bad', icon: '⚠', text: 'That cloud save could not be read' });
+    ui.toasts.push({ tone: 'bad', icon: 'warning', text: 'That cloud save could not be read' });
     return;
   }
   game.wiped = true;               // stop the autosave racing the reload
@@ -1019,7 +1038,7 @@ function adoptCloudSave(remote) {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(remote.payload));
   } catch {
-    ui.toasts.push({ tone: 'bad', icon: '⚠', text: 'This browser will not let the game save' });
+    ui.toasts.push({ tone: 'bad', icon: 'warning', text: 'This browser will not let the game save' });
     return;
   }
   location.reload();
@@ -1040,7 +1059,7 @@ function showSaveChoice(remote) {
       el('p', { class: 'auth-copy', text: 'This device and your account both have progress. Keeping one replaces the other, so pick the one you want.' }),
       el('button', {
         class: 'auth-choice',
-        onclick: () => pick(() => { pushCloudSave(); ui.toasts.push({ tone: 'good', icon: '✓', text: 'This device now wins' }); }),
+        onclick: () => pick(() => { pushCloudSave(); ui.toasts.push({ tone: 'good', icon: 'check', text: 'This device now wins' }); }),
       }, [
         el('b', { text: 'KEEP THIS DEVICE' }),
         el('small', { text: `Level ${game.prog.level} | ${money0(localNw)} | ${game.account.stats.trades} trades` }),
@@ -1105,17 +1124,17 @@ async function claimGrants() {
       game.storeCredit(amount, { name: g.note || 'Owner grant' });
     } else if (g.kind === 'rewinds' && amount > 0) {
       game.store.addRewinds(Math.round(amount));
-      ui.toasts.push({ tone: 'good', icon: '⟲', text: `${Math.round(amount)} rewinds granted` });
+      ui.toasts.push({ tone: 'good', icon: 'undo', text: `${Math.round(amount)} rewinds granted` });
     } else if (g.kind === 'vip' && amount > 0) {
       game.store.vipPoints += Math.round(amount);
       game.store.write();
       game.account.vipDiscount = game.store.vipFeeDiscount();
-      ui.toasts.push({ tone: 'good', icon: '★', text: `${Math.round(amount)} VIP points granted` });
+      ui.toasts.push({ tone: 'good', icon: 'star', text: `${Math.round(amount)} VIP points granted` });
     } else if (g.kind === 'pass' && g.item) {
       const item = findStoreItem(g.item);
       if (item) {
         game.store.grant(item, game);
-        ui.toasts.push({ tone: 'good', icon: '🎁', text: `${item.name} granted` });
+        ui.toasts.push({ tone: 'good', icon: 'gift', text: `${item.name} granted` });
       }
     }
     await ui.auth.claimGrant(g.id);

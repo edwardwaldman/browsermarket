@@ -1147,6 +1147,59 @@ check('a link arrival with no consent on file is asked for it', await page.evalu
   return before === true && auth.needsConsent() === false;
 }));
 
+check('every data-ico in the markup got drawn', await page.evaluate(() => {
+  const slots = [...document.querySelectorAll('[data-ico]')];
+  return slots.length >= 15 && slots.every((n) => n.querySelector(':scope > svg.ico-svg'));
+}));
+
+check('a toast shows a drawn icon, not a character', await page.evaluate(async () => {
+  ui.toasts.push({ tone: 'bad', icon: 'warning', text: 'test' });
+  await new Promise((r) => setTimeout(r, 150));
+  const t = document.querySelector('#toasts .toast');
+  const ico = t.querySelector('.toast-ico svg.ico-svg path');
+  return Boolean(ico) && ico.getAttribute('d').length > 10
+    // It takes the tone's colour rather than arriving in its own.
+    && getComputedStyle(t.querySelector('.toast-ico')).color !== 'rgb(0, 0, 0)';
+}));
+
+check('an icon name nobody knows falls back to the text it is', await page.evaluate(async () => {
+  ui.toasts.push({ tone: 'info', icon: '💥', text: 'unknown' });
+  await new Promise((r) => setTimeout(r, 150));
+  const t = document.querySelector('#toasts .toast');
+  return t.querySelector('.toast-ico').textContent === '💥'
+    && !t.querySelector('.toast-ico svg');
+}));
+
+check('a celebration shows a drawn icon', await page.evaluate(async () => {
+  ui.celebration.show({ title: 'PROFIT LOCKED', sub: 'test', icon: 'check' });
+  await new Promise((r) => setTimeout(r, 250));
+  const ok = Boolean(document.querySelector('.celebration-title svg.ico-svg'));
+  document.querySelector('#celebration').hidden = true;
+  return ok;
+}));
+
+check('nothing drawn on screen is an emoji any more', await page.evaluate(async () => {
+  // Extended_Pictographic is the line: the coloured, font-dependent characters
+  // go, while the geometric glyphs the terminal look is built from (star,
+  // tick, cross, carets) stay, because they are not emoji and never looked
+  // like stickers.
+  // Extended_Pictographic catches the coloured, font-dependent characters. The
+  // geometric marks the terminal look is built from are not emoji and stay, so
+  // they are named here rather than being caught by a looser pattern.
+  const KEEP = new Set([...'\u2713\u2715\u2716\u2717\u2718\u271A\u2726\u25A6\u25C8\u25CE\u25A3\u25CF\u25D0\u232C\u25B2\u25BC\u25BE\u25B4\u27F2\u267E']);
+  const re = /\p{Extended_Pictographic}/u;
+  const offending = (t) => [...t].filter((c) => re.test(c) && !KEEP.has(c));
+  const bad = [];
+  for (const node of document.querySelectorAll('button, .tool, .ctool, .mfold, .msubmit, .pill, .lockpill, .ccard-title, .statusbar, .subtab, .tabbtn')) {
+    const r = node.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) continue;
+    const hits = offending(node.textContent || '');
+    if (hits.length) bad.push(`${node.className || node.tagName}:${hits.join('')}`);
+  }
+  window.__emojiLeft = [...new Set(bad)];
+  return window.__emojiLeft.length === 0;
+}), (await page.evaluate(() => (window.__emojiLeft || []).join(' | '))));
+
 check('no console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();

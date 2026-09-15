@@ -1,6 +1,7 @@
 // Right rail: the order ticket, live position cards and account stats.
 
 import { el, clear, cls } from '../util/dom.js';
+import { icon as iconNode, iconMarkup } from './icons.js';
 import { money, price as fmtPrice, qty as fmtQty, num, signed } from '../util/format.js';
 import { LEVERAGE_TIERS } from '../engine/progression.js';
 import { CONTRACT_SIZE, markOption, EXPIRIES } from '../engine/options.js';
@@ -407,7 +408,7 @@ export class Ticket {
     const n = this.refs.notice;
     n.hidden = false;
     n.className = 'hint warn';
-    clear(n).append(el('b', { text: '⚠ HEADS UP' }), document.createTextNode(text));
+    clear(n).append(iconNode('warning'), el('b', { text: 'HEADS UP' }), document.createTextNode(text));
     clearTimeout(this._flashTimer);
     this._flashTimer = setTimeout(() => { n.hidden = true; }, 4000);
   }
@@ -492,7 +493,8 @@ export class Ticket {
     const prog = this.game.prog;
 
     const hasOptions = prog.has('OPTIONS');
-    r.tabOptions.textContent = hasOptions ? 'OPTIONS' : '🔒 OPTIONS | LV 23';
+    if (hasOptions) r.tabOptions.textContent = 'OPTIONS';
+    else clear(r.tabOptions).append(iconNode('lock'), el('span', { text: 'OPTIONS | LV 23' }));
     r.tabOptions.classList.toggle('locked', !hasOptions);
     if (this.mode === 'OPTIONS' && !hasOptions) this.setMode('ORDER');
     if (this.mode === 'OPTIONS') {
@@ -556,9 +558,9 @@ export class Ticket {
       note = `${short ? 'Short' : 'Long'} ${money(notional, 0)} of ${sym}`;
     } else if (!note) {
       const sess = this.game.market.session;
-      if (sess.id === 'AH') note = '🌙 After-hours session, thin volume';
-      else if (sess.id === 'CLOSED') note = '🌙 Overnight session, widest spreads';
-      else if (sess.id === 'PRE') note = '☀ Pre-market session, thin volume';
+      if (sess.id === 'AH') note = 'After-hours session, thin volume';
+      else if (sess.id === 'CLOSED') note = 'Overnight session, widest spreads';
+      else if (sess.id === 'PRE') note = 'Pre-market session, thin volume';
     }
 
     r.action.textContent = label;

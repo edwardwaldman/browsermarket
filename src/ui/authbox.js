@@ -10,6 +10,7 @@
 // pre-ticked. Flipping the default would make that page untrue.
 
 import { el, clear, cls } from '../util/dom.js';
+import { icon as iconNode } from './icons.js';
 import { LEGAL, looksLikeEmail, passwordProblem, MIN_PASSWORD, CODE_LENGTH } from '../engine/auth.js';
 
 const TITLES = {
@@ -224,7 +225,7 @@ export class AuthBox {
 
     const enter = () => {
       this.finish();
-      this.toast?.({ tone: 'good', icon: '✓', text: `Signed in as ${this.auth.email}` });
+      this.toast?.({ tone: 'good', icon: 'check', text: `Signed in as ${this.auth.email}` });
       this.onSignedIn?.();
     };
 
@@ -450,7 +451,7 @@ export class AuthBox {
         return;
       }
       this.finish();
-      this.toast?.({ tone: 'good', icon: '✓', text: `Signed in as ${this.auth.email}` });
+      this.toast?.({ tone: 'good', icon: 'check', text: `Signed in as ${this.auth.email}` });
       this.onSignedIn?.();
     };
 
@@ -506,14 +507,14 @@ function passwordField(placeholder, autocomplete) {
   const input = el('input', {
     class: 'auth-input', type: 'password', autocomplete, placeholder, spellcheck: 'false',
   });
-  const eye = el('button', {
-    class: 'auth-eye', type: 'button', title: 'Show password', text: '👁',
-  });
+  const eye = el('button', { class: 'auth-eye', type: 'button', title: 'Show password' }, [iconNode('eye')]);
   eye.onclick = () => {
     const shown = input.type === 'text';
     input.type = shown ? 'password' : 'text';
     eye.classList.toggle('is-on', !shown);
     eye.title = shown ? 'Show password' : 'Hide password';
+    // The icon says what pressing it does next, so it swaps with the state.
+    clear(eye).append(iconNode(shown ? 'eye' : 'eyeOff'));
   };
   return { input, eye, wrap: el('div', { class: 'auth-pass' }, [input, eye]) };
 }

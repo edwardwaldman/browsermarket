@@ -1780,3 +1780,26 @@ table.grid tr:hover td { background: var(--panel-2); }
   }
   .msizes-edit.is-on { color: var(--accent-ink); border-color: var(--accent); }
 }
+
+/* ── the icon set ─────────────────────────────────────────────────────── */
+/* Drawn icons rather than emoji: they take the colour of whatever they sit
+   in, so a toolbar button, a toast and a locked button all read as one piece
+   of software instead of three different fonts. */
+.ico-svg { flex: none; vertical-align: -0.18em; }
+button > .ico-svg { pointer-events: none; }
+
+.toast { align-items: center; }
+.toast-ico { display: inline-flex; align-items: center; flex: none; }
+.toast.good .toast-ico { color: var(--up); }
+.toast.bad .toast-ico { color: var(--down); }
+.toast.info .toast-ico { color: var(--accent-ink); }
+
+.celebration-title { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.celebration-title .ico-svg { width: 1.3em; height: 1.3em; }
+
+.tmrow-title { display: flex; align-items: center; gap: 8px; }
+.boticon { display: flex; align-items: center; justify-content: center; }
+.calrow-icon .ico-svg { vertical-align: -0.2em; }
+.shopbtn { display: inline-flex; align-items: center; gap: 6px; }
+
+.msubmit { display: flex; align-items: center; justify-content: center; gap: 8px; }

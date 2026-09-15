@@ -1,5 +1,6 @@
 // Left rail: the market explorer list with classes, search and favourites.
 
+import { icon as iconNode, iconMarkup } from './icons.js';
 import { el, clear, cls } from '../util/dom.js';
 import { price as fmtPrice, pct, compact } from '../util/format.js';
 import { ASSET_CLASSES, VOLATILE_MIN_VOL } from '../data/instruments.js';
@@ -74,7 +75,8 @@ export class Explorer {
     for (const c of ASSET_CLASSES) {
       this.tabsNode.append(el('button', {
         class: cls('classtab', c.id === this.assetClass && 'is-active'),
-        text: c.label,
+        // Only the watchlist tab carries a mark, and it is the drawn one.
+        text: c.label.replace(/^\u2605\s*/, ''),
         onclick: () => { this.assetClass = c.id; this.renderTabs(); this.renderList(true); },
       }));
     }
@@ -156,7 +158,7 @@ export class Explorer {
     const px = el('div', { class: 'assetrow-px' });
     const star = el('button', {
       class: cls('star', this.favourites.has(ins.sym) && 'on'),
-      text: '★',
+      title: 'Watchlist',
       onclick: (e) => {
         e.stopPropagation();
         if (this.favourites.has(ins.sym)) this.favourites.delete(ins.sym);
@@ -164,7 +166,7 @@ export class Explorer {
         saveFavourites([...this.favourites]);
         this.renderList(true);
       },
-    });
+    }, [iconNode('star', { size: '1em' })]);
     row.append(avatar, id, spark, px, star);
     this.rows.set(ins.sym, { row, px, spark });
     this.updateRow(ins);
@@ -178,7 +180,9 @@ export class Explorer {
     ref.row.classList.toggle('is-active', ins.sym === this.selected);
     if (locked) {
       if (ref.px.__locked !== true) {
-        clear(ref.px).append(el('span', { class: 'lockpill', text: '🔒 EXEC' }));
+        const pill = el('span', { class: 'lockpill' });
+        pill.innerHTML = `${iconMarkup('lock', { size: '1em' })} EXEC`;
+        clear(ref.px).append(pill);
         ref.px.__locked = true;
       }
       return;

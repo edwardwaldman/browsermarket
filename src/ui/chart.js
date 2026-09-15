@@ -412,7 +412,7 @@ export class Chart {
       ctx.lineTo(width - padR, y);
       ctx.stroke();
       ctx.restore();
-      const label = `🔔 ${fmtPrice(a.price)}`;
+      const label = `ALERT ${fmtPrice(a.price)}`;
       ctx.font = '11.5px ui-monospace, monospace';
       const w = ctx.measureText(label).width + 16;
       ctx.fillStyle = chrome().panel;
