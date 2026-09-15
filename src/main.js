@@ -34,20 +34,91 @@ let lastRender = 0;
 
 // ── audio ────────────────────────────────────────────────────────────────
 let audioCtx = null;
-function blip(freq = 440, dur = 0.07, type = 'sine', gain = 0.04) {
-  if (muted || !settings.get('sound')) return;
+
+/** The one place that opens the context, so every sound shares it. */
+function ctx() {
+  if (muted || !settings.get('sound')) return null;
   try {
     audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
-    const osc = audioCtx.createOscillator();
-    const amp = audioCtx.createGain();
+    // A bracket firing is not a tap, so the context can still be suspended
+    // from before the player's first gesture. Asking costs nothing if it is
+    // already running, and the sound is simply missed if the browser says no.
+    if (audioCtx.state === 'suspended') audioCtx.resume?.().catch(() => {});
+    return audioCtx;
+  } catch {
+    return null;   // no audio device
+  }
+}
+
+function blip(freq = 440, dur = 0.07, type = 'sine', gain = 0.04) {
+  const ac = ctx();
+  if (!ac) return;
+  try {
+    const osc = ac.createOscillator();
+    const amp = ac.createGain();
     osc.type = type;
     osc.frequency.value = freq;
-    amp.gain.setValueAtTime(gain, audioCtx.currentTime);
-    amp.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
-    osc.connect(amp).connect(audioCtx.destination);
+    amp.gain.setValueAtTime(gain, ac.currentTime);
+    amp.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
+    osc.connect(amp).connect(ac.destination);
     osc.start();
-    osc.stop(audioCtx.currentTime + dur);
+    osc.stop(ac.currentTime + dur);
   } catch { /* autoplay policy or no audio device */ }
+}
+
+/**
+ * A short run of notes, which is what makes a fill sound like something rather
+ * than a beep. Each note is scheduled ahead on the audio clock instead of on a
+ * timer, so the shape holds even when the tab is busy drawing candles.
+ */
+function tune(notes, { type = 'triangle', gain = 0.05 } = {}) {
+  const ac = ctx();
+  if (!ac) return;
+  try {
+    const t0 = ac.currentTime;
+    for (const [freq, at, dur] of notes) {
+      const osc = ac.createOscillator();
+      const amp = ac.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, t0 + at);
+      // Ramped from near silence rather than switched on, because a square
+      // edge on a phone speaker is heard as a click before it is heard as a
+      // note.
+      amp.gain.setValueAtTime(0.0001, t0 + at);
+      amp.gain.exponentialRampToValueAtTime(gain, t0 + at + 0.012);
+      amp.gain.exponentialRampToValueAtTime(0.0001, t0 + at + dur);
+      osc.connect(amp).connect(ac.destination);
+      osc.start(t0 + at);
+      osc.stop(t0 + at + dur + 0.02);
+    }
+  } catch { /* autoplay policy or no audio device */ }
+}
+
+/**
+ * WHAT A TRADE SOUNDS LIKE.
+ *
+ * Three sounds, because the three things that happen are not the same thing.
+ * Opening is a plain two note rise: you have done the thing, nothing is
+ * settled yet. Closing green is a major triad climbing away, which is the
+ * sound every game has used for "you won" since arcades. Closing red falls
+ * instead, in a minor third, and is quieter and rounder: it should read as a
+ * door closing, not as a buzzer telling you off. Losing money is already the
+ * punishment.
+ */
+const TRADE_SOUNDS = {
+  open: () => tune([[523, 0, 0.07], [784, 0.06, 0.11]], { type: 'triangle', gain: 0.05 }),
+  profit: () => tune(
+    [[659, 0, 0.08], [880, 0.07, 0.08], [1319, 0.14, 0.2]],
+    { type: 'triangle', gain: 0.055 },
+  ),
+  loss: () => tune(
+    [[440, 0, 0.1], [370, 0.09, 0.1], [294, 0.18, 0.22]],
+    { type: 'sine', gain: 0.045 },
+  ),
+};
+
+function tradeSound(kind) {
+  TRADE_SOUNDS[kind]?.();
 }
 
 // ── boot ─────────────────────────────────────────────────────────────────
@@ -128,7 +199,6 @@ function buildUi() {
     game,
     getSymbol: () => symbol,
     onTrade: (e) => {
-      if (e.type === 'filled') blip(660, 0.06, 'triangle');
       if (e.type === 'locked') ui.toasts.push({ tone: 'info', icon: '🔒', text: e.reason });
     },
   });
@@ -540,6 +610,11 @@ function handleEvent(e) {
       break;
     case 'closed':
       showUndoBar(e.result);
+      break;
+    case 'fill':
+      // Selling at a profit and selling at a loss are not the same event, so
+      // they do not get the same noise.
+      tradeSound(e.action === 'open' ? 'open' : (e.pnl >= 0 ? 'profit' : 'loss'));
       break;
     case 'celebrate':
       if (settings.get('marketAlerts')) ui.celebration.show(e);

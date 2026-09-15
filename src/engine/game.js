@@ -534,6 +534,7 @@ export class Game {
     if (e.type === 'open') {
       this.prog.award('FIRST_TRADE', this.market.day);
       this.prog.addXp(1, { sym: e.pos.sym, tick: this.market.tick });
+      this.emit({ type: 'fill', action: 'open', side: e.pos.side, sym: e.pos.sym });
       this.emit({
         type: 'toast', tone: 'good', icon: '🟢',
         text: `Bought ${e.entry.qty.toFixed(4)} ${e.pos.sym} @ ${e.entry.price.toFixed(2)}`,
@@ -563,6 +564,7 @@ export class Game {
           sub: `${drop.name} | ${drop.rarity}`, icon: drop.icon,
         });
       }
+      this.emit({ type: 'fill', action: 'close', pnl, sym: entry.sym, reason: e.reason });
       this.emit({
         type: 'toast', tone: pnl >= 0 ? 'good' : 'bad', icon: pnl >= 0 ? '🟢' : '🔴',
         text: `Closed for ${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toFixed(2)}${e.reason !== 'MANUAL' ? ` | ${e.reason}` : ''}`,

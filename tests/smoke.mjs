@@ -655,9 +655,27 @@ check('no horizontal overflow with the phone bar', mobileOverflow === 0, `${mobi
 await page.click('.mbtn.buy');
 await page.waitForTimeout(400);
 
-check('take profit and stop loss are in the phone order form', await page.evaluate(() => {
+check('the sheet opens with the brackets folded away', await page.evaluate(
+  () => document.querySelector('.mbrackets').hidden === true
+    && Boolean(document.querySelector('.mfold'))
+    && document.querySelector('.mfold-sum').textContent === 'None'));
+
+check('the buy button is on screen without scrolling the sheet', await page.evaluate(() => {
+  // The whole point of folding the brackets away: the button you came to press
+  // has to be visible when the sheet opens.
+  const btn = document.querySelector('.msubmit');
+  const body = document.querySelector('.msheet-body');
+  const b = btn.getBoundingClientRect();
+  const s = body.getBoundingClientRect();
+  return b.bottom <= s.bottom + 1 && b.top >= s.top && b.height > 0;
+}));
+
+check('the fold opens the two bracket fields', await page.evaluate(async () => {
+  document.querySelector('.mfold').click();
+  await new Promise((r) => setTimeout(r, 200));
   const labels = [...document.querySelectorAll('.mbracket .mfield span')].map((s) => s.textContent);
-  return labels.includes('TAKE PROFIT') && labels.includes('STOP LOSS')
+  return document.querySelector('.mbrackets').hidden === false
+    && labels.includes('TAKE PROFIT') && labels.includes('STOP LOSS')
     && document.querySelectorAll('.mbracket .mpresets').length === 2;
 }));
 
@@ -687,6 +705,25 @@ check('the order actually carries the bracket', await page.evaluate(async () => 
 
 check('a filled bracket clears rather than sticking to the next order', await page.evaluate(
   () => document.querySelectorAll('.mbracket .mfield input')[0].value === ''));
+
+check('a bracket that is set says so on the folded row', await page.evaluate(async () => {
+  const [tpRow] = document.querySelectorAll('.mbracket .mpresets');
+  [...tpRow.children].find((b) => b.textContent === '25%').click();
+  await new Promise((r) => setTimeout(r, 200));
+  document.querySelector('.mfold').click();     // fold it back up
+  await new Promise((r) => setTimeout(r, 200));
+  const sum = document.querySelector('.mfold-sum');
+  return document.querySelector('.mbrackets').hidden === true
+    && sum.textContent === 'TP 25%' && sum.classList.contains('is-set');
+}));
+
+check('reopening the sheet starts folded again', await page.evaluate(async () => {
+  document.querySelector('.msheet-collapse').click();
+  await new Promise((r) => setTimeout(r, 350));
+  document.querySelector('.mbtn.buy').click();
+  await new Promise((r) => setTimeout(r, 400));
+  return document.querySelector('.mbrackets').hidden === true;
+}));
 
 check('tapping the ticker opens the picker full screen', await page.evaluate(async () => {
   document.querySelector('#ah-pick').click();
@@ -830,11 +867,20 @@ await page.addInitScript(() => {
     if (p.includes('/auth/v1/settings')) {
       return new Response(JSON.stringify({ external: { google: true } }), { status: 200 });
     }
-    if (p.includes('/auth/v1/signup') || p.includes('/auth/v1/token')) {
-      return new Response(JSON.stringify({
-        access_token: 't', refresh_token: 'r', expires_in: 3600,
-        user: { id: 'u1', email: 'player@example.com' },
-      }), { status: 200 });
+    const session = {
+      access_token: 't', refresh_token: 'r', expires_in: 3600,
+      user: { id: 'u1', email: 'player@example.com' },
+    };
+    // With confirmation on, a signup comes back with no session and the code
+    // box opens. window.__needsCode drives which half the test is walking.
+    if (p.includes('/auth/v1/signup')) {
+      return new Response(
+        JSON.stringify(window.__needsCode ? { user: { id: 'u1' } } : session),
+        { status: 200 },
+      );
+    }
+    if (p.includes('/auth/v1/verify') || p.includes('/auth/v1/token')) {
+      return new Response(JSON.stringify(session), { status: 200 });
     }
     if (p.includes('/rest/v1/cloud_saves')) return new Response('[]', { status: 200 });
     return new Response('{}', { status: 200 });
@@ -954,6 +1000,65 @@ check('an account cannot be made without the age and terms box', await page.eval
   return window.__authCalls.length === before
     && /age|terms/i.test(document.querySelector('.auth-note').textContent);
 }));
+
+check('a signup needing confirmation opens a code box on the same form', await page.evaluate(async () => {
+  window.__needsCode = true;
+  document.querySelector('#auth-terms').checked = true;
+  document.querySelector('.auth-go').click();
+  await new Promise((r) => setTimeout(r, 700));
+  const code = document.querySelector('.auth-code');
+  const [emailInput] = document.querySelectorAll('.auth-field input.auth-input');
+  return Boolean(code)
+    // Still the sign-up card, not a "check your email" page.
+    && document.querySelector('#auth-root').hidden === false
+    && /enter your code/i.test(document.querySelector('.auth-title').textContent)
+    && emailInput.disabled === true
+    && /player@example\.com/.test(document.querySelector('.auth-codewrap').textContent)
+    && /create account/i.test(document.querySelector('.auth-go').textContent);
+}));
+
+check('no part of the code step tells anyone to open a link', await page.evaluate(() => {
+  const t = document.querySelector('.auth-card').textContent;
+  return !/link/i.test(t) && /code/i.test(t);
+}));
+
+check('a short code never reaches the network', await page.evaluate(async () => {
+  const before = window.__authCalls.length;
+  const code = document.querySelector('.auth-code');
+  code.value = '123';
+  document.querySelector('.auth-go').click();
+  await new Promise((r) => setTimeout(r, 250));
+  return window.__authCalls.length === before && code.classList.contains('shake');
+}));
+
+check('the code box refuses anything that is not a digit', await page.evaluate(async () => {
+  const code = document.querySelector('.auth-code');
+  code.value = '12ab3-4 5';
+  code.dispatchEvent(new Event('input', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 80));
+  return code.value === '123456' || code.value === '12345';
+}));
+
+check('a good code creates the account and closes the gate', await page.evaluate(async () => {
+  const code = document.querySelector('.auth-code');
+  code.value = '123456';
+  document.querySelector('.auth-go').click();
+  await new Promise((r) => setTimeout(r, 800));
+  const verify = window.__authCalls.find((c) => c.path.includes('/auth/v1/verify'));
+  return document.querySelector('#auth-root').hidden === true
+    && verify?.body?.token === '123456'
+    && verify.body.type === 'signup';
+}));
+
+// Back to the straight-through path for the checks that follow.
+await page.evaluate(async () => {
+  window.__needsCode = false;
+  // The call log is kept: later checks read the cloud push this signup made.
+  ui.auth.signOut?.();
+  ui.authBox.show({ blocking: false, step: 'signup' });
+  await new Promise((r) => setTimeout(r, 250));
+});
+await fill('player@example.com', 'correcthorse1', 'correcthorse1');
 
 check('accepting signs up and closes the gate', await page.evaluate(async () => {
   document.querySelector('#auth-terms').checked = true;
