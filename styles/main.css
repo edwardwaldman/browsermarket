@@ -500,6 +500,18 @@ table.grid tr:hover td { background: var(--panel-2); }
   border: 1px solid var(--line); color: var(--dim);
 }
 .quick:hover, .quick.is-active { background: var(--raise); color: var(--accent-ink); border-color: var(--accent); }
+.quickwrap { display: flex; align-items: stretch; gap: 4px; }
+.quickwrap .quickrow { flex: 1; }
+.quick-input {
+  width: 100%; text-align: center; padding: 8px 4px; font-size: 12px; border-radius: 0;
+  background: var(--sunken); border: 1px solid var(--accent); color: var(--text);
+  font-family: inherit; outline: none;
+}
+.quick-edit {
+  flex: none; padding: 0 8px; font-size: 10px; letter-spacing: 1px; border-radius: 0;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--dim-2);
+}
+.quick-edit:hover, .quick-edit.is-on { color: var(--accent-ink); border-color: var(--accent); }
 
 .levrow { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
 .lev {
