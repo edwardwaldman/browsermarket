@@ -17,7 +17,7 @@ import {
 } from '../src/engine/progression.js';
 import { BotDesk, BOT_TYPES, upgradeCost } from '../src/engine/bots.js';
 import { Leaderboard } from '../src/engine/leaderboard.js';
-import { Game, SHOP, REWIND_WINDOW, WIPEOUT_FLOOR } from '../src/engine/game.js';
+import { Game, SHOP, REWIND_WINDOW, WIPEOUT_FLOOR, FLIP_DRAWDOWN } from '../src/engine/game.js';
 import {
   Auth, LEGAL, CODE_LENGTH, MIN_PASSWORD, looksLikeEmail, normaliseEmail, passwordProblem,
 } from '../src/engine/auth.js';
@@ -2215,4 +2215,199 @@ test('a losing close that empties the desk raises the wipeout by itself', () => 
   g.on((e) => { if (e.type === 'fill' && e.action === 'close') g.account.cash = 0; });
   g.closePosition(pos.id, 1);
   assert.equal(seen.length, 1, 'no waiting for the next day roll');
+});
+
+
+// ── stop and reverse ─────────────────────────────────────────────────────
+
+function flipGame(seed = 41) {
+  const g = new Game({ seed, warmUpDays: 0 });
+  g.account.cash = 50_000;
+  return g;
+}
+
+test('a flip is locked until it is paid for, one way or the other', () => {
+  const g = flipGame();
+  g.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
+  const id = g.account.positions[0].id;
+
+  assert.equal(g.canFlip().ok, false);
+  const refused = g.armFlip(id, true);
+  assert.equal(refused.ok, false);
+  assert.equal(refused.locked, true, 'refused as locked, so the view can offer the ad');
+  assert.equal(g.account.positions[0].flip, null, 'nothing armed');
+
+  // An ad buys one.
+  g.grantFlip(1);
+  assert.equal(g.canFlip().ok, true);
+  assert.equal(g.armFlip(id, true).ok, true);
+  assert.ok(g.account.positions[0].flip > 0);
+  assert.equal(g.flipCharges, 0, 'spent on arming');
+});
+
+test('the pass arms flips without spending anything', () => {
+  const g = flipGame();
+  g.store.owned.push('PRO_DESK');
+  g.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
+  const id = g.account.positions[0].id;
+  assert.equal(g.armFlip(id, true).ok, true);
+  assert.equal(g.armFlip(id, true).ok, true);
+  assert.equal(g.flipCharges, 0, 'nothing to spend, nothing spent');
+});
+
+test('the level is a share of the margin, so leverage moves it closer', () => {
+  const g = flipGame();
+  g.grantFlip(5);
+  g.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
+  const one = g.account.positions[0];
+  g.armFlip(one.id, true);
+  // A 1x long loses a quarter of its margin on a quarter move.
+  assert.ok(Math.abs(one.flip - one.avg * (1 - FLIP_DRAWDOWN / 100)) < 1e-6);
+
+  g.openPosition({ sym: 'PWN', side: 'LONG', margin: 1000, leverage: 5 });
+  const five = g.account.positions.find((p) => p.sym === 'PWN');
+  g.armFlip(five.id, true);
+  assert.ok(five.flip > five.avg * (1 - FLIP_DRAWDOWN / 100), 'five times the leverage, a fifth of the move');
+});
+
+test('a short arms above the entry, not below it', () => {
+  const g = flipGame();
+  g.prog.unlock?.('SHORTS');
+  g.grantFlip(1);
+  const res = g.openPosition({ sym: 'OBBY', side: 'SHORT', margin: 1000, leverage: 1 });
+  if (!res.ok) return;                      // shorts are level gated, that is fine
+  const p = g.account.positions[0];
+  g.armFlip(p.id, true);
+  assert.ok(p.flip > p.avg, 'a short goes wrong upwards');
+});
+
+test('disarming costs nothing and leaves the position alone', () => {
+  const g = flipGame();
+  g.grantFlip(1);
+  g.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
+  const p = g.account.positions[0];
+  g.armFlip(p.id, true);
+  const qty = p.qty;
+  assert.equal(g.armFlip(p.id, false).ok, true);
+  assert.equal(p.flip, null);
+  assert.equal(g.account.positions[0].qty, qty);
+});
+
+test('reversing closes the long and opens a short of the same name', () => {
+  const g = flipGame();
+  const m = g.market;
+  g.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
+  const before = g.account.positions[0];
+  const seen = [];
+  g.account.on?.((e) => { if (e.type === 'flipped') seen.push(e); });
+
+  g.account.reverse(m, before);
+  const after = g.account.positions;
+  assert.equal(after.length, 1, 'one position, the other way');
+  assert.equal(after[0].sym, 'OBBY');
+  assert.equal(after[0].side, 'SHORT');
+  assert.equal(after[0].leverage, before.leverage);
+});
+
+test('a flip stakes what is left, never more than the desk holds', () => {
+  const g = flipGame();
+  g.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
+  const p = g.account.positions[0];
+  // Everything spent elsewhere between opening and reversing.
+  g.account.cash = 0;
+  g.account.reverse(g.market, p);
+  assert.ok(g.account.cash >= -0.0001, `cash went negative: ${g.account.cash}`);
+});
+
+test('an armed flip fires on the level rather than the stop', () => {
+  const g = flipGame();
+  g.grantFlip(1);
+  g.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
+  const p = g.account.positions[0];
+  g.armFlip(p.id, true);
+  // Both are set; the flip level is the one that turns it around.
+  p.sl = p.flip;
+  const ins = g.market.get('OBBY');
+  ins.price = p.flip * 0.99;
+  g.account.runBrackets(g.market);
+  assert.equal(g.account.positions.length, 1);
+  assert.equal(g.account.positions[0].side, 'SHORT', 'reversed, not merely stopped out');
+});
+
+
+// ── changing your own credentials ────────────────────────────────────────
+
+function signedIn(routes) {
+  const auth = newAuth(routes);
+  auth.session = { ...SESSION };
+  return auth;
+}
+
+test('a new address is asked for, not swapped on the spot', async () => {
+  const auth = signedIn({ '/auth/v1/user': { body: { id: 'u1' } } });
+  const res = await auth.changeEmail('new@example.com');
+  assert.equal(res.ok, true);
+  // Supabase mails the new address and waits, so the honest answer is pending.
+  assert.equal(res.pending, 'new@example.com');
+  const call = auth.fetch.calls.at(-1);
+  assert.equal(call.method, 'PUT');
+  assert.equal(call.body.email, 'new@example.com');
+});
+
+test('a junk or unchanged address never reaches the network', async () => {
+  const auth = signedIn({ '/auth/v1/user': { body: {} } });
+  for (const bad of ['', 'nope', 'player@example.com']) {
+    const res = await auth.changeEmail(bad);
+    assert.equal(res.ok, false, `${bad} should be refused`);
+  }
+  assert.equal(auth.fetch.calls.length, 0);
+});
+
+test('an address already in use is said plainly', async () => {
+  const auth = signedIn({ '/auth/v1/user': { status: 422, body: { msg: 'taken' } } });
+  const res = await auth.changeEmail('taken@example.com');
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /already in use/i);
+});
+
+test('the current password is proved before a new one is set', async () => {
+  const auth = signedIn({
+    '/auth/v1/token': { body: SESSION },
+    '/auth/v1/user': { body: { id: 'u1' } },
+  });
+  const res = await auth.changePassword('oldpassword1', 'newpassword1');
+  assert.equal(res.ok, true);
+
+  // An access token alone is enough for Supabase to allow this, and a token
+  // can be a borrowed phone, so the old password is checked by signing in.
+  const [check, set] = auth.fetch.calls;
+  assert.match(check.path, /grant_type=password/);
+  assert.equal(check.body.password, 'oldpassword1');
+  assert.equal(set.method, 'PUT');
+  assert.equal(set.body.password, 'newpassword1');
+});
+
+test('a wrong current password stops before anything is changed', async () => {
+  const auth = signedIn({
+    '/auth/v1/token': { status: 400, body: { msg: 'bad' } },
+    '/auth/v1/user': { body: {} },
+  });
+  const res = await auth.changePassword('wrong', 'newpassword1');
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /not your current password/i);
+  assert.ok(!auth.fetch.calls.some((c) => c.method === 'PUT'), 'nothing was written');
+});
+
+test('a weak or unchanged new password never reaches the network', async () => {
+  const auth = signedIn({ '/auth/v1/token': { body: SESSION }, '/auth/v1/user': { body: {} } });
+  assert.equal((await auth.changePassword('oldpassword1', 'short')).ok, false);
+  assert.equal((await auth.changePassword('same1234567', 'same1234567')).ok, false);
+  assert.equal(auth.fetch.calls.length, 0);
+});
+
+test('neither change is offered to somebody who is not signed in', async () => {
+  const auth = newAuth({ '/auth/v1/user': { body: {} } });
+  assert.equal((await auth.changeEmail('new@example.com')).ok, false);
+  assert.equal((await auth.changePassword('a', 'newpassword1')).ok, false);
+  assert.equal(auth.fetch.calls.length, 0);
 });

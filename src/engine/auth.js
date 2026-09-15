@@ -499,6 +499,61 @@ export class Auth {
     return { ok: true, user: this.user };
   }
 
+  /**
+   * Change the address the account lives at.
+   *
+   * Supabase does not swap it on the spot: it mails the new address and waits
+   * for that to be confirmed, so the honest thing to report is that a mail is
+   * on its way rather than that the change is done. Until it is confirmed the
+   * old address is still the one that signs in.
+   */
+  async changeEmail(rawEmail) {
+    const email = normaliseEmail(rawEmail);
+    if (!looksLikeEmail(email)) return { ok: false, reason: 'That does not look like an email address' };
+    if (!this.signedIn) return { ok: false, reason: 'Not signed in' };
+    if (email === normaliseEmail(this.email)) return { ok: false, reason: 'That is already your address' };
+    try {
+      await this.call('/auth/v1/user', { method: 'PUT', auth: true, body: { email } });
+      return { ok: true, pending: email };
+    } catch (err) {
+      if (err.status === 422) return { ok: false, reason: 'That address is already in use' };
+      if (err.status === 429) return { ok: false, reason: 'Too many requests. Wait a minute and try again' };
+      return { ok: false, reason: err.message };
+    }
+  }
+
+  /**
+   * Change the password.
+   *
+   * The current one is asked for and checked by signing in with it, because
+   * the access token alone is enough for Supabase to allow this and a token
+   * can be a borrowed phone left unlocked on a desk. Costs one round trip and
+   * makes a shoulder-surfed session much less useful.
+   */
+  async changePassword(current, next) {
+    if (!this.signedIn) return { ok: false, reason: 'Not signed in' };
+    const bad = passwordProblem(next);
+    if (bad) return { ok: false, reason: bad };
+    if (current === next) return { ok: false, reason: 'That is the password you already have' };
+
+    const who = normaliseEmail(this.email);
+    if (!who) return { ok: false, reason: 'Not signed in' };
+    try {
+      await this.call('/auth/v1/token?grant_type=password', { body: { email: who, password: current } });
+    } catch (err) {
+      if (err.status === 400) return { ok: false, reason: 'That is not your current password' };
+      return { ok: false, reason: err.message };
+    }
+
+    try {
+      await this.call('/auth/v1/user', { method: 'PUT', auth: true, body: { password: next } });
+      return { ok: true };
+    } catch (err) {
+      if (err.status === 422) return { ok: false, reason: 'That password was refused' };
+      return { ok: false, reason: err.message };
+    }
+  }
+
   /** One place that turns a token response into the stored session. */
   adoptTokens(data) {
     this.session = {

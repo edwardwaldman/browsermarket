@@ -295,6 +295,7 @@ function buildUi() {
     },
     toast: (t) => ui.toasts.push(t),
     openModal: (id) => { ui.mobile.collapse(); ui.modals.open(id); },
+    onWatchAd: (placement) => ui.ads.play(placement),
     onLayoutChange: (open) => onSheetLayout(open),
   });
 

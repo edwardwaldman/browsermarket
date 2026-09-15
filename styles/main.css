@@ -1188,6 +1188,12 @@ table.grid tr:hover td { background: var(--panel-2); }
     padding-bottom: env(safe-area-inset-bottom);
   }
   .msheet-root.is-open .msheet { transform: translateY(0); }
+  /* Holding something costs a little of the chart. The position strip sits
+     above the form, and without more room for the sheet it pushes BUY off the
+     bottom, which is the exact problem the form was rearranged to fix. The
+     chart gives up the difference: with a position open, seeing it and the
+     button matters more than another tenth of a screen of candles. */
+  .msheet-root.has-positions .msheet { max-height: 72dvh; }
 
   .msheet-head {
     display: flex; align-items: center; gap: 8px; padding: 10px 12px;
@@ -1291,15 +1297,49 @@ table.grid tr:hover td { background: var(--panel-2); }
   .mpreview:empty { display: none; }
   .mpreview b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
 
-  .mpositions-head { font-size: 11px; letter-spacing: 1.2px; color: var(--dim-2); margin-top: 2px; }
-  .mpositions { display: grid; gap: 7px; }
-  .mpos { background: var(--panel-2); border: 1px solid var(--line); padding: 10px; }
-  .mpos-top { display: flex; align-items: flex-start; gap: 10px; }
-  .mpos-sym { display: flex; align-items: center; gap: 8px; font-size: 15px; }
-  .mpos-side { font-size: 11.5px; letter-spacing: .8px; }
-  .mpos-sub { font-size: 12px; color: var(--dim-2); margin-top: 2px; }
-  .mpos-pnl { text-align: right; font-size: 15px; font-variant-numeric: tabular-nums; }
-  .mpos-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 9px; }
+  /* Above the form, so a fresh fill needs no scrolling to look at, and capped
+     so that holding several names cannot push the form off the screen: past
+     two cards the block scrolls inside itself instead of growing. */
+  /* A block, not a grid item that scrolls. The sheet body is itself a grid, and
+     a track carrying both max-height and overflow gets squeezed to nothing by
+     it: the row was in the DOM, the right size, and clipped to a sliver. The
+     cap lives on the list inside instead, where nothing is competing for the
+     height. */
+  .mpositions-wrap {
+    display: block; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  }
+  .mpositions-wrap[hidden] { display: none; }
+  .mpositions-head {
+    font-size: 11px; letter-spacing: 1.2px; color: var(--dim-2); padding: 0 0 6px;
+  }
+  .mpositions {
+    display: grid; gap: 6px; max-height: 164px; overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .mpos { background: var(--panel-2); border: 1px solid var(--line); }
+  /* A row, not a card: it sits above the order form, so its resting height is
+     what decides whether BUY is still on the screen. */
+  .mpos-row {
+    display: flex; align-items: center; gap: 7px; width: 100%;
+    padding: 9px 10px; border-radius: 0; background: none; border: 0;
+    text-align: left; min-height: 40px;
+  }
+  .mpos-sym-s { font-size: 14px; color: var(--text); }
+  .mpos-side { font-size: 11px; letter-spacing: .7px; }
+  .mpos-tag {
+    font-size: 9.5px; letter-spacing: 1px; padding: 2px 5px;
+    border: 1px solid var(--accent); color: var(--accent-ink);
+  }
+  .mpos-caret { font-size: 10px; color: var(--dim-2); }
+  .mpos-sub { font-size: 12px; color: var(--dim-2); }
+  .mpos-pnl {
+    text-align: right; font-size: 14px; font-variant-numeric: tabular-nums;
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  .mpos-more { padding: 0 10px 10px; border-top: 1px solid var(--line); margin-top: -1px; }
+  .mpos-more[hidden] { display: none; }
+  .mpos-more .mpos-sub { padding: 8px 0 2px; }
+  .mpos-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
   .mpos-actions button {
     height: 36px; border: 1px solid var(--line-2); border-radius: 0;
     color: var(--dim); font-size: 12.5px; letter-spacing: .6px;
@@ -1918,3 +1958,42 @@ button > .ico-svg { pointer-events: none; }
   color: #fff; font-size: 13px; font-weight: 600;
 }
 .coach-got:hover { background: rgba(255, 255, 255, .26); }
+
+/* ── changing your own credentials ────────────────────────────────────── */
+.credpanel { display: grid; gap: 8px; margin: 0 0 14px; }
+.credpanel[hidden] { display: none; }
+.credpanel .auth-input { width: 100%; }
+.credpanel .bigrow { margin-top: 2px; }
+.auth-note.good { color: var(--up); }
+
+/* ── the reveal, big enough to hit ────────────────────────────────────── */
+/* It rendered at 30 physical pixels inside the phone's 0.8 zoom, under every
+   touch-target floor there is, which is why it kept being missed rather than
+   pressed. Sized so it clears 44 after the zoom, and the glyph is centred in
+   it rather than sitting wherever an inline SVG lands. */
+.auth-eye {
+  display: flex; align-items: center; justify-content: center;
+  width: 46px; height: 46px; touch-action: manipulation;
+}
+@media (max-width: 760px) {
+  .auth-eye { width: 56px; height: 56px; right: 2px; }
+  .auth-pass .auth-input { padding-right: 58px; }
+}
+
+/* ── flip ─────────────────────────────────────────────────────────────── */
+@media (max-width: 760px) {
+  .mflip {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 1px; width: 100%; min-height: 46px; margin-top: 6px; border-radius: 0;
+    background: var(--panel); border: 1px dashed var(--line-2); color: var(--dim);
+  }
+  .mflip-word { font-size: 12.5px; letter-spacing: 1.4px; font-weight: 600; }
+  .mflip-note { font-size: 10.5px; letter-spacing: .4px; color: var(--dim-2); }
+  /* Faded, not hidden: a control nobody can see is a control nobody buys. */
+  .mflip.is-locked { opacity: .45; }
+  .mflip.is-armed {
+    border-style: solid; border-color: var(--accent);
+    background: var(--raise); color: var(--accent-ink);
+  }
+  .mflip.is-armed .mflip-note { color: var(--accent-ink); opacity: .8; }
+}

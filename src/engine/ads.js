@@ -13,6 +13,7 @@ export const PLACEMENTS = {
   BOT_SLOT: { id: 'BOT_SLOT', label: 'Open an extra algo slot', seconds: 30, dailyCap: 2 },
   RESET_ACCOUNT: { id: 'RESET_ACCOUNT', label: 'Wipe the save and start over', seconds: 120, dailyCap: 3 },
   REWIND: { id: 'REWIND', label: 'Undo your last trade', seconds: 20, dailyCap: 5 },
+  FLIP: { id: 'FLIP', label: 'Arm a flip on a position', seconds: 25, dailyCap: 4 },
 };
 
 export const COOLDOWN_MS = 20_000;
