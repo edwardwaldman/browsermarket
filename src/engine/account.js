@@ -125,7 +125,7 @@ export class Account {
    * Open (or add to) a position sized by posted margin and leverage.
    * Returns { ok, reason } so the ticket can explain itself.
    */
-  open(market, { sym, side, margin, leverage = 1, tp = null, sl = null, trail = null }) {
+  open(market, { sym, side, margin, leverage = 1, tp = null, sl = null, trail = null, flip = null }) {
     const ins = market.get(sym);
     if (!ins) return { ok: false, reason: 'Unknown symbol' };
     if (!(margin > 0)) return { ok: false, reason: 'Enter a position size' };
@@ -155,10 +155,11 @@ export class Account {
       pos = {
         id: nextId(), sym, side, qty, avg: fill, margin, leverage,
         openTick: market.tick, openDay: market.day, fees: fee,
-        tp, sl, trail, trailPeak: fill, kind: ins.kind,
+        tp, sl, trail, flip, trailPeak: fill, kind: ins.kind,
       };
       this.positions.push(pos);
     }
+    if (flip !== null) pos.flip = flip;
     if (tp !== null) pos.tp = tp;
     if (sl !== null) pos.sl = sl;
     if (trail !== null) { pos.trail = trail; pos.trailPeak = fill; }
@@ -386,6 +387,36 @@ export class Account {
     }
   }
 
+  /**
+   * STOP AND REVERSE.
+   *
+   * Close the position and open the other side of the same name. A trader
+   * calls this stop and reverse: the level that proves you wrong about the
+   * direction is, by the same evidence, an argument for the opposite.
+   *
+   * Staked from what is actually on the desk afterwards rather than from the
+   * original margin, because the close paid a fee and probably realised a
+   * loss, and re-staking the old number would be opening a position on money
+   * that is no longer there.
+   */
+  reverse(market, posOrId) {
+    const pos = typeof posOrId === 'string' ? this.positions.find((p) => p.id === posOrId) : posOrId;
+    if (!pos) return { ok: false, reason: 'No such position' };
+    const { sym, leverage, margin, side } = pos;
+    const closed = this.close(market, pos, 1, 'FLIP');
+    if (!closed.ok) return closed;
+
+    const stake = Math.min(margin, this.cash / (1 + this.feeRate() * leverage));
+    if (!(stake > 0)) {
+      this.emit({ type: 'flip-failed', sym, reason: 'Nothing left to stake', market });
+      return closed;
+    }
+    const next = side === 'LONG' ? 'SHORT' : 'LONG';
+    const opened = this.open(market, { sym, side: next, margin: stake, leverage });
+    this.emit({ type: 'flipped', sym, from: side, to: next, ok: opened.ok, market });
+    return opened;
+  }
+
   runBrackets(market) {
     for (const p of this.positions.slice()) {
       const ins = market.get(p.sym);
@@ -405,6 +436,13 @@ export class Account {
       if (p.tp) {
         const hit = p.side === 'LONG' ? px >= p.tp : px <= p.tp;
         if (hit) { this.close(market, p, 1, 'TAKE PROFIT'); continue; }
+      }
+      if (p.flip) {
+        // Checked ahead of the stop: both are levels you are wrong at, and
+        // somebody who armed a flip asked to be turned around rather than
+        // taken out.
+        const hit = p.side === 'LONG' ? px <= p.flip : px >= p.flip;
+        if (hit) { this.reverse(market, p); continue; }
       }
       if (p.sl) {
         const hit = p.side === 'LONG' ? px <= p.sl : px >= p.sl;

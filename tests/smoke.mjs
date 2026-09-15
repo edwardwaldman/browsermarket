@@ -676,8 +676,9 @@ check('the buy button is on screen without scrolling the sheet', await page.eval
   const body = document.querySelector('.msheet-body');
   const b = btn.getBoundingClientRect();
   const s = body.getBoundingClientRect();
+  window.__buyFit = `${Math.round(s.bottom - b.bottom)}px to spare, ${game.account.positions.length} open`;
   return b.bottom <= s.bottom + 1 && b.top >= s.top && b.height > 0;
-}));
+}), await page.evaluate(() => window.__buyFit));
 
 check('the fold opens the two bracket fields', await page.evaluate(async () => {
   document.querySelector('.mfold').click();
@@ -699,6 +700,78 @@ check('a bracket preset states what it is worth in money', await page.evaluate(a
   await new Promise((r) => setTimeout(r, 250));
   const note = document.querySelector('.mbracket-note').textContent;
   return /Take \+\$/.test(note) && /Stop -\$/.test(note);
+}));
+
+check('an open position sits above the order form, not below it', await page.evaluate(() => {
+  const wrap = document.querySelector('.mpositions-wrap');
+  const seg = document.querySelector('.mseg-btn.buy');
+  if (!wrap || wrap.hidden) return false;
+  // Above the Buy/Short segment, so a fresh fill needs no scrolling to see.
+  return wrap.getBoundingClientRect().bottom <= seg.getBoundingClientRect().top + 1;
+}));
+
+check('the positions block is not there at all when nothing is open', await page.evaluate(async () => {
+  const held = game.account.positions.slice();
+  game.account.positions.length = 0;
+  ui.mobile.update();
+  await new Promise((r) => setTimeout(r, 150));
+  const hidden = document.querySelector('.mpositions-wrap').hidden === true;
+  game.account.positions.push(...held);
+  ui.mobile.update();
+  await new Promise((r) => setTimeout(r, 150));
+  return hidden;
+}));
+
+check('the position row is actually drawn, not clipped to a sliver', await page.evaluate(() => {
+  // It was once in the DOM at the right size and squeezed to nothing by the
+  // sheet body's grid, which looks exactly like not rendering at all.
+  const wrap = document.querySelector('.mpositions-wrap');
+  const row = document.querySelector('.mpos-row');
+  if (!row) return false;
+  const w = wrap.getBoundingClientRect();
+  const r = row.getBoundingClientRect();
+  window.__rowFit = `row ${Math.round(r.height)}px inside wrap ${Math.round(w.height)}px`;
+  return r.height >= 28 && w.height >= r.height
+    && r.top >= w.top - 1 && r.bottom <= w.bottom + 1;
+}), await page.evaluate(() => window.__rowFit));
+
+check('the row says the symbol, the side and the live pnl', await page.evaluate(() => {
+  const t = document.querySelector('.mpos-row').textContent;
+  return /[A-Z]{3,6}/.test(t) && /(LONG|SHORT)/.test(t) && /\$/.test(t) && /%/.test(t);
+}));
+
+check('a position rests as one line and opens on a tap', await page.evaluate(async () => {
+  const more = document.querySelector('.mpos-more');
+  const wasShut = more.hidden === true;
+  document.querySelector('.mpos-row').click();
+  await new Promise((r) => setTimeout(r, 200));
+  return wasShut && document.querySelector('.mpos-more').hidden === false;
+}));
+
+check('the flip is shown to everybody and faded until it is paid for', await page.evaluate(() => {
+  const btn = document.querySelector('.mflip');
+  if (!btn) return false;
+  const faded = Number(getComputedStyle(btn).opacity) < 0.7;
+  return btn.classList.contains('is-locked') && faded
+    && /FLIP/.test(btn.textContent) && /ad/i.test(btn.textContent);
+}));
+
+check('a flip armed from the desk turns the card on', await page.evaluate(async () => {
+  game.grantFlip(1);
+  const p = game.account.positions[0];
+  game.armFlip(p.id, true);
+  ui.mobile.update();
+  await new Promise((r) => setTimeout(r, 200));
+  const btn = document.querySelector('.mflip');
+  return btn.classList.contains('is-armed') && /FLIP ARMED/.test(btn.textContent)
+    && !btn.classList.contains('is-locked');
+}));
+
+check('tapping an armed flip cancels it', await page.evaluate(async () => {
+  document.querySelector('.mflip').click();
+  await new Promise((r) => setTimeout(r, 250));
+  return !game.account.positions[0].flip
+    && !document.querySelector('.mflip').classList.contains('is-armed');
 }));
 
 check('the order actually carries the bracket', await page.evaluate(async () => {

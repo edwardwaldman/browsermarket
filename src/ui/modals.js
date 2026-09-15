@@ -8,7 +8,7 @@ import { LEVELS, RARITIES, COLLECTIBLES, BADGES, totalXpForLevel, xpForLevel } f
 import { BOT_TYPES, upgradeCost, OFFLINE_EFFICIENCY } from '../engine/bots.js';
 import { SHOP, CODES } from '../engine/game.js';
 import { PLACEMENTS } from '../engine/ads.js';
-import { LEGAL } from '../engine/auth.js';
+import { LEGAL, MIN_PASSWORD } from '../engine/auth.js';
 import {
   CATEGORIES, PASSES, CAPITAL_PACKS, CONSUMABLES, VIP_TIERS,
   cashFor, vipPointsFor, vipProgress, unconfiguredProvider, devGrantProvider,
@@ -391,6 +391,83 @@ export class Modals {
       Browser Stock Exchange, a lightweight market simulation. Every market, company and currency here is
       invented. Nothing on this screen is financial advice and no real money is involved.
     </div>`));
+  }
+
+  /**
+   * Changing the address and the password, for somebody already signed in.
+   *
+   * Both start folded. They are the two rows on this screen that can lock
+   * somebody out of their own desk, so neither is a field sitting open next to
+   * a marketing toggle waiting to be typed in by accident.
+   */
+  credentialRows(body, auth) {
+    const fold = (title, desc, build) => {
+      const panel = el('div', { class: 'credpanel', hidden: true });
+      const open = el('button', { class: 'bigrow plain', text: title });
+      open.onclick = () => {
+        panel.hidden = !panel.hidden;
+        if (!panel.hidden && !panel.childElementCount) build(panel);
+        panel.querySelector('input')?.focus();
+      };
+      body.append(el('div', { class: 'ccard-sub', text: desc }), open, panel);
+    };
+
+    fold('CHANGE MY EMAIL', 'The address you sign in with.', (panel) => {
+      const field = el('input', {
+        class: 'auth-input', type: 'email', inputmode: 'email',
+        placeholder: 'New email address', spellcheck: 'false', autocomplete: 'email',
+      });
+      const note = el('div', { class: 'auth-note' });
+      const go = el('button', { class: 'bigrow', text: 'SEND THE CONFIRMATION' });
+      go.onclick = async () => {
+        note.className = 'auth-note';
+        go.disabled = true;
+        const res = await auth.changeEmail(field.value.trim());
+        go.disabled = false;
+        if (!res.ok) { note.textContent = res.reason; return; }
+        // Not done, only started: the old address still signs in until the new
+        // one is confirmed, and saying otherwise would lock somebody out in
+        // their own head.
+        note.className = 'auth-note good';
+        note.textContent = `Confirm it from the mail we sent to ${res.pending}. `
+          + 'Until you do, sign in with your old address.';
+        field.value = '';
+      };
+      panel.append(field, note, go);
+    });
+
+    fold('CHANGE MY PASSWORD', 'Asks for your current one first.', (panel) => {
+      const current = el('input', {
+        class: 'auth-input', type: 'password', placeholder: 'Current password',
+        autocomplete: 'current-password',
+      });
+      const next = el('input', {
+        class: 'auth-input', type: 'password', placeholder: 'New password',
+        autocomplete: 'new-password',
+      });
+      const again = el('input', {
+        class: 'auth-input', type: 'password', placeholder: 'New password again',
+        autocomplete: 'new-password',
+      });
+      const note = el('div', { class: 'auth-note' });
+      const go = el('button', { class: 'bigrow', text: 'CHANGE IT' });
+      go.onclick = async () => {
+        note.className = 'auth-note';
+        if (next.value !== again.value) { note.textContent = 'The two new passwords do not match.'; return; }
+        go.disabled = true;
+        const res = await auth.changePassword(current.value, next.value);
+        go.disabled = false;
+        if (!res.ok) { note.textContent = res.reason; return; }
+        note.className = 'auth-note good';
+        note.textContent = 'Password changed.';
+        for (const f of [current, next, again]) f.value = '';
+      };
+      panel.append(
+        current, next, again,
+        el('div', { class: 'auth-fine', text: `Passwords need ${MIN_PASSWORD} characters or more.` }),
+        note, go,
+      );
+    });
   }
 
   /** A toggle plus a percentage, with presets, for one bracket target. */
@@ -928,6 +1005,8 @@ export class Modals {
         return sw;
       })(),
     ]));
+
+    this.credentialRows(body, auth);
 
     body.append(el('div', { class: 'legal-links' }, [
       el('a', { class: 'auth-link', href: LEGAL.termsUrl, target: '_blank', rel: 'noopener', text: 'Terms of Service' }),

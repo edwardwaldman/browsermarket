@@ -13,7 +13,7 @@ import { icon as iconNode } from './icons.js';
 import { settings } from '../engine/settings.js';
 
 export class MobileTrade {
-  constructor({ bar, sheet, game, getSymbol, onTrade, onSymbolPick, toast, openModal, onLayoutChange }) {
+  constructor({ bar, sheet, game, getSymbol, onTrade, onSymbolPick, toast, openModal, onLayoutChange, onWatchAd }) {
     this.bar = bar;
     this.sheet = sheet;
     this.game = game;
@@ -24,6 +24,7 @@ export class MobileTrade {
     this.onSymbolPick = onSymbolPick;
     this.toast = toast;
     this.openModal = openModal;
+    this.onWatchAd = onWatchAd;
 
     this.open = false;
     this.side = 'LONG';
@@ -208,15 +209,31 @@ export class MobileTrade {
     r.note = el('div', { class: 'mnote' });
     r.preview = el('div', { class: 'mpreview' });
     r.positions = el('div', { class: 'mpositions' });
+    /**
+     * WHAT YOU ARE ALREADY IN COMES FIRST.
+     *
+     * This used to sit under the order form, past the size buttons, the
+     * brackets and the BUY button, which meant that the moment after placing a
+     * trade the one thing anybody wants to look at was the one thing off the
+     * bottom of the screen. It is above the form now: open the sheet and your
+     * position and its live P&L are the first thing under the tabs.
+     *
+     * Hidden outright when nothing is open, because an empty section pushing
+     * the form down is the same problem the other way round, and capped in
+     * height so that somebody holding six names still has the form on screen.
+     */
+    r.posWrap = el('div', { class: 'mpositions-wrap', hidden: true }, [
+      el('div', { class: 'mpositions-head', text: 'YOUR POSITIONS' }),
+      r.positions,
+    ]);
 
     r.panel = el('div', { class: 'msheet' }, [
       head,
       el('div', { class: 'msheet-body' }, [
+        r.posWrap,
         seg, amountRow, sizeRow, r.levRow,
         balanceRow, metaRow, r.limitField, r.bracketToggle, r.brackets,
         r.submit, r.note, r.preview,
-        el('div', { class: 'mpositions-head', text: 'YOUR POSITIONS' }),
-        r.positions,
       ]),
     ]);
 
@@ -479,46 +496,127 @@ export class MobileTrade {
     this.measure();
   }
 
+  /**
+   * THE FLIP.
+   *
+   * Stop and reverse: if the position goes far enough against you, the desk
+   * closes it and opens the same money the other way. Shown to everybody and
+   * faded until it is paid for, because a control nobody can see is a control
+   * nobody buys, and one that appears out of nowhere after a purchase is a
+   * surprise rather than an offer.
+   *
+   * Tapping it locked opens the ad rather than a wall: the price of the first
+   * one is attention, not money.
+   */
+  flipButton(p) {
+    const gate = this.game.canFlip();
+    const armed = Boolean(p.flip);
+    const btn = el('button', {
+      class: cls('mflip', armed && 'is-armed', !gate.ok && !armed && 'is-locked'),
+      title: armed ? 'Cancel the flip' : 'Turn this around if it goes against you',
+    }, [
+      el('span', { class: 'mflip-word', text: armed ? 'FLIP ARMED' : 'FLIP' }),
+      el('span', {
+        class: 'mflip-note',
+        text: armed
+          ? `reverses at ${fmtPrice(p.flip)}`
+          : (gate.ok ? gate.reason : 'watch an ad'),
+      }),
+    ]);
+
+    btn.onclick = async () => {
+      if (armed) { this.game.armFlip(p.id, false); this.update(); return; }
+      const res = this.game.armFlip(p.id, true);
+      if (res.ok) {
+        this.toast?.({ tone: 'good', icon: 'undo', text: `${p.sym} flips at ${fmtPrice(res.level)}` });
+        this.update();
+        return;
+      }
+      if (!res.locked) { this.toast?.({ tone: 'bad', icon: 'warning', text: res.reason }); return; }
+      // Locked: the ad is the way in, so open it rather than saying no.
+      const ad = await this.onWatchAd?.('FLIP');
+      if (!ad?.ok) {
+        this.toast?.({ tone: 'bad', icon: 'warning', text: ad?.reason || 'No reward, nothing armed' });
+        return;
+      }
+      this.game.grantFlip(1);
+      const after = this.game.armFlip(p.id, true);
+      if (after.ok) {
+        this.toast?.({ tone: 'good', icon: 'undo', text: `${p.sym} flips at ${fmtPrice(after.level)}` });
+      }
+      this.update();
+    };
+    return btn;
+  }
+
   renderPositions() {
     const node = this.refs.positions;
     const list = this.account.positions;
-    const key = list.map((p) => `${p.id}:${p.qty.toFixed(4)}`).join('|');
+    const key = list.map((p) => `${p.id}:${p.qty.toFixed(4)}:${p.flip ? 1 : 0}`).join('|');
+    // Nothing open is said by the section not being there, not by a line of
+    // text taking up the space the order form wants.
+    this.refs.posWrap.hidden = !list.length;
+    // The sheet is allowed to be taller while something is open, so that the
+    // strip does not buy its place at the button's expense.
+    this.sheet.classList.toggle('has-positions', list.length > 0);
+
     if (node.__key !== key) {
       node.__key = key;
       clear(node);
-      if (!list.length) {
-        node.append(el('div', { class: 'mnote', text: 'Nothing open yet.' }));
-      }
+      this.expanded ??= new Set();
       for (const p of list) {
         const pnlNode = el('div', { class: 'mpos-pnl' });
-        node.append(el('div', { class: 'mpos' }, [
-          el('div', { class: 'mpos-top' }, [
-            el('div', { class: 'grow' }, [
-              el('div', { class: 'mpos-sym' }, [
-                el('b', { text: p.sym }),
-                el('span', {
-                  class: cls('mpos-side', p.side === 'LONG' ? 'up' : 'down'),
-                  text: `${p.side === 'LONG' ? 'BUY' : 'SELL'} ${p.leverage}X`,
-                }),
-              ]),
-              el('div', { class: 'mpos-sub', text: `${fmtQty(p.qty)} @ ${fmtPrice(p.avg)}` }),
-            ]),
-            pnlNode,
-          ]),
+
+        /**
+         * ONE LINE UNTIL YOU ASK FOR MORE.
+         *
+         * This block sits above the order form so that a fill does not have to
+         * be scrolled to, which only works if it stays short: a full card per
+         * position put BUY back under the fold, which is the thing the form
+         * was rearranged to fix in the first place. So the resting state is a
+         * row, and the buttons come out when the row is tapped.
+         */
+        const open = this.expanded.has(p.id);
+        const row = el('button', { class: 'mpos-row' }, [
+          el('b', { class: 'mpos-sym-s', text: p.sym }),
+          el('span', {
+            class: cls('mpos-side', p.side === 'LONG' ? 'up' : 'down'),
+            text: `${p.side === 'LONG' ? 'LONG' : 'SHORT'} ${p.leverage}X`,
+          }),
+          p.flip ? el('span', { class: 'mpos-tag', text: 'FLIP' }) : null,
+          el('span', { class: 'grow' }),
+          pnlNode,
+          el('span', { class: 'mpos-caret', text: open ? '▴' : '▾' }),
+        ]);
+
+        const body = el('div', { class: 'mpos-more', hidden: !open }, [
+          el('div', { class: 'mpos-sub', text: `${fmtQty(p.qty)} @ ${fmtPrice(p.avg)}` }),
           el('div', { class: 'mpos-actions' }, [
             el('button', { text: 'CLOSE 50%', onclick: () => { this.game.closePosition(p.id, 0.5); this.update(); } }),
             el('button', { class: 'red', text: 'CLOSE ALL', onclick: () => { this.game.closePosition(p.id, 1); this.update(); } }),
           ]),
-        ]));
+          this.flipButton(p),
+        ]);
+
+        row.onclick = () => {
+          if (this.expanded.has(p.id)) this.expanded.delete(p.id);
+          else this.expanded.add(p.id);
+          body.hidden = !this.expanded.has(p.id);
+          row.querySelector('.mpos-caret').textContent = body.hidden ? '▾' : '▴';
+          this.measure();
+        };
+
+        node.append(el('div', { class: 'mpos' }, [row, body]));
         p.__mPnl = pnlNode;
       }
     }
+
     for (const p of list) {
       if (!p.__mPnl) continue;
       const { pnl } = this.account.positionValue(this.game.market, p);
       const onMargin = p.margin ? (pnl / p.margin) * 100 : 0;
       p.__mPnl.className = cls('mpos-pnl', pnl >= 0 ? 'up' : 'down');
-      p.__mPnl.innerHTML = `<div>${signed(pnl)}</div><div class="mpos-sub">${pct(onMargin)}</div>`;
+      p.__mPnl.innerHTML = `<span>${signed(pnl)}</span> <span class="mpos-sub">${pct(onMargin)}</span>`;
     }
   }
 }

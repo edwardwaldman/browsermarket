@@ -25,6 +25,14 @@ export const SAVE_KEY = 'browsermarket.save.v1';
  */
 export const WIPEOUT_FLOOR = 1;
 
+/**
+ * How far a position has to go against you before an armed flip turns it
+ * around, as a percentage of the margin rather than of the price. A quarter of
+ * the stake is far enough to mean the direction was wrong and near enough to
+ * leave something to turn around with.
+ */
+export const FLIP_DRAWDOWN = 25;
+
 export const REWIND_WINDOW = 240;
 export const MS_PER_TICK = 500;         // one game minute at 1x
 export const SPEEDS = [1, 2, 4];
@@ -95,6 +103,7 @@ export class Game {
     this.rewindPoint = null;
     this.rewindDay = new Date().toISOString().slice(0, 10);
     this.rewindsUsed = 0;
+    this.flipCharges = 0;     // bought with an ad, spent on arming a flip
 
     this.trader = opts.trader || 'you';
     this.speed = 1;
@@ -522,6 +531,46 @@ export class Game {
     this.emit({ type: 'toast', tone: 'good', icon: 'receipt', text: `${item.name}: +$${Math.round(amount).toLocaleString()}` });
   }
 
+  /**
+   * THE FLIP.
+   *
+   * Arms a stop and reverse on one position: if it goes far enough against
+   * you, the desk closes it and opens the same money on the other side. It is
+   * a paid tool, because it is the one control here that keeps trading for you
+   * after you have put the phone down.
+   *
+   * Entitlement is checked here rather than in the view: a button that can be
+   * re-enabled from the console is not a paywall, and while there is no server
+   * this is at least the single place that decides.
+   */
+  canFlip() {
+    if (this.store.has('PRO_DESK')) return { ok: true, reason: 'PRO DESK' };
+    if (this.flipCharges > 0) return { ok: true, reason: `${this.flipCharges} left` };
+    return { ok: false, reason: 'Watch an ad or get the Pro Desk' };
+  }
+
+  /** Spent on arming, not on triggering, so a flip that never fires is free. */
+  grantFlip(n = 1) {
+    this.flipCharges = Math.min(20, (this.flipCharges || 0) + n);
+    return this.flipCharges;
+  }
+
+  armFlip(id, on = true) {
+    const pos = this.account.positions.find((p) => p.id === id);
+    if (!pos) return { ok: false, reason: 'No such position' };
+    if (!on) { pos.flip = null; return { ok: true, armed: false }; }
+
+    const gate = this.canFlip();
+    if (!gate.ok) return { ok: false, reason: gate.reason, locked: true };
+
+    // A move of d against you costs d * leverage of the margin, so the price
+    // that loses a quarter of the stake is that arithmetic turned around.
+    const move = (FLIP_DRAWDOWN / 100) / Math.max(1, pos.leverage);
+    pos.flip = pos.side === 'LONG' ? pos.avg * (1 - move) : pos.avg * (1 + move);
+    if (!this.store.has('PRO_DESK')) this.flipCharges -= 1;
+    return { ok: true, armed: true, level: pos.flip };
+  }
+
   closePosition(id, fraction = 1) {
     const limit = this.limiter.take('close');
     if (!limit.ok) return { ok: false, reason: limit.reason };
@@ -608,6 +657,18 @@ export class Game {
         type: 'toast', tone: e.pnl >= 0 ? 'good' : 'bad', icon: e.pnl >= 0 ? 'up' : 'down',
         text: `${e.opt.type} closed for ${e.pnl >= 0 ? '+' : '-'}$${Math.abs(e.pnl).toFixed(2)}`,
       });
+    }
+    if (e.type === 'flipped') {
+      this.emit({ type: 'fill', action: 'open', side: e.to, sym: e.sym });
+      this.emit({
+        type: 'toast', tone: 'info', icon: 'undo',
+        text: e.ok
+          ? `${e.sym} flipped ${e.from} to ${e.to}`
+          : `${e.sym} closed, but the flip could not open`,
+      });
+    }
+    if (e.type === 'flip-failed') {
+      this.emit({ type: 'toast', tone: 'bad', icon: 'warning', text: `${e.sym} flip: ${e.reason}` });
     }
     if (e.type === 'order-fill') {
       this.emit({ type: 'toast', tone: 'info', icon: 'target', text: `${e.order.sym} order filled` });
@@ -884,6 +945,7 @@ export class Game {
       store: this.store.toJSON(),
       rewindDay: this.rewindDay,
       rewindsUsed: this.rewindsUsed,
+      flipCharges: this.flipCharges,
       alerts: this.alerts.toJSON(),
       calendar: this.calendar.toJSON(),
       timeMachine: this.timeMachine,
@@ -909,6 +971,7 @@ export class Game {
     game.store.load(raw.store);
     game.rewindDay = raw.rewindDay ?? game.rewindDay;
     game.rewindsUsed = raw.rewindsUsed ?? 0;
+    game.flipCharges = Number(raw.flipCharges) || 0;
     game.account.vipDiscount = game.store.vipFeeDiscount();
     game.alerts.load(raw.alerts);
     game.calendar.load(raw.calendar);
