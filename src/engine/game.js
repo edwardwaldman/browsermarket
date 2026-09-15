@@ -17,6 +17,14 @@ import { buildChain, markOption, CONTRACT_SIZE } from './options.js';
 export const SAVE_KEY = 'browsermarket.save.v1';
 
 /** How long a trade stays undoable, in game minutes. */
+/**
+ * The balance below which there is no game left to play. A dollar buys no
+ * position worth opening, so this is the line rather than zero: a desk sitting
+ * at 40 cents is just as finished, and waiting for an exact zero would leave
+ * somebody tapping at a form that can never fill.
+ */
+export const WIPEOUT_FLOOR = 1;
+
 export const REWIND_WINDOW = 240;
 export const MS_PER_TICK = 500;         // one game minute at 1x
 export const SPEEDS = [1, 2, 4];
@@ -217,6 +225,7 @@ export class Game {
     this.calendar.refill(this.market);
     if (this.flags.dailyPick) this.rollDailyPick();
     this.checkNetWorthBadges();
+    this.checkWipeout();
     this.maybeBailout();
     if (!offline) this.emit({ type: 'day', day: this.market.day, summary });
   }
@@ -578,6 +587,7 @@ export class Game {
         });
       }
       this.checkVolumeMilestone();
+      this.checkWipeout();
     }
     if (e.type === 'option-open') {
       this.prog.addXp(1, { sym: e.opt.sym, tick: this.market.tick });
@@ -653,9 +663,35 @@ export class Game {
     if (nw >= 1e6) this.prog.award('MILLIONAIRE', this.market.day);
   }
 
+  /**
+   * WIPED OUT.
+   *
+   * A dollar or less, with nothing open to sell. There is no trade left that
+   * can dig out of this, so the game says so plainly rather than letting
+   * somebody keep tapping BUY against a balance that cannot fill anything.
+   *
+   * Latched, because the check runs after every close and on every day roll
+   * and this screen is not something to show twice. It clears when they take
+   * one of the two ways out, or if a pending order or a grant puts money back
+   * on the desk.
+   */
+  checkWipeout() {
+    const nw = this.account.netWorth(this.market);
+    if (nw > WIPEOUT_FLOOR || this.account.positions.length || this.account.options.length) {
+      this.wipedOut = false;
+      return;
+    }
+    if (this.wipedOut) return;
+    this.wipedOut = true;
+    this.emit({ type: 'wipeout', netWorth: nw });
+  }
+
   /** Nobody enjoys a dead save: a broke desk gets a one-a-day stake. */
   maybeBailout() {
     const nw = this.account.netWorth(this.market);
+    // Wiped out is wiped out. Handing over a free stake a minute after telling
+    // somebody they are finished would make both messages worthless.
+    if (this.wipedOut) return;
     if (nw >= 100 || this.account.positions.length) return;
     const grant = 500 * (1 + this.prog.prestigePoints * 0.5);
     this.account.cash += grant;

@@ -19,6 +19,7 @@ import { findItem as findStoreItem } from './engine/store.js';
 import { IndicatorLibrary } from './engine/custom.js';
 import { AdOverlay } from './ui/adgate.js';
 import { icon as iconNode, iconMarkup } from './ui/icons.js';
+import { WipeoutGate } from './ui/wipeout.js';
 import { $, el, clear, cls, esc, on } from './util/dom.js';
 import {
   money, moneyShort, price as fmtPrice, pct, signed, num, compact, qty as fmtQty,
@@ -115,6 +116,16 @@ const TRADE_SOUNDS = {
   loss: () => tune(
     [[440, 0, 0.1], [370, 0.09, 0.1], [294, 0.18, 0.22]],
     { type: 'sine', gain: 0.045 },
+  ),
+  /**
+   * Losing a trade and losing the desk are different sizes of bad, so they are
+   * different sizes of sound. This is the loss figure taken down an octave and
+   * given twice the room, ending on a note low enough to feel like the floor
+   * going out rather than a wrong answer.
+   */
+  wipeout: () => tune(
+    [[330, 0, 0.3], [262, 0.22, 0.32], [196, 0.46, 0.4], [98, 0.74, 0.9]],
+    { type: 'sine', gain: 0.075 },
   ),
 };
 
@@ -287,6 +298,21 @@ function buildUi() {
 
   ui.ads = new AdOverlay($('#ad-root'), game.ads, game.store);
   ui.ads.onStore = (cat) => { ui.modals.storeCat = cat; ui.modals.open('store'); };
+
+  ui.wipeout = new WipeoutGate({
+    root: $('#wipe-root'),
+    onSound: () => tradeSound('wipeout'),
+    onBuy: () => { ui.modals.storeCat = 'capital'; ui.modals.open('store'); },
+    onReset: async () => {
+      const res = await ui.ads.play('RESET_ACCOUNT');
+      if (!res.ok) return res;
+      // Latches `wiped` and stops the loop, so neither the autosave timer nor
+      // the beforeunload handler can write the dead save back before reload.
+      game.wipe();
+      location.replace(location.pathname);
+      return res;
+    },
+  });
   ui.modals.onWatchAd = (placement) => ui.ads.play(placement);
   ui.modals.toast = (t) => ui.toasts.push(t);
   ui.modals.onReplayTutorial = () => { game.flags.tutorialDone = false; showPromo(); };
@@ -629,6 +655,9 @@ function handleEvent(e) {
       break;
     case 'closed':
       showUndoBar(e.result);
+      break;
+    case 'wipeout':
+      ui.wipeout.show({ netWorth: e.netWorth });
       break;
     case 'fill':
       // Selling at a profit and selling at a loss are not the same event, so

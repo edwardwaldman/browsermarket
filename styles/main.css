@@ -1406,6 +1406,11 @@ table.grid tr:hover td { background: var(--panel-2); }
     top: auto; bottom: calc(86px + env(safe-area-inset-bottom));
   }
   body.sheet-open .toasts { top: 8px; bottom: auto; }
+  /* The bar runs the whole width of the phone, so a line of text starting
+     after the icon reads as pushed off to one side. The icon and the words
+     are centred as one group instead. */
+  .toast { justify-content: center; text-align: center; padding: 10px 12px; }
+  .toast .grow { flex: 0 1 auto; }
   .promo { bottom: calc(84px + env(safe-area-inset-bottom)); }
   .explorer.mobile-open { inset: 56px 8px calc(80px + env(safe-area-inset-bottom)) 8px; width: auto; }
 }
@@ -1803,3 +1808,56 @@ button > .ico-svg { pointer-events: none; }
 .shopbtn { display: inline-flex; align-items: center; gap: 6px; }
 
 .msubmit { display: flex; align-items: center; justify-content: center; gap: 8px; }
+
+/* ── wiped out ────────────────────────────────────────────────────────── */
+/* Above everything, the ad overlay included, because it is the thing that
+   opens the ad. Not dismissible: there is no desk left to go back to. */
+.wipe-root {
+  position: fixed; inset: 0; z-index: 95; display: grid; place-items: center;
+  padding: 20px calc(16px + env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom))
+    calc(16px + env(safe-area-inset-left));
+}
+.wipe-root[hidden] { display: none; }
+.wipe-scrim { position: absolute; inset: 0; background: var(--scrim); backdrop-filter: blur(4px); }
+.wipe-card {
+  position: relative; width: min(420px, 100%); background: var(--panel);
+  border: 1px solid var(--down); border-top: 3px solid var(--down);
+  padding: 26px 22px; text-align: center;
+  box-shadow: 0 0 60px rgba(0, 0, 0, .6), 0 0 90px rgba(239, 83, 80, .12);
+  animation: wipe-in .3s cubic-bezier(.2, .8, .3, 1);
+}
+@keyframes wipe-in {
+  from { opacity: 0; transform: scale(.94); }
+  to { opacity: 1; transform: none; }
+}
+:root[data-motion="reduced"] .wipe-card { animation: none; }
+
+.wipe-mark { color: var(--down); line-height: 0; margin-bottom: 14px; }
+.wipe-title {
+  margin: 0; font-size: 30px; letter-spacing: 4px; color: var(--down);
+  font-weight: 700;
+}
+.wipe-sub { margin: 10px 0 0; font-size: 14px; line-height: 1.65; color: var(--dim); }
+.wipe-sub b { color: var(--text); }
+
+.wipe-acts { display: grid; gap: 9px; margin-top: 22px; }
+.wipe-go, .wipe-alt {
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  min-height: 50px; border-radius: 0; font-size: 15px; font-weight: 600;
+  padding: 0 14px; text-align: center;
+}
+.wipe-go { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
+.wipe-go:active { filter: brightness(.9); }
+.wipe-alt {
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text);
+  font-weight: 500;
+}
+.wipe-alt:hover, .wipe-alt:active { border-color: var(--accent); color: var(--accent-ink); }
+.wipe-alt:disabled { opacity: .6; }
+.wipe-note { margin-top: 12px; font-size: 12.5px; color: var(--down); min-height: 1em; }
+
+@media (max-width: 760px) {
+  .wipe-title { font-size: 26px; letter-spacing: 3px; }
+  .wipe-card { padding: 22px 16px; }
+  .wipe-alt { font-size: 13.5px; }
+}
