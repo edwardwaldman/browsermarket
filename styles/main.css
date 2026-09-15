@@ -1585,6 +1585,17 @@ table.grid tr:hover td { background: var(--panel-2); }
   accent-color: var(--accent); border-radius: 0;
 }
 .auth-alts { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; }
+
+/* The code box, which opens on the sign-up form rather than replacing it. */
+.auth-codewrap { margin: 2px 0 4px; }
+.auth-codewrap .auth-copy { margin-bottom: 10px; }
+.auth-code {
+  font-size: 22px; letter-spacing: 8px; text-align: center; font-variant-numeric: tabular-nums;
+}
+.auth-code::placeholder { letter-spacing: 8px; color: var(--dim-2); }
+/* Locked, not gone: the address the code went to is the thing worth seeing. */
+.auth-field input:disabled, .auth-pass input:disabled { opacity: .55; cursor: not-allowed; }
+.auth-check input:disabled + span { opacity: .55; }
 .auth-alt { font-size: 12.5px; color: var(--accent-ink); border-radius: 0; text-decoration: underline; padding: 2px 0; }
 .auth-alt:disabled { color: var(--dim-2); text-decoration: none; }
 .auth-choice {
@@ -1603,7 +1614,20 @@ table.grid tr:hover td { background: var(--panel-2); }
 
 /* ── take profit and stop loss on the phone ───────────────────────────── */
 @media (max-width: 760px) {
+  /* One row that opens the two bracket fields, so BUY stays above the fold. */
+  .mfold {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 11px 12px; border-radius: 0; border: 1px solid var(--line-2);
+    background: var(--panel-2); color: var(--dim); text-align: left;
+  }
+  .mfold.is-open { border-color: var(--accent); color: var(--accent-ink); }
+  .mfold-label { font-size: 11.5px; letter-spacing: 1px; }
+  .mfold-sum { margin-left: auto; font-size: 12.5px; color: var(--dim-2); }
+  .mfold-sum.is-set { color: var(--accent-ink); }
+  .mfold-caret { font-size: 11px; color: var(--dim-2); }
+
   .mbrackets { display: grid; gap: 10px; }
+  .mbrackets[hidden] { display: none; }
   .mbracket { display: grid; gap: 6px; }
   .mbracket .mfield span.up { color: var(--up); }
   .mbracket .mfield span.down { color: var(--down); }

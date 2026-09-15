@@ -165,11 +165,39 @@ export class Auth {
   }
 
   /**
+   * Post the confirmation mail again for an account that exists but has not
+   * been confirmed. A different endpoint from sendCode: `resend` repeats the
+   * signup mail, where `otp` would start a passwordless sign-in instead and
+   * hand back a token of the wrong type.
+   */
+  async resendCode(rawEmail) {
+    const email = normaliseEmail(rawEmail);
+    if (!looksLikeEmail(email)) return { ok: false, reason: 'That does not look like an email address' };
+    try {
+      await this.call('/auth/v1/resend', { body: { email, type: 'signup' } });
+      return { ok: true, email };
+    } catch (err) {
+      // Some projects rate limit this hard. Saying so is better than a silent
+      // button that looks broken.
+      if (err.status === 429) return { ok: false, reason: 'Too many requests. Wait a minute and try again' };
+      return { ok: false, reason: err.message };
+    }
+  }
+
+  /**
    * Exchange the code for a session. `consents` is required on the way in
    * rather than recorded afterwards, because an account that exists without a
    * record of what was agreed to is the thing we are trying not to have.
+   *
+   * WHY TWO TYPES ARE TRIED. The token Supabase mails out is typed by the
+   * thing that sent it: confirming a brand new account is `signup`, while a
+   * passwordless code for an address that already exists is `email`. From the
+   * browser we cannot tell which one the player is holding, and the wrong type
+   * is refused with the same 403 as a wrong code. So the likely one is tried
+   * first and the other is tried after, and only a failure of both is reported
+   * as a bad code.
    */
-  async verifyCode(rawEmail, rawCode, consents = {}) {
+  async verifyCode(rawEmail, rawCode, consents = {}, types = ['signup', 'email']) {
     const email = normaliseEmail(rawEmail);
     const code = String(rawCode ?? '').replace(/\D/g, '');
     if (code.length !== CODE_LENGTH) {
@@ -180,10 +208,22 @@ export class Auth {
     }
 
     let data;
-    try {
-      data = await this.call('/auth/v1/verify', { body: { email, token: code, type: 'email' } });
-    } catch (err) {
-      return { ok: false, reason: err.status === 403 ? 'That code is wrong or has expired' : err.message };
+    let last = null;
+    for (const type of types) {
+      try {
+        data = await this.call('/auth/v1/verify', { body: { email, token: code, type } });
+        last = null;
+        break;
+      } catch (err) {
+        last = err;
+        // Only a refusal is worth trying the other type for. Anything else is
+        // the network or the project being wrong, and retrying hides it.
+        if (err.status !== 403 && err.status !== 400 && err.status !== 401) break;
+      }
+    }
+    if (last) {
+      const refused = last.status === 403 || last.status === 400 || last.status === 401;
+      return { ok: false, reason: refused ? 'That code is wrong or has expired' : last.message };
     }
     if (!data?.access_token) return { ok: false, reason: 'The server did not return a session' };
 
@@ -401,8 +441,44 @@ export class Auth {
       await this.call('/auth/v1/recover', { body: { email } });
       return { ok: true };
     } catch (err) {
+      if (err.status === 429) return { ok: false, reason: 'Too many requests. Wait a minute and try again' };
       return { ok: false, reason: err.message };
     }
+  }
+
+  /**
+   * Finish a reset with the code from the mail instead of the link in it.
+   *
+   * The recovery token buys a session, and the session is what is allowed to
+   * set a new password. Done in that order the player never leaves the page,
+   * which matters because the link in the mail goes wherever the project's
+   * Site URL points and that is not always where they are standing.
+   */
+  async resetWithCode(rawEmail, rawCode, newPassword) {
+    const email = normaliseEmail(rawEmail);
+    const code = String(rawCode ?? '').replace(/\D/g, '');
+    if (code.length !== CODE_LENGTH) return { ok: false, reason: `The code is ${CODE_LENGTH} digits` };
+    const bad = passwordProblem(newPassword);
+    if (bad) return { ok: false, reason: bad };
+
+    let data;
+    try {
+      data = await this.call('/auth/v1/verify', { body: { email, token: code, type: 'recovery' } });
+    } catch (err) {
+      const refused = err.status === 403 || err.status === 400 || err.status === 401;
+      return { ok: false, reason: refused ? 'That code is wrong or has expired' : err.message };
+    }
+    if (!data?.access_token) return { ok: false, reason: 'The server did not return a session' };
+    this.adoptTokens(data);
+
+    try {
+      await this.call('/auth/v1/user', { method: 'PUT', auth: true, body: { password: newPassword } });
+    } catch (err) {
+      // Signed in but the new password did not take. Say so plainly rather
+      // than letting them believe it changed.
+      return { ok: false, reason: `Signed in, but the password did not change: ${err.message}` };
+    }
+    return { ok: true, user: this.user };
   }
 
   /** One place that turns a token response into the stored session. */

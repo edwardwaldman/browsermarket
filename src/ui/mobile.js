@@ -150,12 +150,14 @@ export class MobileTrade {
       el('span', { text: 'LIMIT PRICE' }), r.limitInput,
     ]);
     /**
-     * TAKE PROFIT AND STOP LOSS, IN THE FORM.
+     * TAKE PROFIT AND STOP LOSS, FOLDED AWAY UNTIL ASKED FOR.
      *
-     * They used to be behind a link that said TP/SL not set, which is a label
-     * describing the problem rather than a control that fixes it. They are two
-     * fields on the order now, beside the amount, with one-tap presets: on a
-     * phone, typing "10%" while a position is moving is the step people skip.
+     * Two fields and eight preset buttons is most of a phone screen, and left
+     * open by default they pushed BUY below the fold: the sheet opened on a
+     * form whose whole point was the button you could not see. So they sit
+     * behind one row that says whether anything is set, the same way leverage
+     * sits behind the chip in the head. Opening them is one tap, and the row
+     * carries the summary so a stop you set earlier is never invisible.
      *
      * A bare number is read as a price, a number with a percent sign as that
      * much in your favour, which is the same rule the desk ticket uses.
@@ -173,7 +175,7 @@ export class MobileTrade {
       },
     });
 
-    r.brackets = el('div', { class: 'mbrackets' }, [
+    r.brackets = el('div', { class: 'mbrackets', hidden: true }, [
       el('div', { class: 'mbracket' }, [
         el('label', { class: 'mfield' }, [
           el('span', { class: 'up', text: 'TAKE PROFIT' }), r.tpInput,
@@ -190,6 +192,17 @@ export class MobileTrade {
     ]);
     r.bracketNote = r.brackets.querySelector('#m-bracket-note');
 
+    r.bracketSum = el('span', { class: 'mfold-sum' });
+    r.bracketCaret = el('span', { class: 'mfold-caret', text: '▾' });
+    r.bracketToggle = el('button', {
+      class: 'mfold',
+      onclick: () => { this.showBrackets = !this.showBrackets; this.update({ keepAmount: true }); },
+    }, [
+      el('span', { class: 'mfold-label', text: 'TAKE PROFIT / STOP LOSS' }),
+      r.bracketSum,
+      r.bracketCaret,
+    ]);
+
     r.submit = el('button', { class: 'msubmit', onclick: () => this.submit() });
     r.note = el('div', { class: 'mnote' });
     r.preview = el('div', { class: 'mpreview' });
@@ -199,7 +212,7 @@ export class MobileTrade {
       head,
       el('div', { class: 'msheet-body' }, [
         seg, amountRow, sizeRow, r.levRow,
-        balanceRow, metaRow, r.limitField, r.brackets,
+        balanceRow, metaRow, r.limitField, r.bracketToggle, r.brackets,
         r.submit, r.note, r.preview,
         el('div', { class: 'mpositions-head', text: 'YOUR POSITIONS' }),
         r.positions,
@@ -296,6 +309,7 @@ export class MobileTrade {
     this.sheet.classList.remove('is-open');
     document.body.classList.remove('sheet-open');
     this.showLeverage = false;
+    this.showBrackets = false;
     this.measure();
     setTimeout(() => { if (!this.open) this.sheet.hidden = true; }, 200);
   }
@@ -429,6 +443,17 @@ export class MobileTrade {
     r.bracketNote.hidden = !parts.length || !(this.margin > 0);
     r.riskNote.textContent = sl ? 'Stop set' : 'No stop set';
     r.riskNote.classList.toggle('down', !sl);
+
+    // Folded away, the row is the only thing saying a bracket exists, so it
+    // says it in the words that were typed rather than the resolved price.
+    const set = [];
+    if (r.tpInput.value.trim()) set.push(`TP ${r.tpInput.value.trim()}`);
+    if (r.slInput.value.trim()) set.push(`SL ${r.slInput.value.trim()}`);
+    r.bracketSum.textContent = set.length ? set.join(', ') : 'None';
+    r.bracketSum.classList.toggle('is-set', set.length > 0);
+    r.bracketCaret.textContent = this.showBrackets ? '▴' : '▾';
+    r.bracketToggle.classList.toggle('is-open', this.showBrackets);
+    r.brackets.hidden = !this.showBrackets;
 
     const word = this.side === 'LONG' ? 'BUY' : 'SHORT';
     r.submit.className = cls('msubmit', this.side === 'LONG' ? 'buy' : 'sell');

@@ -10,13 +10,12 @@
 // pre-ticked. Flipping the default would make that page untrue.
 
 import { el, clear, cls } from '../util/dom.js';
-import { LEGAL, looksLikeEmail, passwordProblem, MIN_PASSWORD } from '../engine/auth.js';
+import { LEGAL, looksLikeEmail, passwordProblem, MIN_PASSWORD, CODE_LENGTH } from '../engine/auth.js';
 
 const TITLES = {
   signup: 'Create your account',
   login: 'Welcome back',
   consent: 'One last thing',
-  confirm: 'Check your email',
 };
 
 export class AuthBox {
@@ -28,6 +27,10 @@ export class AuthBox {
     this.step = 'signup';
     this.email = '';
     this.busy = false;
+    // Set once the address has been taken and a code is on its way. The form
+    // stays on screen underneath it rather than being replaced.
+    this.awaitingCode = false;
+    this.pendingConsents = null;
     this.blocking = false;
     this.google = false;
   }
@@ -38,6 +41,9 @@ export class AuthBox {
     this.blocking = blocking;
     this.reason = reason;
     this.step = step;
+    this.awaitingCode = false;
+    this.pendingConsents = null;
+    this.resetting = false;
     this.root.hidden = false;
     this.render();
     // Drawn first, then the provider list fills in, so the form never waits on
@@ -63,19 +69,25 @@ export class AuthBox {
     clear(this.root);
   }
 
+  /** What the card is asking for right now, which is not always the step. */
+  title() {
+    if (this.step === 'signup' && this.awaitingCode) return 'Enter your code';
+    if (this.step === 'login' && this.resetting) return 'Reset your password';
+    return TITLES[this.step] ?? TITLES.signup;
+  }
+
   render() {
     clear(this.root);
     const card = el('div', { class: 'auth-card' });
 
     card.append(el('div', { class: 'auth-head' }, [
-      el('h2', { class: 'auth-title', text: TITLES[this.step] ?? TITLES.signup }),
+      el('h2', { class: 'auth-title', text: this.title() }),
       this.blocking ? null : el('button', { class: 'modal-close', text: '✕', onclick: () => this.close() }),
     ]));
 
     if (this.reason) card.append(el('div', { class: 'auth-reason', text: this.reason }));
 
     if (this.step === 'consent') this.renderConsent(card);
-    else if (this.step === 'confirm') this.renderConfirm(card);
     else this.renderForm(card);
 
     this.root.append(el('div', { class: 'auth-scrim', onclick: () => this.close() }), card);
@@ -132,6 +144,38 @@ export class AuthBox {
     const terms = checkbox('auth-terms');
     const marketing = checkbox('auth-marketing');
 
+    /**
+     * THE CODE GOES ON THIS FORM, NOT ON A SCREEN OF ITS OWN.
+     *
+     * Taking somebody to a "check your email" page and asking them to come
+     * back loses them: they leave for the mail app, the tab is gone, and the
+     * password they just chose went with it. So the form stays exactly where
+     * it is, the fields they already filled in lock, and a six digit box opens
+     * underneath. They read the code, type it here, and the account is made.
+     */
+    const waiting = isSignup && this.awaitingCode;
+    // Same idea on the way back in: a reset code typed here beats a link that
+    // lands wherever the project's Site URL happens to point.
+    const resetting = !isSignup && this.resetting;
+    const code = el('input', {
+      class: 'auth-input auth-code', type: 'text', inputmode: 'numeric',
+      autocomplete: 'one-time-code', placeholder: '000000',
+      maxlength: String(CODE_LENGTH), spellcheck: 'false',
+    });
+    // Digits only, so a code pasted as "123 456" or "123-456" still works.
+    code.addEventListener('input', () => {
+      const clean = code.value.replace(/\D/g, '').slice(0, CODE_LENGTH);
+      if (clean !== code.value) code.value = clean;
+    });
+    const codeField = el('div', { class: 'auth-codewrap' }, [
+      el('p', { class: 'auth-copy' }, [
+        el('span', { text: `We sent a ${CODE_LENGTH} digit code to ` }),
+        el('b', { text: this.email }),
+        el('span', { text: resetting ? '. Type it in with your new password.' : '. Type it in to finish.' }),
+      ]),
+      el('label', { class: 'auth-field' }, [el('span', { text: 'CODE' }), code]),
+    ]);
+
     card.append(el('label', { class: 'auth-field' }, [el('span', { text: 'EMAIL' }), email]));
     card.append(el('label', { class: 'auth-field' }, [
       el('span', { text: 'PASSWORD' }), pass.wrap,
@@ -158,9 +202,82 @@ export class AuthBox {
       ]));
     }
 
+    if (waiting) {
+      // Locked rather than hidden: seeing the address the code went to is the
+      // whole point, and a changed password after the account exists would be
+      // a lie. "Use a different address" below reopens them.
+      for (const input of [email, pass.input, confirm.input, terms.input, marketing.input]) {
+        input.disabled = true;
+      }
+      email.value = this.email;
+      card.append(codeField);
+    }
+
+    if (resetting) {
+      email.disabled = true;
+      email.value = this.email;
+      pass.input.placeholder = 'Choose a new password';
+      // The code belongs above the password it unlocks, so the card reads in
+      // the order it is filled in.
+      card.insertBefore(codeField, pass.wrap.closest('.auth-field'));
+    }
+
+    const enter = () => {
+      this.finish();
+      this.toast?.({ tone: 'good', icon: '✓', text: `Signed in as ${this.auth.email}` });
+      this.onSignedIn?.();
+    };
+
     const submit = async () => {
       if (this.busy) return;
       note.textContent = '';
+
+      // Second half of the sign-up: the address is taken, the code is typed,
+      // and this turns it into an account. The fields above are locked, so
+      // nothing here re-reads them.
+      if (waiting) {
+        const typed = code.value.replace(/\D/g, '');
+        if (typed.length !== CODE_LENGTH) {
+          note.textContent = `Type the ${CODE_LENGTH} digit code from your email.`;
+          shake(code);
+          return;
+        }
+        this.busy = true;
+        go.disabled = true;
+        go.textContent = 'Creating account…';
+        const res = await this.auth.verifyCode(this.email, typed, this.pendingConsents ?? {});
+        this.busy = false;
+        go.disabled = false;
+        go.textContent = 'Create account';
+        if (!res.ok) { note.textContent = res.reason; shake(code); return; }
+        this.awaitingCode = false;
+        this.pendingConsents = null;
+        enter();
+        return;
+      }
+
+      if (resetting) {
+        const typed = code.value.replace(/\D/g, '');
+        if (typed.length !== CODE_LENGTH) {
+          note.textContent = `Type the ${CODE_LENGTH} digit code from your email.`;
+          shake(code);
+          return;
+        }
+        const weak = passwordProblem(pass.input.value);
+        if (weak) { note.textContent = `${weak}.`; shake(pass.wrap); return; }
+        this.busy = true;
+        go.disabled = true;
+        go.textContent = 'Setting password…';
+        const res = await this.auth.resetWithCode(this.email, typed, pass.input.value);
+        this.busy = false;
+        go.disabled = false;
+        go.textContent = 'Set new password';
+        if (!res.ok) { note.textContent = res.reason; shake(code, pass.wrap); return; }
+        this.resetting = false;
+        enter();
+        return;
+      }
+
       this.email = email.value.trim();
 
       if (!looksLikeEmail(this.email)) {
@@ -212,60 +329,88 @@ export class AuthBox {
         }
         return;
       }
-      if (res.confirm) { this.step = 'confirm'; this.render(); return; }
+      // Confirmation is on, so the code box opens underneath the form rather
+      // than the form being replaced by a page telling them to go elsewhere.
+      if (res.confirm) {
+        this.awaitingCode = true;
+        this.pendingConsents = { acceptedTerms: true, marketing: marketing.input.checked };
+        this.render();
+        return;
+      }
 
-      this.finish();
-      this.toast?.({ tone: 'good', icon: '✓', text: `Signed in as ${this.auth.email}` });
-      this.onSignedIn?.();
+      enter();
     };
 
     go.onclick = submit;
-    for (const input of [email, pass.input, confirm.input]) {
+    if (waiting) go.textContent = 'Create account';
+    if (resetting) go.textContent = 'Set new password';
+    for (const input of [email, pass.input, confirm.input, code]) {
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
     }
 
     card.append(note, go);
 
-    if (!isSignup) {
+    if (waiting) {
+      const resend = el('button', { class: 'auth-alt', text: 'Send another code' });
+      resend.onclick = async () => {
+        resend.disabled = true;
+        const res = await this.auth.resendCode(this.email);
+        resend.disabled = false;
+        note.textContent = res.ok ? 'A new code is on its way.' : res.reason;
+      };
+      card.append(el('div', { class: 'auth-alts' }, [
+        resend,
+        el('button', {
+          class: 'auth-alt', text: 'Use a different address',
+          onclick: () => {
+            this.awaitingCode = false;
+            this.pendingConsents = null;
+            this.render();
+          },
+        }),
+      ]));
+    }
+
+    if (resetting) {
+      const again = el('button', { class: 'auth-alt', text: 'Send another code' });
+      again.onclick = async () => {
+        again.disabled = true;
+        const res = await this.auth.sendReset(this.email);
+        again.disabled = false;
+        note.textContent = res.ok ? 'A new code is on its way.' : res.reason;
+      };
+      card.append(el('div', { class: 'auth-alts' }, [
+        again,
+        el('button', {
+          class: 'auth-alt', text: 'Back to log in',
+          onclick: () => { this.resetting = false; this.render(); },
+        }),
+      ]));
+    } else if (!isSignup) {
       const forgot = el('button', { class: 'auth-alt', text: 'Forgot your password?' });
       forgot.onclick = async () => {
-        if (!looksLikeEmail(email.value.trim())) {
+        this.email = email.value.trim();
+        if (!looksLikeEmail(this.email)) {
           note.textContent = 'Type your email address first, then press this again.';
+          shake(email);
           return;
         }
         forgot.disabled = true;
-        const res = await this.auth.sendReset(email.value.trim());
+        const res = await this.auth.sendReset(this.email);
         forgot.disabled = false;
-        note.textContent = res.ok
-          ? 'If that address has an account, a reset link is on its way.'
-          : res.reason;
+        if (!res.ok) { note.textContent = res.reason; return; }
+        // Straight into the code form. Saying "check your email" and leaving
+        // them on a login box they cannot use is how a reset gets abandoned.
+        this.resetting = true;
+        this.render();
       };
       card.append(el('div', { class: 'auth-alts' }, [forgot]));
-    } else {
+    } else if (!waiting) {
       card.append(el('div', { class: 'auth-fine', text: `Passwords need ${MIN_PASSWORD} characters or more.` }));
     }
 
-    setTimeout(() => email.focus(), 30);
-  }
-
-  // --- waiting on a confirmation email ------------------------------------
-
-  renderConfirm(card) {
-    card.append(el('p', { class: 'auth-copy' }, [
-      el('span', { text: 'Your account is made. Open the link we sent to ' }),
-      el('b', { text: this.email }),
-      el('span', { text: ' to finish, then come back here.' }),
-    ]));
-    card.append(el('div', { class: 'auth-alts' }, [
-      el('button', {
-        class: 'auth-alt', text: 'Use a different address',
-        onclick: () => { this.step = 'signup'; this.render(); },
-      }),
-      el('button', {
-        class: 'auth-alt', text: 'I have confirmed, let me in',
-        onclick: () => { this.step = 'login'; this.render(); },
-      }),
-    ]));
+    // The cursor goes where the next thing to type is.
+    setTimeout(() => (waiting || resetting ? code : email).focus(), 30);
   }
 
   // --- consent that arrived without its form ------------------------------

@@ -1973,3 +1973,150 @@ test('a junk set of size presets never reaches the order form', () => {
   assert.deepEqual(cleanPresets([10, 25, 50]), fallback, 'the row holds four');
   assert.deepEqual(cleanPresets([10, 25, 50, 75, 100]), fallback);
 });
+
+
+// ── what a trade announces ───────────────────────────────────────────────
+
+test('opening and closing each announce themselves, and a close carries its pnl', () => {
+  const g = new Game({ seed: 21, warmUpDays: 0 });
+  const seen = [];
+  g.on((e) => { if (e.type === 'fill') seen.push(e); });
+
+  g.openPosition({ sym: 'OBBY', side: 'LONG', margin: 500, leverage: 1 });
+  assert.equal(seen.length, 1, 'one fill event for the open');
+  assert.equal(seen[0].action, 'open');
+  assert.equal(seen[0].side, 'LONG');
+
+  const pos = g.account.positions[0];
+  g.closePosition(pos.id, 1);
+  assert.equal(seen.length, 2, 'one fill event for the close');
+  assert.equal(seen[1].action, 'close');
+  // The sound picked depends on this number, so it has to be a number.
+  assert.equal(typeof seen[1].pnl, 'number');
+  assert.ok(Number.isFinite(seen[1].pnl));
+});
+
+test('a close in the red reports a negative pnl, not an absolute one', () => {
+  const g = new Game({ seed: 22, warmUpDays: 0 });
+  const seen = [];
+  g.on((e) => { if (e.type === 'fill' && e.action === 'close') seen.push(e); });
+
+  g.openPosition({ sym: 'OBBY', side: 'LONG', margin: 500, leverage: 1 });
+  // The fee alone puts a round trip with no price move under water, which is
+  // enough to prove the sign survives the trip.
+  const pos = g.account.positions[0];
+  g.closePosition(pos.id, 1);
+  assert.equal(seen.length, 1);
+  assert.ok(seen[0].pnl < 0, `expected a loss, got ${seen[0].pnl}`);
+});
+
+
+// ── confirming with a code instead of a link ─────────────────────────────
+
+test('a signup that needs confirming asks for a code rather than a session', async () => {
+  const auth = newAuth({ '/auth/v1/signup': { body: { user: { id: 'u1' } } } });
+  const res = await auth.signUp('player@example.com', 'correcthorse1', { acceptedTerms: true });
+  assert.equal(res.ok, true);
+  assert.equal(res.confirm, true, 'no session back means the code step');
+  assert.equal(auth.signedIn, false);
+  // The boxes they ticked have to survive until the code is typed.
+  assert.equal(auth.takeStashedConsents().acceptedTerms, true);
+});
+
+test('the signup code is tried as a signup token before an email one', async () => {
+  const auth = newAuth({ '/auth/v1/verify': { body: SESSION } });
+  const res = await auth.verifyCode('player@example.com', '123456', { acceptedTerms: true });
+  assert.equal(res.ok, true);
+  const verify = auth.fetch.calls.find((c) => c.path.includes('/auth/v1/verify'));
+  assert.equal(verify.body.type, 'signup');
+  assert.equal(verify.body.token, '123456');
+  assert.equal(auth.signedIn, true);
+});
+
+test('a code refused as a signup token is tried as an email one', async () => {
+  // Which of the two an address gets depends on how the mail was sent, and the
+  // browser cannot tell. Both are refused the same way, so both are tried.
+  let seen = 0;
+  const auth = newAuth({
+    '/auth/v1/verify': (call) => {
+      seen += 1;
+      return call.body.type === 'email'
+        ? { body: SESSION }
+        : { status: 403, body: { msg: 'token has expired or is invalid' } };
+    },
+  });
+  const res = await auth.verifyCode('player@example.com', '123456', { acceptedTerms: true });
+  assert.equal(res.ok, true);
+  assert.equal(seen, 2, 'both types tried');
+  assert.equal(auth.signedIn, true);
+});
+
+test('a code that is wrong for both types is reported once, as a wrong code', async () => {
+  const auth = newAuth({ '/auth/v1/verify': { status: 403, body: { msg: 'token has expired or is invalid' } } });
+  const res = await auth.verifyCode('player@example.com', '999999', { acceptedTerms: true });
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /wrong or has expired/i);
+  assert.equal(auth.signedIn, false);
+});
+
+test('a code of the wrong length never reaches the network', async () => {
+  const auth = newAuth({ '/auth/v1/verify': { body: SESSION } });
+  for (const bad of ['', '1', '12345', '1234567']) {
+    const res = await auth.verifyCode('player@example.com', bad, { acceptedTerms: true });
+    assert.equal(res.ok, false, `${bad} should not be sent`);
+  }
+  assert.equal(auth.fetch.calls.length, 0);
+});
+
+test('a code cannot make an account without the terms being accepted', async () => {
+  const auth = newAuth({ '/auth/v1/verify': { body: SESSION } });
+  const res = await auth.verifyCode('player@example.com', '123456', { acceptedTerms: false });
+  assert.equal(res.ok, false);
+  assert.equal(auth.fetch.calls.length, 0, 'not even asked for');
+});
+
+test('a resend repeats the signup mail rather than starting a sign-in', async () => {
+  const auth = newAuth({ '/auth/v1/resend': { body: {} } });
+  const res = await auth.resendCode('player@example.com');
+  assert.equal(res.ok, true);
+  const call = auth.fetch.calls[0];
+  assert.match(call.path, /\/auth\/v1\/resend/);
+  assert.equal(call.body.type, 'signup');
+});
+
+// ── resetting a password without leaving the page ────────────────────────
+
+test('a reset code buys a session and then sets the new password', async () => {
+  const auth = newAuth({
+    '/auth/v1/verify': { body: SESSION },
+    '/auth/v1/user': { body: { id: 'u1' } },
+  });
+  const res = await auth.resetWithCode('player@example.com', '123456', 'correcthorse1');
+  assert.equal(res.ok, true);
+
+  const verify = auth.fetch.calls.find((c) => c.path.includes('/auth/v1/verify'));
+  assert.equal(verify.body.type, 'recovery');
+
+  const put = auth.fetch.calls.find((c) => c.path.includes('/auth/v1/user'));
+  assert.equal(put.method, 'PUT');
+  assert.equal(put.body.password, 'correcthorse1');
+  // The new password is set as the user, not as the anon key.
+  assert.match(put.headers.authorization, /Bearer tok/);
+});
+
+test('a weak new password is refused before the reset code is spent', async () => {
+  const auth = newAuth({ '/auth/v1/verify': { body: SESSION } });
+  const res = await auth.resetWithCode('player@example.com', '123456', 'short');
+  assert.equal(res.ok, false);
+  assert.equal(auth.fetch.calls.length, 0, 'a one-use code is not burned on a bad password');
+});
+
+test('a reset that signs in but fails to set the password says exactly that', async () => {
+  const auth = newAuth({
+    '/auth/v1/verify': { body: SESSION },
+    '/auth/v1/user': { status: 500, body: { msg: 'nope' } },
+  });
+  const res = await auth.resetWithCode('player@example.com', '123456', 'correcthorse1');
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /password did not change/i);
+});
