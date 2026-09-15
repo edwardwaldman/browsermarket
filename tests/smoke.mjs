@@ -1339,6 +1339,52 @@ check('the desk skips the phone-only step', await page.evaluate(async () => {
     && !desk.some((s) => s?.target === '.mbtn.buy');
 }));
 
+// ── the mark ─────────────────────────────────────────────────────────────
+
+check('the logo is beside the name in the header', await page.evaluate(() => {
+  const img = document.querySelector('.brand-logo');
+  if (!img || !img.complete || !img.naturalWidth) return false;
+  const l = img.getBoundingClientRect();
+  const w = document.querySelector('.brand-mark').getBoundingClientRect();
+  // To the left of the words, and vertically in line with them.
+  return l.right <= w.left + 1 && Math.abs((l.top + l.height / 2) - (w.top + w.height / 2)) < 14;
+}));
+
+check('the header still says the whole name', await page.evaluate(
+  () => document.querySelector('.brand-mark').textContent === 'BROWSER STOCK EXCHANGE'));
+
+for (const [file, type] of [
+  ['assets/mark.svg', 'image/svg+xml'],
+  ['assets/favicon.svg', 'image/svg+xml'],
+  ['assets/logo.svg', 'image/svg+xml'],
+  ['assets/favicon-32.png', 'image/png'],
+  ['assets/apple-touch-icon.png', 'image/png'],
+  ['assets/icon-192.png', 'image/png'],
+  ['assets/icon-512.png', 'image/png'],
+  ['assets/social.png', 'image/png'],
+  ['site.webmanifest', 'application/manifest+json'],
+]) {
+  const res = await page.request.get(`${URL.replace(/\/$/, '')}/${file}`);
+  check(`${file} is served`, res.ok() && res.headers()['content-type']?.startsWith(type),
+    `${res.status()} ${res.headers()['content-type']}`);
+}
+
+check('every icon the page and manifest name actually exists', await page.evaluate(async () => {
+  const named = [...document.querySelectorAll('link[rel*="icon"]')].map((l) => l.getAttribute('href'));
+  const man = await (await fetch('site.webmanifest')).json();
+  const all = [...named, ...man.icons.map((i) => i.src), man.start_url];
+  const checks = await Promise.all(all.map((h) => fetch(h).then((r) => r.ok).catch(() => false)));
+  window.__missing = all.filter((_, i) => !checks[i]);
+  return window.__missing.length === 0 && named.length >= 2 && man.icons.length >= 3;
+}), await page.evaluate(() => (window.__missing || []).join(', ')));
+
+check('the installed app is called BSE and opens on the terminal', await page.evaluate(async () => {
+  const m = await (await fetch('site.webmanifest')).json();
+  return m.short_name === 'BSE' && m.name === 'Browser Stock Exchange'
+    && m.display === 'standalone'
+    && m.icons.some((i) => i.purpose === 'maskable');
+}));
+
 check('no console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
 await browser.close();
