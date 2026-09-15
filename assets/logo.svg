@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96" width="320" height="96" role="img" aria-label="BSE, Browser Stock Exchange">
+  <title>BSE, Browser Stock Exchange</title>
+  <!--
+    The full lockup: the mark, then the three letters people will actually say
+    out loud, then the name spelled out small underneath so the first sight of
+    it explains itself. Monospace throughout, because the whole product is a
+    terminal and a logo in a friendlier typeface would be a promise the rest of
+    the screen does not keep.
+  -->
+  <defs>
+    <style>
+      .bse-word {
+        font-family: "DM Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-weight: 700;
+      }
+    </style>
+  </defs>
+
+  <g transform="translate(8 16) scale(2)">
+    <rect width="32" height="32" rx="7" fill="#0a0f18"/>
+    <rect x="0.6" y="0.6" width="30.8" height="30.8" rx="6.5" fill="none" stroke="#1d2735" stroke-width="1.2"/>
+    <g fill="#ff4d6a">
+      <rect x="6" y="13.6" width="1.6" height="13.4" rx="0.8"/>
+      <rect x="4.3" y="16.6" width="5" height="7.6" rx="1"/>
+    </g>
+    <g fill="#16d97d">
+      <rect x="15.2" y="8.4" width="1.6" height="14.2" rx="0.8"/>
+      <rect x="13.5" y="11.4" width="5" height="8.4" rx="1"/>
+      <rect x="24.4" y="3.6" width="1.6" height="13.6" rx="0.8"/>
+      <rect x="22.7" y="6" width="5" height="8.6" rx="1"/>
+    </g>
+  </g>
+
+  <text class="bse-word" x="92" y="52" font-size="40" letter-spacing="4" fill="#e8edf5">BSE</text>
+  <text class="bse-word" x="94" y="72" font-size="11.5" letter-spacing="2.4" font-weight="500" fill="#7b8798">BROWSER STOCK EXCHANGE</text>
+</svg>

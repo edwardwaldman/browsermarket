@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="BSE">
+  <title>BSE</title>
+  <!--
+    The full-bleed variant, for the places that do their own masking: iOS
+    rounds a home screen icon itself, and an Android maskable icon can be
+    cropped to a circle. Square corners so nothing is rounded twice, and the
+    candles pulled into the middle 80% so a circular crop cannot take the tops
+    off them.
+  -->
+  <rect width="32" height="32" fill="#0a0f18"/>
+  <g transform="translate(16 16) scale(0.78) translate(-16 -16)">
+    <g fill="#ff4d6a">
+      <rect x="6" y="13.6" width="1.6" height="13.4" rx="0.8"/>
+      <rect x="4.3" y="16.6" width="5" height="7.6" rx="1"/>
+    </g>
+    <g fill="#16d97d">
+      <rect x="15.2" y="8.4" width="1.6" height="14.2" rx="0.8"/>
+      <rect x="13.5" y="11.4" width="5" height="8.4" rx="1"/>
+      <rect x="24.4" y="3.6" width="1.6" height="13.6" rx="0.8"/>
+      <rect x="22.7" y="6" width="5" height="8.6" rx="1"/>
+    </g>
+  </g>
+</svg>

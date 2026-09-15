@@ -1,0 +1,18 @@
+{
+  "name": "Browser Stock Exchange",
+  "short_name": "BSE",
+  "description": "A lightweight market simulation. Stocks, funds, futures, options, IPOs, algo desks, leverage and shorting, all in the browser.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#05070c",
+  "theme_color": "#05070c",
+  "categories": ["games", "finance"],
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "assets/mark.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

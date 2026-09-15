@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="BSE">
+  <title>BSE</title>
+  <!--
+    The tiny one. Two candles instead of three and both of them fatter: at
+    sixteen pixels the third is a grey smear and the gaps between five-pixel
+    bodies close up anyway. Same idea, fewer parts.
+  -->
+  <rect width="32" height="32" rx="7" fill="#0a0f18"/>
+  <g fill="#ff4d6a">
+    <rect x="9.1" y="12" width="1.8" height="15" rx="0.9"/>
+    <rect x="6.5" y="15.4" width="7" height="8.6" rx="1.2"/>
+  </g>
+  <g fill="#16d97d">
+    <rect x="21.1" y="5" width="1.8" height="15" rx="0.9"/>
+    <rect x="18.5" y="8" width="7" height="8.6" rx="1.2"/>
+  </g>
+</svg>

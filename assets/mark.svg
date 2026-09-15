@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Browser Stock Exchange">
+  <title>Browser Stock Exchange</title>
+  <!--
+    THE MARK IS THE THING THE GAME IS MADE OF.
+
+    Three candles stepping up: one red taken back by two green, which is the
+    shape of every session anybody wants to have. Solid bodies rather than
+    strokes, because at sixteen pixels a stroke turns to grey mush and a fill
+    does not. The dark ground keeps it legible in a light browser chrome as
+    well as a dark one.
+  -->
+  <rect width="32" height="32" rx="7" fill="#0a0f18"/>
+  <rect x="0.6" y="0.6" width="30.8" height="30.8" rx="6.5" fill="none" stroke="#1d2735" stroke-width="1.2"/>
+
+  <g fill="#ff4d6a">
+    <rect x="6" y="13.6" width="1.6" height="13.4" rx="0.8"/>
+    <rect x="4.3" y="16.6" width="5" height="7.6" rx="1"/>
+  </g>
+  <g fill="#16d97d">
+    <rect x="15.2" y="8.4" width="1.6" height="14.2" rx="0.8"/>
+    <rect x="13.5" y="11.4" width="5" height="8.4" rx="1"/>
+
+    <rect x="24.4" y="3.6" width="1.6" height="13.6" rx="0.8"/>
+    <rect x="22.7" y="6" width="5" height="8.6" rx="1"/>
+  </g>
+</svg>
