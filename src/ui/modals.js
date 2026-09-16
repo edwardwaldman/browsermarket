@@ -4,7 +4,7 @@ import { el, clear, esc, cls } from '../util/dom.js';
 import {
   money, moneyShort, price as fmtPrice, pct, signed, num, compact, clockTime,
 } from '../util/format.js';
-import { LEVELS, RARITIES, COLLECTIBLES, BADGES, totalXpForLevel, xpForLevel } from '../engine/progression.js';
+import { LEVELS, RARITIES, COLLECTIBLES, totalXpForLevel, xpForLevel } from '../engine/progression.js';
 import { BOT_TYPES, upgradeCost, OFFLINE_EFFICIENCY } from '../engine/bots.js';
 import { SHOP, CODES } from '../engine/game.js';
 import { PLACEMENTS } from '../engine/ads.js';
@@ -182,30 +182,6 @@ export class Modals {
           <div class="cr">${have ? `${esc(have.rarity)}${have.count > 1 ? ` x${have.count}` : ''}` : '-'}</div>
         </div>`;
       }).join('')}</div>`));
-  }
-
-  view_badges(body) {
-    const { prog } = this.game;
-    body.append(html(`<div class="cardgrid">${BADGES.map((b) => {
-      const day = prog.badges[b.id];
-      return `<div class="ccard ${day ? '' : 'locked'}">
-        <div class="ccard-title">${iconMarkup(day ? 'medal' : 'lock')} ${esc(b.name)}</div>
-        <div class="ccard-sub">${esc(b.desc)}</div>
-        <div class="ccard-foot"><span class="pill ${day ? 'on' : ''}">${day ? `DAY ${day}` : 'LOCKED'}</span></div>
-      </div>`;
-    }).join('')}</div>`));
-  }
-
-  view_leaderboard(body) {
-    const { board, account, market, prog } = this.game;
-    const rows = board.standings(this.game.trader, account.netWorth(market), prog.level);
-    body.append(html(`<div class="rowlist">${rows.map((r) => `
-      <div class="listrow ${r.you ? 'you' : ''}">
-        <span class="rank ${r.rank <= 3 ? 'top' : ''}">#${r.rank}</span>
-        <span class="grow">${esc(r.name)}${r.you ? ' <span class="pill on">YOU</span>' : ''}</span>
-        <span class="muted nowrap">LVL ${r.level} | ${esc(r.style)}</span>
-        <b class="nowrap">${moneyShort(r.net)}</b>
-      </div>`).join('')}</div>`));
   }
 
   view_shop(body) {
@@ -697,7 +673,7 @@ export class Modals {
       </div>
       <div class="ccard-sub" style="margin-top:10px">
         Rebirth closes every position, resets your level and cash, and pays prestige points based on
-        peak portfolio value. You keep your collection, badges, shop purchases and algo desks.
+        peak portfolio value. You keep your collection, shop purchases and algo desks.
         ${prog.has('REBIRTH') ? '' : 'Unlocks at level 30.'}
       </div>`));
     wrap.append(el('button', {
@@ -1703,8 +1679,8 @@ export const REWARDS = [
 
 const TITLES = {
   portfolio: 'PORTFOLIO VALUE', ledger: 'CASH LEDGER', level: 'LEVEL & UNLOCKS',
-  missions: 'MISSIONS', collection: 'COLLECTION INDEX', badges: 'BADGES',
-  rewards: 'FREE REWARDS', leaderboard: 'GLOBAL PORTFOLIO VALUE', shop: 'SHOP',
+  missions: 'MISSIONS', collection: 'COLLECTION INDEX',
+  rewards: 'FREE REWARDS', shop: 'SHOP',
   timemachine: 'TIME MACHINE', shortcuts: 'KEYBOARD SHORTCUTS',
   customize: 'TERMINAL CUSTOMIZATION', desks: 'ALGO DESKS', rebirth: 'REBIRTH',
   settings: 'SETTINGS', alerts: 'ALERTS', scanner: 'MARKET SCANNER',

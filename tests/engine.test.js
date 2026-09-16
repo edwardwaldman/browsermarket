@@ -16,7 +16,6 @@ import {
   Progression, totalXpForLevel, xpForLevel, LEVERAGE_TIERS, LEVELS, ALWAYS_UNLOCKED,
 } from '../src/engine/progression.js';
 import { BotDesk, BOT_TYPES, upgradeCost } from '../src/engine/bots.js';
-import { Leaderboard } from '../src/engine/leaderboard.js';
 import { Game, SHOP, REWIND_WINDOW, WIPEOUT_FLOOR, FLIP_DRAWDOWN } from '../src/engine/game.js';
 import {
   Auth, LEGAL, CODE_LENGTH, MIN_PASSWORD, looksLikeEmail, normaliseEmail, passwordProblem,
@@ -480,18 +479,6 @@ test('offline desks earn less than live ones', () => {
 test('upgrade costs escalate', () => {
   const costs = [1, 2, 3, 4].map((l) => upgradeCost('MOMENTUM', l));
   for (let i = 1; i < costs.length; i++) assert.ok(costs[i] > costs[i - 1]);
-});
-
-// ── leaderboard ──────────────────────────────────────────────────────────
-test('the board ranks the player among rivals', () => {
-  const board = new Leaderboard(3);
-  for (let i = 0; i < 50; i++) board.rollDay(0.001);
-  const rows = board.standings('me', 1e12, 40);
-  assert.equal(rows[0].name, 'me');
-  assert.equal(rows[0].rank, 1);
-  const last = board.standings('me', 1, 1);
-  assert.equal(last.at(-1).you, true);
-  assert.ok(board.rivals.every((r) => r.net > 0 && Number.isFinite(r.net)));
 });
 
 // ── game ─────────────────────────────────────────────────────────────────

@@ -1,11 +1,10 @@
-// Orchestrates the market, the account, progression, algo desks and the board.
+// Orchestrates the market, the account, progression and the algo desks.
 // Owns the clock, persistence and the offline catch-up.
 
 import { Market, REGIMES } from './market.js';
 import { Account } from './account.js';
 import { Progression, LEVELS, UNLOCKS } from './progression.js';
 import { BotDesk, BOT_TYPES, upgradeCost } from './bots.js';
-import { Leaderboard } from './leaderboard.js';
 import { Rng, clamp } from '../util/rng.js';
 import { Alerts } from './alerts.js';
 import { Store } from './store.js';
@@ -92,7 +91,6 @@ export class Game {
     this.account = new Account(STARTING_CASH);
     this.prog = new Progression(seed ^ 0x9e37);
     this.bots = new BotDesk(seed ^ 0x51ed);
-    this.board = new Leaderboard(seed ^ 0x2545);
     this.rng = new Rng(seed ^ 0x7f4a);
     this.alerts = new Alerts();
     this.calendar = new EventCalendar(new Rng(seed ^ 0x1d3b));
@@ -220,9 +218,6 @@ export class Game {
       });
     }
     const summary = this.account.rollDay(this.market, prevDay);
-    const idx = this.market.get('BSX500');
-    const dayReturn = idx ? idx.changePct / 100 : 0;
-    this.board.rollDay(dayReturn);
     if (summary.trades > 0) {
       const streak = this.prog.bumpStreak(prevDay);
       if (!offline) {
@@ -696,10 +691,10 @@ export class Game {
         text: `Mission complete | ${e.mission.label} (+$${e.mission.cash})`,
       });
     }
-    if (e.type === 'badge') {
-      this.emit({ type: 'badge', badge: e.badge });
-      this.emit({ type: 'toast', tone: 'good', icon: 'medal', text: `Badge awarded | ${e.badge.name}` });
-    }
+    // Badges are still recorded against the save, because half the unlock
+    // gates read them, but there is no screen for them any more and nothing
+    // announces one.
+
   }
 
   checkVolumeMilestone() {
@@ -953,7 +948,6 @@ export class Game {
       account: this.account.toJSON(),
       prog: this.prog.toJSON(),
       bots: this.bots.toJSON(),
-      board: this.board.toJSON(),
     };
   }
 
@@ -980,7 +974,6 @@ export class Game {
     game.account.load(raw.account);
     game.prog.load(raw.prog);
     game.bots.load(raw.bots);
-    game.board.load(raw.board);
     return game;
   }
 
