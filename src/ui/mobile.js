@@ -574,8 +574,6 @@ export class MobileTrade {
     const node = this.refs.positions;
     const list = this.account.positions;
     const key = list.map((p) => `${p.id}:${p.qty.toFixed(4)}:${p.flip ? 1 : 0}`).join('|');
-    // Nothing open is said by the section not being there, not by a line of
-    // text taking up the space the order form wants.
     if (this.posbar) {
       const was = this.posbar.hidden;
       this.posbar.hidden = !list.length;
@@ -585,52 +583,41 @@ export class MobileTrade {
     if (node.__key !== key) {
       node.__key = key;
       clear(node);
-      this.expanded ??= new Set();
       for (const p of list) {
         const pnlNode = el('div', { class: 'mpos-pnl' });
 
         /**
-         * ONE LINE UNTIL YOU ASK FOR MORE.
+         * THE WHOLE CARD, ALWAYS.
          *
-         * This block sits above the order form so that a fill does not have to
-         * be scrolled to, which only works if it stays short: a full card per
-         * position put BUY back under the fold, which is the thing the form
-         * was rearranged to fix in the first place. So the resting state is a
-         * row, and the buttons come out when the row is tapped.
+         * It was a row that opened on a tap for a while, to keep it short
+         * enough to sit above the order form. Now that it has a band of its
+         * own there is nothing to be short for, and a card you have to open
+         * before you can close a position is a tap in the way of the one
+         * action that matters when a trade is going wrong. Everything is on
+         * screen: what you hold, what it is doing, and the three things you
+         * can do about it.
          */
-        const open = this.expanded.has(p.id);
-        const row = el('button', { class: 'mpos-row' }, [
-          el('b', { class: 'mpos-sym-s', text: p.sym }),
-          el('span', {
-            class: cls('mpos-side', p.side === 'LONG' ? 'up' : 'down'),
-            text: `${p.side === 'LONG' ? 'LONG' : 'SHORT'} ${p.leverage}X`,
-          }),
-          p.flip ? el('span', { class: 'mpos-tag', text: 'FLIP' }) : null,
-          el('span', { class: 'grow' }),
-          pnlNode,
-          el('span', { class: 'mpos-caret', text: open ? '▴' : '▾' }),
-        ]);
-
-        const body = el('div', { class: 'mpos-more', hidden: !open }, [
+        node.append(el('div', { class: 'mpos' }, [
+          el('div', { class: 'mpos-head' }, [
+            el('b', { class: 'mpos-sym-s', text: p.sym }),
+            el('span', {
+              class: cls('mpos-side', p.side === 'LONG' ? 'up' : 'down'),
+              text: `${p.side === 'LONG' ? 'LONG' : 'SHORT'} ${p.leverage}X`,
+            }),
+            p.flip ? el('span', { class: 'mpos-tag', text: 'FLIP' }) : null,
+            el('span', { class: 'grow' }),
+            pnlNode,
+          ]),
           el('div', { class: 'mpos-sub', text: `${fmtQty(p.qty)} @ ${fmtPrice(p.avg)}` }),
           el('div', { class: 'mpos-actions' }, [
             el('button', { text: 'CLOSE 50%', onclick: () => { this.game.closePosition(p.id, 0.5); this.update(); } }),
             el('button', { class: 'red', text: 'CLOSE ALL', onclick: () => { this.game.closePosition(p.id, 1); this.update(); } }),
           ]),
           this.flipButton(p),
-        ]);
-
-        row.onclick = () => {
-          if (this.expanded.has(p.id)) this.expanded.delete(p.id);
-          else this.expanded.add(p.id);
-          body.hidden = !this.expanded.has(p.id);
-          row.querySelector('.mpos-caret').textContent = body.hidden ? '▾' : '▴';
-          this.measure();
-        };
-
-        node.append(el('div', { class: 'mpos' }, [row, body]));
+        ]));
         p.__mPnl = pnlNode;
       }
+      this.measure();
     }
 
     for (const p of list) {
