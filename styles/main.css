@@ -186,12 +186,22 @@ input { background: none; border: none; outline: none; }
 .xpbar { height: 4px; background: var(--panel-3); border-radius: 0; margin-top: 5px; overflow: hidden; }
 .xpbar i { display: block; height: 100%; background: var(--accent); width: 0%; transition: width .3s; }
 
-.toolstrip { display: flex; align-items: center; gap: 5px; }
+/* ROOM, NOT MORE STUFF.
+   Fourteen buttons at five pixels apart read as one dense block of chrome
+   competing with the chart, which is the thing anybody came to look at. The
+   buttons are bigger and further apart, and the strip is grouped so the eye
+   lands on three or four short runs instead of scanning one long one. Nothing
+   was removed: it is the same tools with space around them. */
+.toolstrip { display: flex; align-items: center; gap: 9px; }
 .tool {
-  position: relative; width: 38px; height: 36px; border-radius: 0;
+  position: relative; width: 40px; height: 40px; border-radius: 0;
   background: var(--panel-2); border: 1px solid var(--line); font-size: 15.6px; color: var(--dim);
+  display: inline-flex; align-items: center; justify-content: center;
 }
-.tool:hover { background: var(--raise); color: #fff; }
+.tool .ico-svg { width: 19px; height: 19px; }
+.tool:hover { background: var(--raise); color: #fff; border-color: var(--line-2); }
+/* A hairline between groups, drawn by the strip rather than by extra markup. */
+.tool-sep { flex: none; width: 1px; height: 22px; background: var(--line-2); opacity: .8; }
 .tool-tag {
   position: absolute; bottom: -2px; right: -2px; font-size: 10px; font-style: normal;
   background: var(--raise); border-radius: 0; padding: 0 2px; color: var(--cyan);
@@ -759,7 +769,8 @@ table.grid tr:hover td { background: var(--panel-2); }
   .statcard-value { font-size: 17px; white-space: nowrap; }
   .statcard-next { display: none; }
   .statcard-level { min-width: 0; }
-  .tool { width: 28px; height: 27px; font-size: 15px; }
+  .tool { width: 34px; height: 34px; font-size: 15px; }
+  .toolstrip { gap: 6px; }
   .shopbtn { padding: 6px 9px; font-size: 12px; }
   .ah-stats { gap: 4px 14px; }
   .ah-stat { font-size: 11.5px; }
@@ -804,7 +815,7 @@ table.grid tr:hover td { background: var(--panel-2); }
   .statcard-next { font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .statcard-delta { font-size: 10.5px; }
   .viewtab { font-size: 12.5px; }
-  .tool { width: 28px; height: 26px; font-size: 15px; }
+  .tool { width: 34px; height: 34px; font-size: 15px; }
   .shopbtn { padding: 6px 10px; font-size: 12.5px; }
   .toolstrip { order: 4; width: 100%; overflow-x: auto; padding-bottom: 2px; }
   .charttools { padding: 5px 6px; }
@@ -1316,34 +1327,33 @@ table.grid tr:hover td { background: var(--panel-2); }
     bottom: calc(var(--panel-h, 40dvh) / var(--zoom));
   }
 
+  /* No cap and no scroller. Clipping the card to a fixed height is what put a
+     scrollbar through the middle of it; the band is as tall as what it holds,
+     and the chart above gives up the difference. Past three names it does
+     scroll, because at that point the alternative is a band taller than the
+     screen. */
   .mpositions {
-    display: grid; gap: 5px; max-height: 148px; overflow-y: auto;
+    display: grid; gap: 6px; max-height: 52dvh; overflow-y: auto;
     overscroll-behavior: contain;
   }
   .mpos { background: var(--panel-2); border: 1px solid var(--line); }
-  /* A row, not a card: it sits above the order form, so its resting height is
-     what decides whether BUY is still on the screen. */
-  .mpos-row {
-    display: flex; align-items: center; gap: 7px; width: 100%;
-    padding: 9px 10px; border-radius: 0; background: none; border: 0;
-    text-align: left; min-height: 40px;
-  }
+  .mpos-head { display: flex; align-items: center; gap: 7px; padding: 10px 10px 0; }
   .mpos-sym-s { font-size: 14px; color: var(--text); }
   .mpos-side { font-size: 11px; letter-spacing: .7px; }
   .mpos-tag {
     font-size: 9.5px; letter-spacing: 1px; padding: 2px 5px;
     border: 1px solid var(--accent); color: var(--accent-ink);
   }
-  .mpos-caret { font-size: 10px; color: var(--dim-2); }
   .mpos-sub { font-size: 12px; color: var(--dim-2); }
   .mpos-pnl {
     text-align: right; font-size: 14px; font-variant-numeric: tabular-nums;
     display: flex; align-items: baseline; gap: 6px;
   }
-  .mpos-more { padding: 0 10px 10px; border-top: 1px solid var(--line); margin-top: -1px; }
-  .mpos-more[hidden] { display: none; }
-  .mpos-more .mpos-sub { padding: 8px 0 2px; }
-  .mpos-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+  .mpos > .mpos-sub { padding: 4px 10px 0; }
+  .mpos-actions {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 10px 0;
+  }
+  .mpos .mflip { margin: 6px 10px 10px; width: calc(100% - 20px); }
   .mpos-actions button {
     height: 36px; border: 1px solid var(--line-2); border-radius: 0;
     color: var(--dim); font-size: 12.5px; letter-spacing: .6px;
@@ -1957,9 +1967,10 @@ button > .ico-svg { pointer-events: none; }
 }
 .coach-skip:hover { opacity: 1; text-decoration: underline; }
 .coach-got {
-  display: block; width: 100%; margin-top: 11px; min-height: 36px; border-radius: 3px;
-  background: rgba(255, 255, 255, .16); border: 1px solid rgba(255, 255, 255, .4);
-  color: #fff; font-size: 13px; font-weight: 600;
+  display: block; width: 100%; margin-top: 11px; min-height: 40px; border-radius: 3px;
+  background: rgba(255, 255, 255, .16); border: 1px solid rgba(255, 255, 255, .5);
+  color: #fff; font-size: 13.5px; font-weight: 600; letter-spacing: .4px;
+  touch-action: manipulation;
 }
 .coach-got:hover { background: rgba(255, 255, 255, .26); }
 

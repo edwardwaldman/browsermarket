@@ -723,35 +723,33 @@ check('the strip is not there at all when nothing is open', await page.evaluate(
   return hidden;
 }));
 
-check('the position row is actually drawn, not clipped to a sliver', await page.evaluate(() => {
-  // It was once in the DOM at the right size and squeezed to nothing by the
-  // sheet body's grid, which looks exactly like not rendering at all.
+check('the whole card is drawn, not clipped', await page.evaluate(() => {
+  // It was once in the DOM at the right size and squeezed to nothing by a
+  // parent grid, which looks exactly like not rendering at all.
   const wrap = document.querySelector('.mposbar');
-  const row = document.querySelector('.mpos-row');
-  if (!row) return false;
+  const card = document.querySelector('.mpos');
+  if (!card) return false;
   const w = wrap.getBoundingClientRect();
-  const r = row.getBoundingClientRect();
-  window.__rowFit = `row ${Math.round(r.height)}px inside wrap ${Math.round(w.height)}px`;
-  return r.height >= 28 && w.height >= r.height
-    && r.top >= w.top - 1 && r.bottom <= w.bottom + 1;
+  const c = card.getBoundingClientRect();
+  window.__rowFit = `card ${Math.round(c.height)}px inside band ${Math.round(w.height)}px`;
+  return c.height >= 100 && w.height >= c.height - 1
+    && c.top >= w.top - 1 && c.bottom <= w.bottom + 1;
 }), await page.evaluate(() => window.__rowFit));
 
-check('the row says the symbol, the side and the live pnl', await page.evaluate(() => {
-  const t = document.querySelector('.mpos-row').textContent;
-  return /[A-Z]{3,6}/.test(t) && /(LONG|SHORT)/.test(t) && /\$/.test(t) && /%/.test(t);
-}));
-
-check('a position rests as one line and opens on a tap', await page.evaluate(async () => {
-  const more = document.querySelector('.mpos-more');
-  const wasShut = more.hidden === true;
-  document.querySelector('.mpos-row').click();
-  await new Promise((r) => setTimeout(r, 200));
-  return wasShut && document.querySelector('.mpos-more').hidden === false;
+check('everything is on the card without opening anything', await page.evaluate(() => {
+  const t = document.querySelector('.mpos').textContent;
+  return /[A-Z]{3,6}/.test(t) && /(LONG|SHORT)/.test(t) && /\$/.test(t) && /%/.test(t)
+    && /CLOSE 50%/.test(t) && /CLOSE ALL/.test(t) && /FLIP/.test(t)
+    // No accordion left to get in the way of closing a losing trade.
+    && !document.querySelector('.mpos-more') && !document.querySelector('.mpos-caret');
 }));
 
 check('the flip is shown to everybody and faded until it is paid for', await page.evaluate(() => {
   const btn = document.querySelector('.mflip');
   if (!btn) return false;
+  // Full width, like the two buttons above it, rather than a stub off to one side.
+  const card = document.querySelector('.mpos').getBoundingClientRect();
+  if (btn.getBoundingClientRect().width < card.width - 30) return false;
   const faded = Number(getComputedStyle(btn).opacity) < 0.7;
   return btn.classList.contains('is-locked') && faded
     && /FLIP/.test(btn.textContent) && /ad/i.test(btn.textContent);
@@ -1382,6 +1380,13 @@ check('the control underneath is still reachable through the overlay', await pag
   return Boolean(hit?.closest('#ah-pick'));
 }));
 
+check('every step has a way on that is not the control', await page.evaluate(() => {
+  // Somebody who does not want to open the ticker right now was simply stuck.
+  const btn = document.querySelector('.coach-got');
+  return Boolean(btn) && /next/i.test(btn.textContent)
+    && btn.getBoundingClientRect().height >= 32;
+}));
+
 check('doing the thing is what advances it', await page.evaluate(async () => {
   document.querySelector('#ah-pick').click();
   await new Promise((r) => setTimeout(r, 600));
@@ -1471,6 +1476,19 @@ check('the installed app is called BSE and opens on the terminal', await page.ev
     && m.display === 'standalone'
     && m.icons.some((i) => i.purpose === 'maskable');
 }));
+
+await page.setViewportSize({ width: 1400, height: 860 });
+await page.waitForTimeout(400);
+check('the toolbar has room around its buttons', await page.evaluate(() => {
+  const strip = document.querySelector('.toolstrip');
+  const tools = [...strip.querySelectorAll('.tool')];
+  const gap = Number(getComputedStyle(strip).gap.replace('px', ''));
+  const box = tools[0].getBoundingClientRect();
+  window.__stripFit = `${tools.length} tools, ${Math.round(box.width)}x${Math.round(box.height)}, gap ${gap}`;
+  // Bigger targets, further apart, and broken into runs by a hairline.
+  return box.width >= 34 && box.height >= 34 && gap >= 6
+    && strip.querySelectorAll('.tool-sep').length >= 2;
+}), await page.evaluate(() => window.__stripFit));
 
 check('no console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 

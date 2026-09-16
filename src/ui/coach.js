@@ -67,14 +67,25 @@ export class Coach {
       ]),
     ]);
 
-    // A step whose control is already open has nothing to tap, so it gets the
-    // one button in the tour. Every other step is dismissed by doing the
-    // thing it is pointing at.
-    if (step.on === null) {
-      const got = el('button', { class: 'coach-got', text: 'Got it' });
-      got.onclick = () => this.next();
-      bubble.insertBefore(got, bubble.querySelector('.coach-foot'));
-    }
+    /**
+     * A WAY ON THAT IS NOT THE CONTROL.
+     *
+     * This started with no Next button on purpose: a tour you can click past
+     * without touching the product teaches nothing. That was wrong in
+     * practice. Somebody who does not want to open the ticker right now, or
+     * whose tap lands on the wrong thing, had no way forward at all and was
+     * simply stuck on step one with a bubble in the way.
+     *
+     * Doing the thing still advances it. This is the other door.
+     */
+    const last = this.at === this.steps.length - 1;
+    const next = el('button', {
+      class: 'coach-got',
+      text: last ? 'Got it' : 'Next',
+    });
+    next.onclick = () => this.next();
+    bubble.insertBefore(next, bubble.querySelector('.coach-foot'));
+
     this.root.append(halo, bubble);
 
     // Followed rather than measured once: the sheet slides, the chart resizes
@@ -134,7 +145,7 @@ export class Coach {
     };
     place();
 
-    if (step.on === null) return;      // the Got it button is the only way on
+    if (step.on === null) return;      // nothing to tap, so the button is it
 
     const advance = () => { setTimeout(() => this.next(), step.wait ?? 260); };
     const evt = step.on || 'click';
