@@ -21,7 +21,7 @@ import { AdOverlay } from './ui/adgate.js';
 import { icon as iconNode, iconMarkup } from './ui/icons.js';
 import { WipeoutGate } from './ui/wipeout.js';
 import { Coach, coachSteps } from './ui/coach.js';
-import { $, el, clear, cls, esc, on } from './util/dom.js';
+import { $, el, clear, cls, esc, on, zoomOf } from './util/dom.js';
 import {
   money, moneyShort, price as fmtPrice, pct, signed, num, compact, qty as fmtQty,
   clockTime, dayName, duration,
@@ -576,11 +576,19 @@ function wireDockResize() {
   let startH = 0;
   let dragging = false;
 
-  const maxHeight = () => Math.max(MIN, window.innerHeight - 260);
+  /**
+   * The desk renders inside a CSS zoom, so a pointer that moved 120 screen
+   * pixels moved 160 of the pixels this panel is measured in. Mixing the two
+   * made the dock drift away from the cursor at any scale but 100%: it grew
+   * three quarters as fast as the hand pulling it.
+   */
+  const zoom = () => zoomOf(panel);
+  const maxHeight = () => Math.max(MIN, (window.innerHeight / zoom()) - 260);
 
   const move = (y) => {
     if (!dragging) return;
-    const next = Math.round(Math.min(maxHeight(), Math.max(MIN, startH + (startY - y))));
+    const moved = (startY - y) / zoom();
+    const next = Math.round(Math.min(maxHeight(), Math.max(MIN, startH + moved)));
     settings.set('dockHeight', next);
     settings.apply();
     ui.chart.render();
@@ -596,7 +604,8 @@ function wireDockResize() {
   const start = (y) => {
     dragging = true;
     startY = y;
-    startH = panel.getBoundingClientRect().height;
+    // Measured in the panel's own pixels, to match what the setting stores.
+    startH = panel.getBoundingClientRect().height / zoom();
     grip.classList.add('dragging');
     document.body.style.userSelect = 'none';
   };

@@ -50,3 +50,22 @@ export function on(root, event, selector, handler) {
     if (target && root.contains(target)) handler(e, target);
   });
 }
+
+/**
+ * The effective CSS zoom a node is rendered inside.
+ *
+ * `zoom` does not show up in a descendant's computed style, so asking the node
+ * itself always answers 1: it has to be multiplied up the ancestor chain. Any
+ * code that measures with getBoundingClientRect, which reports screen pixels,
+ * and then writes the number back as a layout value needs this or it will be
+ * out by the zoom. That is how the dock came to grow three quarters as fast as
+ * the hand dragging it.
+ */
+export function zoomOf(node) {
+  let z = 1;
+  for (let n = node; n instanceof Element; n = n.parentElement) {
+    const v = parseFloat(getComputedStyle(n).zoom);
+    if (Number.isFinite(v) && v > 0) z *= v;
+  }
+  return z;
+}

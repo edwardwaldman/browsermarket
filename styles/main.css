@@ -106,7 +106,10 @@ input { background: none; border: none; outline: none; }
  * computes the full screen and then renders at 80% of it, which left a fifth
  * of the screen empty below the status bar at every scale under 100%.
  */
-:root { --zoom: var(--ui-scale); }
+/* The desk renders at three quarters, which is what zooming the browser out to
+   75% was doing by hand. --ui-scale is still the player's own setting and
+   still means what it says: pick 120% there and you get 0.9. */
+:root { --zoom: calc(var(--ui-scale) * 0.75); }
 
 .app {
   zoom: var(--zoom);

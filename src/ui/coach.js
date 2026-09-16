@@ -11,7 +11,7 @@
 // press instead of the control, because a tour you can click past without
 // touching the product teaches nothing.
 
-import { el, clear } from '../util/dom.js';
+import { el, clear, zoomOf } from '../util/dom.js';
 
 export class Coach {
   constructor({ root, onDone }) {
@@ -113,7 +113,7 @@ export class Coach {
       // Everything below is in the overlay's own coordinate space. See `local`
       // for why that is not the same as the viewport's.
       const k = localScale(target, this.root);
-      const zoom = zoomChain(this.root);
+      const zoom = zoomOf(this.root);
       const vw = window.innerWidth / zoom;
       const vh = window.innerHeight / zoom;
       const box = {
@@ -214,14 +214,6 @@ export function coachSteps(isPhone) {
  * either wrong and the halo sits a short way up and to the left of the control
  * it is meant to be ringing, which is worse than not drawing it at all.
  */
-function zoomChain(node) {
-  let z = 1;
-  for (let n = node; n instanceof Element; n = n.parentElement) {
-    const v = parseFloat(getComputedStyle(n).zoom);
-    if (Number.isFinite(v) && v > 0) z *= v;
-  }
-  return z;
-}
 
 /** The app fills the viewport's width, so its rect says which space we are in. */
 function rectsAreViewport() {
@@ -231,6 +223,6 @@ function rectsAreViewport() {
 }
 
 function localScale(target, root) {
-  const toViewport = rectsAreViewport() ? 1 : zoomChain(target);
-  return toViewport / zoomChain(root);
+  const toViewport = rectsAreViewport() ? 1 : zoomOf(target);
+  return toViewport / zoomOf(root);
 }

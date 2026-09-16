@@ -73,7 +73,7 @@ for (const view of ['research', 'trade']) {
   check(`view renders: ${view}`, await page.isVisible(`#view-${view}`));
 }
 
-for (const m of ['portfolio', 'level', 'missions', 'collection', 'rewards', 'leaderboard', 'shop', 'settings', 'timemachine', 'desks', 'scanner', 'sectors', 'fundhq', 'index', 'launchpad', 'badges', 'alerts', 'ledger']) {
+for (const m of ['portfolio', 'level', 'missions', 'collection', 'rewards', 'shop', 'settings', 'timemachine', 'desks', 'scanner', 'sectors', 'fundhq', 'index', 'launchpad', 'alerts', 'ledger']) {
   await page.click(`[data-modal="${m}"]`);
   await page.waitForTimeout(180);
   const open = await page.isVisible('.modal');
@@ -149,17 +149,28 @@ check('no rounded corners', await page.evaluate(() => [...document.querySelector
   })));
 
 // the dock can be pulled up
-check('dock resizes by dragging', await page.evaluate(async () => {
+check('dock resizes by dragging, and keeps up with the cursor', await page.evaluate(async () => {
+  const { settings } = await import('/src/engine/settings.js');
+  const { zoomOf } = await import('/src/util/dom.js');
   const panel = document.querySelector('#bottompanel');
   const grip = document.querySelector('#dock-grip');
-  const before = panel.getBoundingClientRect().height;
+  const was = settings.get('dockHeight');
+  const rendered = panel.getBoundingClientRect().height;
   const box = grip.getBoundingClientRect();
   grip.dispatchEvent(new MouseEvent('mousedown', { clientY: box.top, bubbles: true, cancelable: true }));
   window.dispatchEvent(new MouseEvent('mousemove', { clientY: box.top - 120, bubbles: true }));
   window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-  await new Promise((r) => setTimeout(r, 60));
-  return panel.getBoundingClientRect().height > before + 60;
-}));
+  await new Promise((r) => setTimeout(r, 80));
+
+  // A pointer that moved 120 screen pixels moved 120/zoom of the pixels the
+  // panel is measured in, and the dock has to grow by that, not by 120. It
+  // used to grow three quarters as fast as the hand pulling it.
+  const want = 120 / zoomOf(panel);
+  const grew = settings.get('dockHeight') - was;
+  window.__dock = `grew ${Math.round(grew)} of ${Math.round(want)}`;
+  return Math.abs(grew - want) < 6
+    && panel.getBoundingClientRect().height > rendered;
+}), await page.evaluate(() => window.__dock));
 
 // rate limits hold the line
 check('order rate limit engages', await page.evaluate(() => {
@@ -393,14 +404,17 @@ const quick = await page.evaluate(async () => {
   game.limiter.hits.clear();
   game.account.cash = Math.max(game.account.cash, 20000);
   await new Promise((r) => setTimeout(r, 100));
-  const before = game.account.positions.length;
-  [...document.querySelectorAll('.ticket .quick')].find((b) => b.textContent === '25%')?.click();
+  // A buy in a name already held merges into that position rather than making
+  // a second one, so the size is what moves, not the count.
+  const held = () => game.account.positions.reduce((n, p) => n + p.qty, 0);
+  const before = held();
+  [...document.querySelectorAll('.ticket .quickwrap .quick')].find((b) => b.textContent === '25%')?.click();
   await new Promise((r) => setTimeout(r, 250));
   const label = document.querySelector('.quickbtn.buy').textContent;
   document.querySelector('.quickbtn.buy').click();
   await new Promise((r) => setTimeout(r, 350));
   return {
-    ok: game.account.positions.length === before + 1,
+    ok: held() > before,
     label,
     last: [...document.querySelectorAll('#toasts .toast')].at(-1)?.textContent ?? '',
   };
@@ -1086,8 +1100,10 @@ check('the drawer offers a coloured sign-up button, not another grey row', await
   const fill = getComputedStyle(cta).backgroundColor;
   const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
   const flat = /rgba\(0,\s*0,\s*0,\s*0\)|transparent/.test(fill);
+  // 48 is what the design asks for; what it draws to follows the density.
   return !flat && Boolean(accent) && /log in/i.test(alt.textContent)
-    && cta.getBoundingClientRect().height >= 40;
+    && parseFloat(getComputedStyle(cta).height) >= 44
+    && cta.getBoundingClientRect().height >= 34;
 }));
 
 await page.evaluate(async () => {
@@ -1479,15 +1495,31 @@ check('the installed app is called BSE and opens on the terminal', await page.ev
 
 await page.setViewportSize({ width: 1400, height: 860 });
 await page.waitForTimeout(400);
+check('badges and the global leaderboard are gone, not just hidden', await page.evaluate(() => {
+  const gone = ['badges', 'leaderboard'].every((m) => !document.querySelector(`[data-modal="${m}"]`));
+  // And nothing in the game still keeps a rival board running for a screen
+  // that does not exist.
+  return gone && game.board === undefined;
+}));
+
+check('the desk renders at three quarters by default', await page.evaluate(() => {
+  const zoom = Number(getComputedStyle(document.querySelector('.app')).zoom);
+  window.__zoom = String(zoom);
+  return Math.abs(zoom - 0.75) < 0.001;
+}), await page.evaluate(() => window.__zoom));
+
 check('the toolbar has room around its buttons', await page.evaluate(() => {
   const strip = document.querySelector('.toolstrip');
   const tools = [...strip.querySelectorAll('.tool')];
   const gap = Number(getComputedStyle(strip).gap.replace('px', ''));
+  const css = getComputedStyle(tools[0]);
   const box = tools[0].getBoundingClientRect();
-  window.__stripFit = `${tools.length} tools, ${Math.round(box.width)}x${Math.round(box.height)}, gap ${gap}`;
-  // Bigger targets, further apart, and broken into runs by a hairline.
-  return box.width >= 34 && box.height >= 34 && gap >= 6
-    && strip.querySelectorAll('.tool-sep').length >= 2;
+  window.__stripFit = `${tools.length} tools, css ${css.width}, drawn ${Math.round(box.width)}px, gap ${gap}`;
+  // The design's own numbers, plus a drawn floor a mouse can still hit. The
+  // drawn size follows the desk's density, so asserting it alone would break
+  // every time the zoom is tuned.
+  return parseFloat(css.width) >= 38 && parseFloat(css.height) >= 38 && gap >= 8
+    && box.width >= 26 && strip.querySelectorAll('.tool-sep').length >= 2;
 }), await page.evaluate(() => window.__stripFit));
 
 check('no console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
