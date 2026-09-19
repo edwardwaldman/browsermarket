@@ -517,15 +517,108 @@ await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 
 // ── undoing a trade ──────────────────────────────────────────────────────
-check('closing a trade offers the undo', await page.evaluate(async () => {
+// A win and a loss get different treatment on purpose: only a loss is worth
+// interrupting anybody for, so only a loss gets the five second popup.
+check('a losing close opens the revert prompt with a running ring, not the corner bar', await page.evaluate(async () => {
   game.limiter.hits.clear();
   game.account.cash = Math.max(game.account.cash, 20000);
   game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
   const pos = game.account.positions.at(-1);
+  game.market.get('OBBY').price *= 0.5;      // force the close into a loss
   game.closePosition(pos.id, 1);
   await new Promise((r) => setTimeout(r, 300));
+
+  const card = document.querySelector('.revert-card');
+  const copy = card?.querySelector('.revert-copy')?.textContent ?? '';
+  const ok = !document.querySelector('#revert-root').hidden
+    && document.querySelector('#undobar').hidden
+    && copy.includes('OBBY') && /-\$/.test(copy)
+    && Boolean(card.querySelector('.revert-ring-fg'))
+    && card.querySelector('.revert-count').textContent === '5'
+    && Boolean(card.querySelector('.revert-go'))
+    && Boolean(card.querySelector('.revert-keep'));
+
+  ui.revertPrompt.close();
+  return ok;
+}));
+
+check('the ring counts down and the offer expires on its own', await page.evaluate(async () => {
+  game.limiter.hits.clear();
+  game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
+  const pos = game.account.positions.at(-1);
+  game.market.get('OBBY').price *= 0.5;
+  game.closePosition(pos.id, 1);
+  await new Promise((r) => setTimeout(r, 300));
+  const openedRight = !document.querySelector('#revert-root').hidden;
+
+  await new Promise((r) => setTimeout(r, 1200));
+  const countAfter = Number(document.querySelector('.revert-count')?.textContent);
+
+  await new Promise((r) => setTimeout(r, 4000));   // past the five second deadline
+  const closedItself = document.querySelector('#revert-root').hidden;
+
+  return openedRight && countAfter <= 4 && closedItself;
+}));
+
+check('tapping REVERT hands off to the payment flow, not a silent rewind', await page.evaluate(async () => {
+  game.limiter.hits.clear();
+  game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
+  const pos = game.account.positions.at(-1);
+  game.market.get('OBBY').price *= 0.5;
+  game.closePosition(pos.id, 1);
+  await new Promise((r) => setTimeout(r, 300));
+
+  document.querySelector('.revert-go').click();
+  await new Promise((r) => setTimeout(r, 250));
+  const promptGone = document.querySelector('#revert-root').hidden;
+  const modalOpen = !document.querySelector('#modal-root').hidden;
+  const title = document.querySelector('.modal-title')?.textContent ?? '';
+  // .modal-close is a class name three different panels share (the ticket
+  // sheet's own head button among them), so it has to be scoped to the root
+  // that actually opened here or it closes the wrong thing.
+  document.querySelector('#modal-root .modal-close')?.click();
+
+  return promptGone && modalOpen && title === 'UNDO A TRADE';
+}));
+
+check('tapping KEEP IT dismisses the offer and opens nothing', await page.evaluate(async () => {
+  game.limiter.hits.clear();
+  game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
+  const pos = game.account.positions.at(-1);
+  game.market.get('OBBY').price *= 0.5;
+  game.closePosition(pos.id, 1);
+  await new Promise((r) => setTimeout(r, 300));
+
+  document.querySelector('.revert-keep').click();
+  await new Promise((r) => setTimeout(r, 150));
+  return document.querySelector('#revert-root').hidden && document.querySelector('#modal-root').hidden;
+}));
+
+check('a winning close still offers the quiet corner undo bar, not the popup', await page.evaluate(async () => {
+  game.limiter.hits.clear();
+  game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
+  const pos = game.account.positions.at(-1);
+  game.market.get('OBBY').price *= 1.5;      // force the close into profit
+  game.closePosition(pos.id, 1);
+  await new Promise((r) => setTimeout(r, 300));
+
   const bar = document.querySelector('#undobar');
-  return !bar.hidden && bar.textContent.includes('UNDO');
+  const ok = !bar.hidden && bar.textContent.includes('UNDO')
+    && document.querySelector('#revert-root').hidden;
+  bar.hidden = true;
+  return ok;
+}));
+
+check('a wiped-out desk never shows the revert prompt on top of it', await page.evaluate(async () => {
+  // The arithmetic that decides wipedOut has its own coverage; this checks
+  // only the one new line in main.js that has to defer to it, so the event
+  // is synthesised directly rather than re-engineering a real wipeout.
+  game.wipedOut = true;
+  game.emit({ type: 'closed', result: { sym: 'OBBY', pnl: -100 } });
+  await new Promise((r) => setTimeout(r, 200));
+  const stayedHidden = document.querySelector('#revert-root').hidden;
+  game.wipedOut = false;
+  return stayedHidden;
 }));
 
 check('the undo restores the position and the cash', await page.evaluate(async () => {
@@ -536,6 +629,7 @@ check('the undo restores the position and the cash', await page.evaluate(async (
   const qty = pos.qty;
   game.closePosition(pos.id, 1);
   await new Promise((r) => setTimeout(r, 200));
+  ui.revertPrompt.close();   // whichever popup this close earned, close it before rewinding
   const done = game.rewind();
   const back = game.account.positions.find((p) => Math.abs(p.qty - qty) < 1e-9);
   return done.ok && Boolean(back) && Math.abs(game.account.cash - cashBefore) < 1e-6;

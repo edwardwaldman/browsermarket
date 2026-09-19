@@ -1614,6 +1614,58 @@ table.grid tr:hover td { background: var(--panel-2); }
 }
 .undobar-x { flex: none; width: 26px; height: 26px; color: var(--dim-2); border-radius: 0; }
 
+/* ── the revert prompt ────────────────────────────────────────────────── */
+/* The five-second ask after a losing close. Above nearly everything -
+   the moment it answers is right now - but below the wipeout screen, which
+   never has to compete with it: main.js skips this entirely once the desk
+   is wiped out, so the two never stack. */
+.revert-root {
+  position: fixed; inset: 0; z-index: 91; display: grid; place-items: center; padding: 16px;
+}
+.revert-root[hidden] { display: none; }
+.revert-scrim { position: absolute; inset: 0; background: var(--scrim); backdrop-filter: blur(2px); }
+
+.revert-card {
+  position: relative; width: min(320px, 100%); background: var(--panel);
+  border: 1px solid var(--down); border-top: 3px solid var(--down);
+  padding: 22px 20px 20px; text-align: center;
+  box-shadow: 0 20px 60px var(--shadow);
+  animation: revert-in .22s cubic-bezier(.2, .8, .3, 1);
+}
+:root[data-motion="reduced"] .revert-card { animation: none; }
+@keyframes revert-in {
+  from { opacity: 0; transform: scale(.94); }
+  to { opacity: 1; transform: none; }
+}
+
+/* The ring's depletion is driven inline from JS, where its radius and
+   circumference are already known - this only styles what does not change. */
+.revert-dial { position: relative; width: 62px; height: 62px; margin: 0 auto 14px; }
+.revert-ring { width: 62px; height: 62px; transform: rotate(-90deg); }
+.revert-ring-bg { fill: none; stroke: var(--line-2); stroke-width: 3; }
+.revert-ring-fg { fill: none; stroke: var(--down); stroke-width: 3; stroke-linecap: round; }
+.revert-count {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text);
+}
+
+.revert-copy { font-size: 14px; color: var(--dim); line-height: 1.5; }
+.revert-copy b { font-size: 15px; }
+.revert-copy b.down { color: var(--down); }
+
+.revert-acts { display: grid; gap: 8px; margin-top: 18px; }
+.revert-go {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 48px; border-radius: 0; font-size: 13.5px; font-weight: 700; letter-spacing: .5px;
+  background: var(--accent); border: 1px solid var(--accent); color: #fff;
+}
+.revert-go:active { filter: brightness(.9); }
+.revert-keep {
+  min-height: 38px; border-radius: 0; background: none; border: 0;
+  color: var(--dim-2); font-size: 12px; letter-spacing: .5px;
+}
+.revert-keep:hover { color: var(--text); }
+
 @media (max-width: 760px) {
   .st-body { grid-template-columns: minmax(0, 1fr); }
   .st-rail { flex-direction: row; overflow-x: auto; scrollbar-width: none; }
@@ -1622,6 +1674,9 @@ table.grid tr:hover td { background: var(--panel-2); }
   .st-grid { grid-template-columns: minmax(0, 1fr); }
   .undobar { bottom: calc(84px + env(safe-area-inset-bottom)); left: 8px; right: 8px; transform: none; max-width: none; }
   body.sheet-open .undobar { z-index: 79; top: 64px; bottom: auto; }
+  /* Above the phone's own trade bar and sheet, same reasoning as the undo
+     bar just above: the thing it is asking about was just done here. */
+  .revert-root { z-index: 91; padding: 16px calc(16px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left)); }
 }
 
 /* ── sign in ──────────────────────────────────────────────────────────── */

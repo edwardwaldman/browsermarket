@@ -20,6 +20,7 @@ import { IndicatorLibrary } from './engine/custom.js';
 import { AdOverlay } from './ui/adgate.js';
 import { icon as iconNode, iconMarkup } from './ui/icons.js';
 import { WipeoutGate } from './ui/wipeout.js';
+import { RevertPrompt } from './ui/revertprompt.js';
 import { Coach, coachSteps } from './ui/coach.js';
 import { $, el, clear, cls, esc, on, zoomOf } from './util/dom.js';
 import {
@@ -340,6 +341,15 @@ function buildUi() {
       return res;
     },
   });
+
+  ui.revertPrompt = new RevertPrompt({
+    root: $('#revert-root'),
+    // The same hand-off the corner undo bar already uses: this only asks
+    // whether reverting is wanted, the rewind modal is still the one place
+    // that decides how it gets paid for.
+    onRevert: () => ui.modals.open('rewind'),
+  });
+
   ui.modals.onWatchAd = (placement) => ui.ads.play(placement);
   ui.modals.onReplayCoach = () => startCoach(true);
   ui.modals.toast = (t) => ui.toasts.push(t);
@@ -690,9 +700,17 @@ function handleEvent(e) {
     case 'toast':
       if (settings.get('notifications')) ui.toasts.push(e);
       break;
-    case 'closed':
-      showUndoBar(e.result);
+    case 'closed': {
+      // Wiped out is wiped out: that screen already owns this moment, and an
+      // undo offer competing with it would undercut both messages.
+      if (game.wipedOut) break;
+      const pnl = e.result?.pnl ?? 0;
+      // A loss is the only close worth interrupting anybody for. A win still
+      // gets the quiet corner bar, in case a fat-fingered size needs undoing.
+      if (pnl < 0) ui.revertPrompt.show({ sym: e.result?.sym ?? '', pnl });
+      else showUndoBar(e.result);
       break;
+    }
     case 'wipeout':
       ui.wipeout.show({ netWorth: e.netWorth });
       break;
