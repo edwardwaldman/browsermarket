@@ -1346,6 +1346,26 @@ check('a celebration shows a drawn icon', await page.evaluate(async () => {
   return ok;
 }));
 
+check("the celebration's icon is visible and the title sits centred", await page.evaluate(async () => {
+  // The gradient-text trick clips a colour to an element's own text, and
+  // fill/stroke both read currentColor. Put that trick back on the row that
+  // holds the icon rather than on the word span alone, and the icon inherits
+  // color:transparent, vanishes, and the row still reserves its width -
+  // pushing the visible words off centre by exactly the icon's width.
+  ui.celebration.show({ title: 'WHILE YOU WERE OUT', sub: 'test', icon: 'moon' });
+  await new Promise((r) => setTimeout(r, 250));
+  const inner = document.querySelector('.celebration-inner').getBoundingClientRect();
+  const title = document.querySelector('.celebration-title').getBoundingClientRect();
+  const svg = document.querySelector('.celebration-title svg');
+  const iconColor = getComputedStyle(svg).color;
+  const gapLeft = title.left - inner.left;
+  const gapRight = inner.right - title.right;
+  document.querySelector('#celebration').hidden = true;
+  window.__celebFit = `icon ${iconColor}, gap ${Math.round(gapLeft)}/${Math.round(gapRight)}`;
+  return !/rgba\(0,\s*0,\s*0,\s*0\)|transparent/.test(iconColor)
+    && Math.abs(gapLeft - gapRight) < 3;
+}), await page.evaluate(() => window.__celebFit));
+
 check('nothing drawn on screen is an emoji any more', await page.evaluate(async () => {
   // Extended_Pictographic is the line: the coloured, font-dependent characters
   // go, while the geometric glyphs the terminal look is built from (star,
