@@ -622,12 +622,30 @@ table.grid tr:hover td { background: var(--panel-2); }
 .celebration-inner { text-shadow: 0 0 34px rgba(76, 155, 255, .4); }
 .celebration-inner.gold { text-shadow: 0 0 34px rgba(245, 196, 81, .35); }
 .celebration-title {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
   font-size: clamp(28px, 6vw, 54px); font-weight: 800; letter-spacing: 2px;
+}
+/*
+ * THE GRADIENT GOES ON THE WORDS, NOT THE ROW.
+ *
+ * This used to be one rule on .celebration-title itself: background-clip:text
+ * needs an element's own text to clip to, which was fine when the title was a
+ * single text node. Once an icon sat beside it as a sibling, that same rule
+ * put color:transparent on the icon too, by inheritance, with nothing to make
+ * it visible again - fill and stroke both read currentColor. The icon simply
+ * vanished, and the space it still took up in the centered row pushed the
+ * words it used to sit beside off to one side, closer to the icon's own
+ * invisible edge than to the middle of the box. So the gradient targets the
+ * word span alone now, and the icon gets a plain, visible colour of its own.
+ */
+.celebration-title .ico-svg { width: 1.3em; height: 1.3em; color: #cfe0ff; }
+.celebration-inner.gold .celebration-title .ico-svg { color: #f7dfa0; }
+.celebration-word {
   background: linear-gradient(90deg, #4c9bff, #e8f2ff, #4c9bff);
   -webkit-background-clip: text; background-clip: text;
   color: transparent; -webkit-text-fill-color: transparent;
 }
-.celebration-inner.gold .celebration-title {
+.celebration-inner.gold .celebration-word {
   background: linear-gradient(90deg, #f5c451, #fff3c4, #f5c451);
   -webkit-background-clip: text; background-clip: text;
 }
@@ -1861,9 +1879,6 @@ button > .ico-svg { pointer-events: none; }
 .toast.good .toast-ico { color: var(--up); }
 .toast.bad .toast-ico { color: var(--down); }
 .toast.info .toast-ico { color: var(--accent-ink); }
-
-.celebration-title { display: flex; align-items: center; justify-content: center; gap: 10px; }
-.celebration-title .ico-svg { width: 1.3em; height: 1.3em; }
 
 .tmrow-title { display: flex; align-items: center; gap: 8px; }
 .boticon { display: flex; align-items: center; justify-content: center; }

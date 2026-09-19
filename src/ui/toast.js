@@ -61,7 +61,10 @@ export class Celebration {
       el('div', { class: `celebration-inner${gold ? ' gold' : ''}` }, [
         el('div', { class: 'celebration-title' }, [
           mark(item.icon || 'trophy'),
-          el('span', { text: item.title }),
+          // Named so the gradient-text trick can target the words specifically
+          // and leave the icon beside them alone. See the CSS for why that
+          // separation matters.
+          el('span', { class: 'celebration-word', text: item.title }),
         ]),
         item.sub ? el('div', { class: 'celebration-sub', text: item.sub }) : null,
       ]),
