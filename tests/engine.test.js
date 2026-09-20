@@ -27,6 +27,7 @@ import {
 } from '../src/engine/store.js';
 import { money, moneyShort, pct, clockTime, gameDate } from '../src/util/format.js';
 import { verifyStripeSignature } from '../api/stripe/_verify.js';
+import { checkSupport, TOPICS, MIN_MESSAGE, MAX_MESSAGE } from '../src/engine/support.js';
 
 // ── rng ──────────────────────────────────────────────────────────────────
 test('rng is deterministic for a given seed', () => {
@@ -933,7 +934,7 @@ test('every limit is sane and self-describing', () => {
 });
 
 // ── appearance ───────────────────────────────────────────────────────────
-import { ACCENTS, CANDLE_PALETTES, GRID_DENSITY, THEMES } from '../src/engine/settings.js';
+import { ACCENTS, CANDLE_PALETTES, GRID_DENSITY, THEMES, settings } from '../src/engine/settings.js';
 
 test('candle palettes define both a dark and a light ink', () => {
   for (const [id, p] of Object.entries(CANDLE_PALETTES)) {
@@ -953,7 +954,20 @@ test('accents define both themes and the grid densities ascend', () => {
   }
   assert.ok(GRID_DENSITY.low < GRID_DENSITY.normal);
   assert.ok(GRID_DENSITY.normal < GRID_DENSITY.high);
-  assert.deepEqual(THEMES, ['dark', 'light', 'system']);
+  assert.deepEqual(THEMES, ['dark', 'oled', 'light', 'system']);
+});
+
+test('oled is a dark theme, so nothing treats it as the light one', () => {
+  // Every "is this light" test reads one getter now, because the palette and
+  // the accent both used to ask separately and a third would have got it
+  // wrong eventually.
+  const before = settings.get('theme');
+  settings.set('theme', 'oled');
+  assert.equal(settings.resolvedTheme, 'oled');
+  assert.equal(settings.isLight, false, 'oled is dark');
+  settings.set('theme', 'light');
+  assert.equal(settings.isLight, true);
+  settings.set('theme', before);
 });
 
 // ── rewarded ads ─────────────────────────────────────────────────────────
@@ -2564,4 +2578,37 @@ test('either signature survives a secret rotation, where Stripe sends two v1 val
   const currentSig = (await signStripeHeader(payload, 'whsec_current', t)).split(',')[1];
   const header = `t=${t},v1=deadbeefdeadbeef,${currentSig}`;
   assert.equal(await verifyStripeSignature(payload, header, 'whsec_current'), true);
+});
+
+// ── the support form ─────────────────────────────────────────────────────
+// Checked on the server because the browser is not the only thing that can
+// post to the endpoint. A support form anyone can POST is a mail relay.
+const goodMessage = 'The undo button does nothing after I close a losing trade.';
+
+test('a filled in support message is accepted and normalised', () => {
+  const res = checkSupport({ email: '  Someone@Example.com ', message: `  ${goodMessage}  `, topic: 'bug' });
+  assert.equal(res.ok, true);
+  assert.equal(res.email, 'Someone@Example.com', 'trimmed, not lowercased: it is a reply-to');
+  assert.equal(res.message, goodMessage, 'trimmed');
+  assert.equal(res.topic, 'bug');
+});
+
+test('an unknown topic falls back rather than being passed through', () => {
+  const res = checkSupport({ email: 'a@b.co', message: goodMessage, topic: 'rm -rf' });
+  assert.equal(res.ok, true);
+  assert.equal(res.topic, 'other');
+  assert.ok(TOPICS[res.topic], 'whatever comes out is a topic we know');
+});
+
+test('a junk address, an empty message or a novel are all refused', () => {
+  assert.equal(checkSupport({ email: 'nope', message: goodMessage }).ok, false);
+  assert.equal(checkSupport({ email: '', message: goodMessage }).ok, false);
+  assert.equal(checkSupport({ email: 'a@b.co', message: 'hi' }).ok, false, 'under the floor');
+  assert.equal(checkSupport({ email: 'a@b.co', message: 'x'.repeat(MAX_MESSAGE + 1) }).ok, false);
+  assert.equal(checkSupport({ email: 'a@b.co', message: 'x'.repeat(MIN_MESSAGE) }).ok, true, 'exactly the floor is fine');
+});
+
+test('anything that fills the honeypot is refused whatever else it got right', () => {
+  const res = checkSupport({ email: 'a@b.co', message: goodMessage, topic: 'bug', trap: 'http://spam' });
+  assert.equal(res.ok, false);
 });

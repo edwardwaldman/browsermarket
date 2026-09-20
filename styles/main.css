@@ -49,6 +49,37 @@
   --ctl-text: #c6d2e4;
 }
 
+/*
+ * OLED. Black is a pixel that is switched off, so the background is actually
+ * #000 rather than the near-black the dark theme uses, and every surface above
+ * it is spaced further apart than usual to make up for losing the gentle step
+ * a lifted background gives you. Text and lines are pushed brighter for the
+ * same reason: on a true black ground the dark theme's greys read as murk.
+ */
+:root[data-theme="oled"] {
+  --bg: #000000;
+  --panel: #000000;
+  --panel-2: #0a0a0d;
+  --panel-3: #14151a;
+  --line: #2b2e36;
+  --line-2: #474b57;
+  --text: #ffffff;
+  --dim: #b4bcca;
+  --dim-2: #9aa3b2;
+  --grid: #16181d;
+  --axis: #8c96a6;
+  --shadow: rgba(0, 0, 0, .9);
+  --scrim: rgba(0, 0, 0, .8);
+  --raise: #16181f;
+  --raise-2: #1f222b;
+  --sunken: #000000;
+  --accent-ink: #b8d8ff;
+  --ctl: #1b1e26;
+  --ctl-hover: #272b36;
+  --ctl-line: #5a6072;
+  --ctl-text: #e6ebf4;
+}
+
 /* Light surfaces. Gains and losses are set separately by the palette so the
    colourblind mode keeps working in either theme. */
 :root[data-theme="light"] {
@@ -624,6 +655,20 @@ table.grid tr:hover td { background: var(--panel-2); }
 .status-regime { color: var(--amber); }
 .status-spacer { flex: 1; }
 .status-tip { color: var(--dim); }
+/* Bottom left, because a shortcut nobody can see is a shortcut nobody uses.
+   The whole strip opens the full list, so it is a way in as well as a
+   reminder. */
+.keylegend {
+  display: flex; align-items: center; gap: 10px; flex: none;
+  padding: 0; background: none; border: none; color: var(--dim-2);
+  font-size: 11px; letter-spacing: .4px;
+}
+.keylegend:hover { color: var(--text); }
+.keylegend-pair { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.keylegend kbd {
+  font: inherit; padding: 1px 5px; border: 1px solid var(--ctl-line);
+  background: var(--ctl); color: var(--ctl-text); border-radius: 0;
+}
 
 /* ── toasts & celebration ────────────────────────────────────────────── */
 .toasts {
@@ -831,7 +876,7 @@ table.grid tr:hover td { background: var(--panel-2); }
   .ah-stat { font-size: 11.5px; }
   /* A wrapping status bar costs the chart three lines of height. */
   .statusbar { flex-wrap: nowrap; overflow: hidden; }
-  .status-tip, .status-wire { display: none; }
+  .status-tip, .status-wire, .keylegend { display: none; }
 }
 
 /* A short window has to give the chart room from somewhere. */
@@ -2113,6 +2158,27 @@ button > .ico-svg { pointer-events: none; }
 .acct-note { font-size: 12.5px; color: var(--dim-2); line-height: 1.6; margin: 8px 0 10px; }
 .acct-hr { border: none; border-top: 1px solid var(--line-2); margin: 20px 0 4px; }
 .acct-note + .auth-input, .acct-label + .auth-input { margin-bottom: 8px; }
+
+/* ── help and support ──────────────────────────────────────────────────── */
+.help-message {
+  width: 100%; min-height: 120px; padding: 11px 12px; border-radius: 0;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  font-family: inherit; font-size: 14.5px; line-height: 1.55; outline: none;
+  resize: vertical; margin-bottom: 8px;
+}
+.help-message:focus { border-color: var(--accent); }
+.help-topic {
+  width: 100%; height: 48px; padding: 0 12px; border-radius: 0;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  font-family: inherit; font-size: 15px; margin-bottom: 8px;
+}
+.help-topic:focus { border-color: var(--accent); outline: none; }
+/* Off screen rather than display:none: something that fills every field it
+   finds still finds this one, which is the whole point of it. */
+.help-trap {
+  position: absolute; left: -9999px; width: 1px; height: 1px;
+  opacity: 0; pointer-events: none;
+}
 .auth-input + .auth-input { margin-top: 8px; }
 .auth-note.good { color: var(--up); }
 

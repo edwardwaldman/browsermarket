@@ -3,7 +3,7 @@
 
 const KEY = 'browsermarket.settings.v1';
 
-export const THEMES = ['dark', 'light', 'system'];
+export const THEMES = ['dark', 'oled', 'light', 'system'];
 
 export const ACCENTS = {
   blue: { label: 'BLUE', accent: '#4c8dff', ink: '#8ec5ff', lightAccent: '#1d63d8', lightInk: '#1550b8' },
@@ -69,9 +69,27 @@ export const SHORTCUTS = [
   ['B / S', 'Switch the ticket to long or short'],
   ['ENTER', 'Submit the order ticket'],
   ['1 - 6', 'Jump between chart timeframes'],
+  ['← / →', 'Scroll the chart back and forward'],
+  ['↑ / ↓', 'Zoom the chart in and out'],
+  ['SHIFT + →', 'Jump back to the live edge'],
   ['A', 'Arm a price alert on the chart'],
   ['T', 'Open the time machine'],
+  ['H', 'Help and support'],
   ['ESC', 'Close overlays'],
+];
+
+/**
+ * The handful worth keeping on screen. The full list lives behind a modal
+ * nobody opens twice, and a shortcut nobody can see is a shortcut nobody
+ * uses, so the short version sits in the corner of the desk.
+ */
+export const SHORTCUT_LEGEND = [
+  ['SPACE', 'pause'],
+  ['B / S', 'side'],
+  ['↵', 'submit'],
+  ['← →', 'scroll'],
+  ['↑ ↓', 'zoom'],
+  ['H', 'help'],
 ];
 
 // Gains / losses. "Blue / orange" is the colourblind-safe pair: it stays
@@ -98,7 +116,7 @@ class Settings {
     const def = CANDLE_PALETTES[this.values.candlePalette] || CANDLE_PALETTES.classic;
     // The vivid pair is tuned for a dark ground; on white it needs darkening
     // to stay readable as text.
-    const light = this.resolvedTheme === 'light';
+    const light = this.isLight;
     const up = light ? (def.upLight || def.up) : def.up;
     const down = light ? (def.downLight || def.down) : def.down;
     return { up, down, upSoft: softenHex(up, 0.16), downSoft: softenHex(down, 0.16) };
@@ -135,8 +153,15 @@ class Settings {
     return dark === false ? 'light' : 'dark';
   }
 
+  /**
+   * OLED is a dark theme, so every "is this the light one" test has to keep
+   * saying no for it. Asking that question directly, in one place, is what
+   * stops the next one of those tests getting it wrong.
+   */
+  get isLight() { return this.resolvedTheme === 'light'; }
+
   cycleTheme() {
-    const order = ['dark', 'light', 'system'];
+    const order = ['dark', 'oled', 'light', 'system'];
     const next = order[(order.indexOf(this.values.theme) + 1) % order.length];
     this.set('theme', next);
     return next;
@@ -154,7 +179,7 @@ class Settings {
     root.style.setProperty('--dock-h', `${this.values.dockHeight}px`);
 
     const accent = ACCENTS[this.values.accent] || ACCENTS.blue;
-    const light = this.resolvedTheme === 'light';
+    const light = this.isLight;
     root.style.setProperty('--accent', light ? accent.lightAccent : accent.accent);
     root.style.setProperty('--accent-ink', light ? accent.lightInk : accent.ink);
     root.dataset.motion = this.values.reducedMotion ? 'reduced' : 'full';

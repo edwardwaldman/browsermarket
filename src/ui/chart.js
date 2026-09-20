@@ -384,10 +384,10 @@ export class Chart {
       if (!Number.isFinite(y)) continue;
 
       const strong = Boolean(l.strong);
-      const h = strong ? 26 : 19;          // label box height
+      const h = strong ? 21 : 19;          // label box height
       const half = h / 2;
-      const font = strong ? '600 14px ui-monospace, monospace' : '11.5px ui-monospace, monospace';
-      const pad = strong ? 11 : 7;
+      const font = strong ? '600 12.5px ui-monospace, monospace' : '11.5px ui-monospace, monospace';
+      const pad = strong ? 8 : 7;
 
       ctx.save();
       ctx.strokeStyle = l.color || chrome().entry;
@@ -420,7 +420,7 @@ export class Chart {
         // down the ticket.
         if (l.badge) {
           const pal = palette();
-          ctx.font = strong ? '700 14px ui-monospace, monospace' : font;
+          ctx.font = strong ? '700 12.5px ui-monospace, monospace' : font;
           const bw = ctx.measureText(l.badge).width + pad * 2;
           const bx = x - bw - 5;
           ctx.fillStyle = l.badgeUp ? pal.up : pal.down;
