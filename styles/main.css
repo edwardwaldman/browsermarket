@@ -611,6 +611,9 @@ table.grid tr:hover td { background: var(--panel-2); }
 .prow span:last-child { font-variant-numeric: tabular-nums; }
 
 .bigbtn {
+  /* Full width: it is the action the whole panel is for, and a button that
+     ends halfway across reads as one option among several. */
+  display: block; width: 100%;
   padding: 17px; border-radius: 0; font-size: 15.6px; font-weight: 700; letter-spacing: 1px;
   background: linear-gradient(180deg, #4c9bff, #2f6df6); color: #fff;
   box-shadow: 0 3px 16px rgba(59,130,246,.32);
@@ -620,6 +623,23 @@ table.grid tr:hover td { background: var(--panel-2); }
 .bigbtn.confirm { background: linear-gradient(180deg, #f7d774, #e0a83a); color: #241a03; }
 .bigbtn.disabled { background: var(--panel-3); color: var(--dim-2); box-shadow: none; cursor: not-allowed; }
 .bigbtn-note { text-align: center; font-size: 12px; color: var(--dim-2); margin-top: 5px; }
+
+/* THE BUY BUTTON IS NEVER BELOW THE FOLD.
+   The form above it grows on its own: a heads-up notice, an open position,
+   brackets, a trailing stop, six leverage buttons and a five-line preview. On
+   a short screen that left the one control this panel exists for under the
+   fold, so it is docked to the bottom of the panel and the form scrolls
+   behind it. Opaque, and with a rule on top, so what passes underneath
+   cannot be mistaken for part of it. */
+.ticket-dock.is-docked {
+  position: sticky; bottom: 0; z-index: 6;
+  margin: 0 -10px; padding: 9px 10px 10px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -12px 18px -14px var(--shadow);
+}
+/* The dock brings its own bottom padding, and two of them read as a gap. */
+:root[data-buy-near-top="off"] .ticket { padding-bottom: 0; }
 
 .section-label { font-size: 11px; letter-spacing: 1.1px; color: var(--dim-2); }
 .poscard {

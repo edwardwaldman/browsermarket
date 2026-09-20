@@ -13,6 +13,7 @@ import { el, clear, cls } from '../util/dom.js';
 import { Auth, looksLikeEmail } from '../engine/auth.js';
 import { SUPABASE, accountsConfigured } from '../config.js';
 import { PASSES } from '../engine/store.js';
+import { funnel, byAddress, beforeSignup, duration } from '../engine/insights.js';
 
 const auth = new Auth({ url: SUPABASE.url, anonKey: SUPABASE.anonKey });
 const who = document.getElementById('who');
@@ -184,6 +185,8 @@ function renderPanel() {
     }),
   ]));
 
+  renderAnalytics();
+
   // --- accounts ------------------------------------------------------------
   const table = el('div', { text: 'Loading…', class: 'own-msg' });
   body.append(card('ACCOUNTS', table));
@@ -253,4 +256,170 @@ function amountFor(kind, raw) {
   const n = Number(String(raw).replace(/[^0-9.]/g, '')) || 0;
   if (kind === 'level') return Math.min(60, Math.max(1, Math.round(n)));
   return n;
+}
+
+// --- what people did -------------------------------------------------------
+
+/**
+ * THREE QUESTIONS, IN THE ORDER THEY GET ASKED.
+ *
+ * Did anybody come. What did they do while they were here. And, for the ones
+ * who left without an account, where did they stop. The last is the only one
+ * that ever changes anything, so it gets its own section rather than being a
+ * column somewhere.
+ *
+ * Everything is worked out here from the raw visits rather than in SQL. At
+ * this size that is simply cheaper than a view to maintain, and it means a
+ * new question is a function rather than a migration.
+ */
+function renderAnalytics() {
+  const stats = el('div', { class: 'own-stats' });
+  const list = el('div', { class: 'own-msg', text: 'Loading…' });
+  const funnelNote = el('div', { class: 'own-msg' });
+
+  const refresh = el('button', { class: 'pill', text: 'REFRESH' });
+  const head = el('div', { class: 'own-cardhead' }, [
+    el('h2', { text: 'WHAT PEOPLE DID' }),
+    el('span', { class: 'grow' }),
+    refresh,
+  ]);
+
+  const addrList = el('div', { class: 'own-msg', text: 'Loading…' });
+  const beforeStats = el('div', { class: 'own-stats' });
+  const stopped = el('div', { class: 'own-msg' });
+  const anonList = el('div', { class: 'own-msg' });
+
+  const cardDid = el('div', { class: 'own-card' }, [head, stats, funnelNote, list]);
+  const cardAddr = el('div', { class: 'own-card' }, [
+    el('h2', { text: 'ACCOUNTS BY ADDRESS' }), addrList,
+  ]);
+  const cardBefore = el('div', { class: 'own-card' }, [
+    el('h2', { text: 'BEFORE THEY SIGNED UP' }), beforeStats, stopped, anonList,
+  ]);
+  body.append(cardDid, cardAddr, cardBefore);
+
+  const load = async () => {
+    refresh.disabled = true;
+    const res = await auth.listVisits();
+    refresh.disabled = false;
+    if (!res.ok) {
+      list.className = 'own-msg bad';
+      list.textContent = res.reason;
+      return;
+    }
+    paint(res.visits);
+  };
+
+  const paint = (visits) => {
+    clear(stats); clear(list); clear(addrList);
+    clear(beforeStats); clear(stopped); clear(anonList);
+    list.className = '';
+    addrList.className = '';
+    anonList.className = '';
+
+    if (!visits.length) {
+      list.className = 'own-msg';
+      list.textContent = 'No visits recorded yet. This fills in as people play.';
+      addrList.className = 'own-msg';
+      addrList.textContent = 'Nothing yet.';
+      anonList.className = 'own-msg';
+      anonList.textContent = 'Nothing yet.';
+      return;
+    }
+
+    // --- the funnel -------------------------------------------------------
+    const f = funnel(visits);
+    stats.append(
+      stat(String(f.total), 'visits', 'amber'),
+      stat(String(f.traded), `placed a trade, ${f.tradedPct}%`, 'up'),
+      stat(String(f.accounts), `made an account, ${f.accountsPct}%`, 'up'),
+      stat(String(f.paid), `bought something, ${f.paidPct}%`, 'amber'),
+    );
+    funnelNote.textContent = `Last ${visits.length} visits, newest first. `
+      + 'A visit is one person for up to thirty minutes, so a reload continues it.';
+
+    for (const v of visits.slice(0, 40)) list.append(visitRow(v));
+
+    // --- by address -------------------------------------------------------
+    const ranked = byAddress(visits);
+    if (!ranked.length) {
+      addrList.className = 'own-msg';
+      addrList.textContent = 'Nothing yet.';
+    }
+    for (const row of ranked.slice(0, 40)) {
+      addrList.append(el('div', { class: cls('own-addr', row.shared && 'is-flagged') }, [
+        el('span', { class: 'own-cc', text: (row.country || '--').toLowerCase() }),
+        el('code', { class: 'own-ip', text: row.ip }),
+        el('span', {
+          class: 'grow own-emails',
+          text: row.emails.length ? row.emails.join(', ') : 'no account',
+        }),
+        el('span', { class: 'own-ago', text: `${ago(row.last)} ago` }),
+      ]));
+    }
+
+    // --- before they signed up -------------------------------------------
+    const before = beforeSignup(visits);
+    beforeStats.append(
+      stat(duration(before.median), `median stay, of ${before.total} who did not join`, 'amber'),
+      stat(String(before.bounced), 'left at once, having done nothing', ''),
+      stat(duration(before.longest), 'longest', 'up'),
+    );
+
+    stopped.append(el('div', { class: 'own-ladder' }, before.ladder.map((rung) => el('div', {
+      class: cls('own-ladder-row', rung.count && 'is-hit'),
+    }, [
+      el('b', { text: String(rung.count) }),
+      el('span', { class: 'grow', text: rung.label }),
+    ]))));
+
+    if (!before.total) {
+      anonList.className = 'own-msg';
+      anonList.textContent = 'Everybody who visited made an account.';
+    }
+    for (const v of before.anon.slice(0, 25)) anonList.append(visitRow(v));
+  };
+
+  refresh.onclick = load;
+  load();
+}
+
+/** One visit: who and where on top, then the steps in the order they happened. */
+function visitRow(v) {
+  const stay = new Date(v.last_at) - new Date(v.started_at);
+  return el('div', { class: 'own-visit' }, [
+    el('div', { class: 'own-visit-head' }, [
+      el('b', { class: 'own-who', text: v.email || 'not signed in' }),
+      el('code', { class: 'own-ip', text: v.ip || '--' }),
+      el('span', { class: 'own-cc', text: (v.country || '--').toLowerCase() }),
+      v.mobile ? el('span', { class: 'own-tag', text: 'PHONE' }) : null,
+      el('span', { class: 'grow' }),
+      el('span', { class: 'own-ago', text: `${duration(stay)} | ${ago(new Date(v.last_at).getTime())} ago` }),
+    ]),
+    el('div', { class: 'own-steps' }, v.steps.length
+      ? v.steps.map((s) => el('span', {
+        class: cls('own-step', STEP_TONE[s.name]),
+        text: s.detail ? `${s.name} ${s.detail}` : s.name,
+      }))
+      : [el('span', { class: 'own-step', text: 'nothing recorded' })]),
+  ]);
+}
+
+/** The few steps worth spotting without reading the whole line. */
+const STEP_TONE = {
+  trade: 'is-good', profit: 'is-good', bought: 'is-gold', checkout: 'is-gold',
+  signin: 'is-good', loss: 'is-bad', wipeout: 'is-bad', leave: 'is-dim', idle: 'is-dim',
+};
+
+function stat(value, label, tone = '') {
+  return el('div', { class: 'own-stat' }, [
+    el('b', { class: cls('own-stat-value', tone), text: value }),
+    el('span', { class: 'own-stat-label', text: label }),
+  ]);
+}
+
+
+function ago(at) {
+  if (!at) return '--';
+  return duration(Date.now() - at);
 }

@@ -14,6 +14,7 @@ export function createStripeProvider({
   endpoint = '/api/stripe/checkout-session',
   getAccessToken,
   navigate = (url) => { location.href = url; },
+  onCheckout = null,
 } = {}) {
   return {
     name: 'stripe',
@@ -46,6 +47,9 @@ export function createStripeProvider({
       // tab is genuinely leaving for, and a popup is the thing a phone
       // browser blocks hardest right after a tap that itself awaited a
       // fetch first.
+      // Recorded before leaving, because the next thing that happens to this
+      // tab is Stripe's page and the one after that might be nothing at all.
+      onCheckout?.(item.id);
       navigate(data.url);
       return new Promise(() => {}); // never settles; the page is already gone
     },

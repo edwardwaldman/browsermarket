@@ -5,8 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="robots" content="noindex, nofollow" />
 <title>Owner | Browser Stock Exchange</title>
+<!-- The terminal's tokens only. legal.css used to be loaded here too and it
+     redefines :root against the operating system's preference, which beat the
+     data-theme on the html element above: the cards came out light while
+     everything using a token legal.css does not define stayed dark. -->
 <link rel="stylesheet" href="styles/main.css" />
-<link rel="stylesheet" href="legal/legal.css" />
 <style>
   /* Its own page, so it borrows the terminal's tokens and not its layout. */
   body { background: var(--bg); color: var(--text); font-family: var(--mono); }
@@ -28,6 +31,68 @@
   }
   .own-table th { color: var(--dim-2); font-weight: 400; letter-spacing: 1px; font-size: 11px; }
   .own-gate { max-width: 420px; margin: 60px auto; }
+
+  /* ── what people did ─────────────────────────────────────────────────── */
+  .own-cardhead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .own-cardhead h2 { margin: 0; }
+  .grow { flex: 1; min-width: 0; }
+
+  /* The three or four numbers the rest of the card explains. */
+  .own-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .own-stat { background: var(--panel-2); border: 1px solid var(--line); padding: 12px 13px; }
+  .own-stat-value { font-size: 26px; display: block; line-height: 1.1; }
+  .own-stat-value.up { color: var(--up); }
+  .own-stat-value.amber { color: var(--amber); }
+  .own-stat-label { font-size: 11.5px; color: var(--dim-2); display: block; margin-top: 5px; line-height: 1.4; }
+
+  /* One visit, with its steps under it. Scrolls as a block rather than the
+     page growing to hold two hundred of them. */
+  .own-visit {
+    border-top: 1px solid var(--line); padding: 11px 2px; font-size: 12.5px;
+  }
+  .own-visit-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .own-who { color: var(--accent-ink); font-weight: 400; word-break: break-all; }
+  .own-ip { color: var(--dim-2); font-size: 11.5px; }
+  .own-cc {
+    font-size: 10px; letter-spacing: 1px; color: var(--dim-2);
+    border: 1px solid var(--line-2); padding: 1px 5px; text-transform: uppercase;
+  }
+  .own-tag {
+    font-size: 10px; letter-spacing: 1px; padding: 1px 5px;
+    border: 1px solid var(--accent); color: var(--accent-ink);
+  }
+  .own-ago { font-size: 11.5px; color: var(--dim-2); white-space: nowrap; }
+  .own-steps { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+  /* The arrow is drawn rather than written, so the steps read as a sequence
+     without a separator character between every pair of them. */
+  .own-step {
+    font-size: 11.5px; color: var(--dim); padding: 2px 7px;
+    background: var(--panel-2); border: 1px solid var(--line);
+  }
+  .own-step.is-good { color: var(--up); border-color: rgba(22,217,125,.35); }
+  .own-step.is-bad { color: var(--down); border-color: rgba(255,77,106,.35); }
+  .own-step.is-gold { color: var(--amber); border-color: rgba(245,196,81,.4); }
+  .own-step.is-dim { color: var(--dim-2); opacity: .7; }
+
+  /* ── by address ──────────────────────────────────────────────────────── */
+  .own-addr {
+    display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+    border-top: 1px solid var(--line); padding: 9px 2px; font-size: 12.5px;
+  }
+  /* More than one account from one address is the whole reason to look. */
+  .own-addr.is-flagged .own-emails { color: var(--amber); }
+  .own-emails { color: var(--dim); word-break: break-all; }
+
+  /* ── where they stopped ──────────────────────────────────────────────── */
+  .own-ladder { display: grid; gap: 4px; margin-top: 10px; }
+  .own-ladder-row {
+    display: flex; gap: 12px; align-items: baseline; font-size: 12.5px;
+    padding: 7px 10px; background: var(--panel-2); border: 1px solid var(--line);
+    color: var(--dim-2);
+  }
+  .own-ladder-row b { min-width: 34px; text-align: right; color: var(--dim-2); }
+  .own-ladder-row.is-hit { color: var(--text); }
+  .own-ladder-row.is-hit b { color: var(--amber); }
 </style>
 
 <!-- Google AdSense. Static rather than injected so the site review crawler

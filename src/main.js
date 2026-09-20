@@ -20,6 +20,7 @@ import {
 } from './config.js';
 import { findItem as findStoreItem } from './engine/store.js';
 import { createStripeProvider } from './engine/stripe.js';
+import { Analytics } from './engine/analytics.js';
 import { loadGoogleAdsScript, createGoogleAdsProvider } from './engine/googleads.js';
 import { IndicatorLibrary } from './engine/custom.js';
 import { AdOverlay } from './ui/adgate.js';
@@ -181,6 +182,12 @@ function startGame(g, resumed = false) {
   // Settings for anyone who wants it back.
   startCoach();
 
+  ui.analytics = new Analytics({ build: SAVE_KEY });
+  ui.analytics.start({
+    mobile: window.innerWidth <= 760,
+    referrer: document.referrer || '',
+  });
+
   setInterval(() => { game.save(); markCloudDirty(); pushCloudSave(); }, 10000);
   startSignupGate();
   resumeAccount();
@@ -317,7 +324,10 @@ function buildUi() {
   // store keeps refusing every purchase and every rewarded placement keeps
   // running the built-in placeholder, exactly as it always has.
   if (STRIPE_ENABLED) {
-    game.store.provider = createStripeProvider({ getAccessToken: () => ui.auth.freshToken() });
+    game.store.provider = createStripeProvider({
+      getAccessToken: () => ui.auth.freshToken(),
+      onCheckout: (id) => { ui.analytics?.track("checkout", id); ui.analytics?.flush(true); },
+    });
   }
   if (GOOGLE_ADS_CLIENT_ID) {
     loadGoogleAdsScript(GOOGLE_ADS_CLIENT_ID);
@@ -368,7 +378,16 @@ function buildUi() {
     onRevert: () => ui.modals.open('rewind'),
   });
 
-  ui.modals.onWatchAd = (placement) => ui.ads.play(placement);
+  // Which panel was opened is most of what a visit consists of, and every
+  // one of them already goes through this single call.
+  const TRACKED_MODALS = { store: 'store', help: 'help', rewind: 'rewind', level: 'level' };
+  const openModal = ui.modals.open.bind(ui.modals);
+  ui.modals.open = (id) => { ui.analytics?.track(TRACKED_MODALS[id] || 'open', id); return openModal(id); };
+
+  ui.modals.onWatchAd = (placement) => {
+    ui.analytics?.track('ad', placement);
+    return ui.ads.play(placement);
+  };
   ui.modals.onReplayCoach = () => startCoach(true);
   ui.modals.toast = (t) => ui.toasts.push(t);
   ui.modals.onReplayTutorial = () => { game.flags.tutorialDone = false; showPromo(); };
@@ -748,6 +767,8 @@ function handleEvent(e) {
       if (settings.get('notifications')) ui.toasts.push(e);
       break;
     case 'closed': {
+      const closePnl = e.result?.pnl ?? 0;
+      ui.analytics?.track(closePnl >= 0 ? 'profit' : 'loss', e.result?.sym ?? null);
       // Wiped out is wiped out: that screen already owns this moment, and an
       // undo offer competing with it would undercut both messages.
       if (game.wipedOut) break;
@@ -759,9 +780,11 @@ function handleEvent(e) {
       break;
     }
     case 'wipeout':
+      ui.analytics?.track('wipeout');
       ui.wipeout.show({ netWorth: e.netWorth });
       break;
     case 'fill':
+      if (e.action === 'open') ui.analytics?.track('trade', e.sym ?? null);
       // Selling at a profit and selling at a loss are not the same event, so
       // they do not get the same noise.
       tradeSound(e.action === 'open' ? 'open' : (e.pnl >= 0 ? 'profit' : 'loss'));
@@ -1171,6 +1194,8 @@ async function resumeAccount() {
 
 async function afterSignIn() {
   cloudDirty = true;
+  ui.analytics?.identify(ui.auth?.user);
+  ui.analytics?.track('signin');
   try { await ui.auth.fetchProfile(); } catch { /* shown on the next load */ }
   const pulled = await ui.auth.pullSave();
   if (!pulled.ok) {
@@ -1345,6 +1370,7 @@ async function finishCheckoutReturn() {
   }
 
   const item = itemId ? findStoreItem(itemId) : null;
+  ui.analytics?.track('bought', item?.id || itemId || null);
   ui.toasts.push({ tone: 'info', icon: 'receipt', text: `Payment received. Unlocking ${item?.name || 'your purchase'}...` });
 
   for (let i = 0; i < 6; i++) {

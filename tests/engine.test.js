@@ -28,6 +28,8 @@ import {
 import { money, moneyShort, pct, clockTime, gameDate } from '../src/util/format.js';
 import { verifyStripeSignature } from '../api/stripe/_verify.js';
 import { checkSupport, TOPICS, MIN_MESSAGE, MAX_MESSAGE } from '../src/engine/support.js';
+import { funnel, byAddress, beforeSignup, duration, did, joined } from '../src/engine/insights.js';
+import { isLiveHost } from '../src/engine/analytics.js';
 
 // ── rng ──────────────────────────────────────────────────────────────────
 test('rng is deterministic for a given seed', () => {
@@ -2611,4 +2613,121 @@ test('a junk address, an empty message or a novel are all refused', () => {
 test('anything that fills the honeypot is refused whatever else it got right', () => {
   const res = checkSupport({ email: 'a@b.co', message: goodMessage, topic: 'bug', trap: 'http://spam' });
   assert.equal(res.ok, false);
+});
+
+// ── what the owner panel works out ───────────────────────────────────────
+// The part that can be wrong without looking wrong: a funnel that counts one
+// visit twice, or a median over an array nobody sorted, still renders fine.
+const visit = (over = {}) => ({
+  id: over.id || 'v', ip: 'ip' in over ? over.ip : '10.0.0.1', country: 'US', email: over.email ?? null,
+  started_at: over.started_at || '2026-09-20T10:00:00Z',
+  last_at: over.last_at || '2026-09-20T10:05:00Z',
+  steps: (over.names || []).map((name, i) => ({ name, detail: null, at: `2026-09-20T10:0${i}:00Z` })),
+});
+
+test('the funnel counts visits once each, however busy they were', () => {
+  const f = funnel([
+    visit({ names: ['open', 'trade', 'trade', 'trade', 'loss'] }),   // one trader
+    visit({ names: ['open', 'trade'], email: 'a@b.co' }),            // trader with an account
+    visit({ names: ['open'] }),                                      // looked and left
+    visit({ names: ['open', 'store', 'checkout', 'bought'], email: 'c@d.co' }),
+  ]);
+  assert.equal(f.total, 4);
+  assert.equal(f.traded, 2, 'nine trades in one visit is still one person who trades');
+  assert.equal(f.accounts, 2);
+  assert.equal(f.paid, 1);
+  assert.equal(f.tradedPct, 50);
+  assert.equal(f.paidPct, 25);
+});
+
+test('an empty week divides by nothing rather than by zero', () => {
+  const f = funnel([]);
+  assert.deepEqual([f.total, f.traded, f.tradedPct, f.paidPct], [0, 0, 0, 0]);
+});
+
+test('an account counts however it arrived', () => {
+  assert.equal(joined(visit({ email: 'a@b.co', names: ['open'] })), true, 'by having one');
+  assert.equal(joined(visit({ names: ['open', 'signin'] })), true, 'by signing in');
+  assert.equal(joined(visit({ names: ['open', 'signup'] })), true, 'by making one');
+  assert.equal(joined(visit({ names: ['open', 'trade'] })), false);
+  assert.equal(did(visit({ names: ['open', 'trade'] }), 'trade'), true);
+});
+
+test('addresses group, flag the shared ones, and sort by who was here last', () => {
+  const rows = byAddress([
+    visit({ ip: '1.1.1.1', email: 'a@b.co', last_at: '2026-09-20T10:00:00Z' }),
+    visit({ ip: '1.1.1.1', email: 'second@b.co', last_at: '2026-09-20T12:00:00Z' }),
+    visit({ ip: '1.1.1.1', email: 'a@b.co', last_at: '2026-09-20T11:00:00Z' }),
+    visit({ ip: '2.2.2.2', email: null, last_at: '2026-09-20T13:00:00Z' }),
+    visit({ ip: null, email: 'nowhere@b.co' }),
+  ]);
+  assert.equal(rows.length, 2, 'a visit with no address is not an address');
+  assert.equal(rows[0].ip, '2.2.2.2', 'newest first');
+  assert.equal(rows[0].shared, false);
+
+  const shared = rows.find((r) => r.ip === '1.1.1.1');
+  assert.equal(shared.visits, 3);
+  assert.deepEqual(shared.emails.sort(), ['a@b.co', 'second@b.co'], 'each address once');
+  assert.equal(shared.shared, true, 'two accounts from one address is the thing to spot');
+});
+
+test('the median stay is taken over a sorted list, and only of those who left', () => {
+  const stay = (mins, over = {}) => visit({
+    started_at: '2026-09-20T10:00:00Z',
+    last_at: `2026-09-20T10:${String(mins).padStart(2, '0')}:00Z`,
+    names: ['open'],
+    ...over,
+  });
+  // Deliberately out of order, and with a joiner whose long stay must not
+  // count towards a number about the people who did not join.
+  const b = beforeSignup([
+    stay(9), stay(1), stay(5),
+    stay(59, { email: 'joined@b.co' }),
+  ]);
+  assert.equal(b.total, 3);
+  assert.equal(duration(b.median), '5m 0s');
+  assert.equal(duration(b.longest), '9m 0s');
+});
+
+test('the ladder counts each visit at the deepest rung it reached', () => {
+  const b = beforeSignup([
+    visit({ names: ['open', 'trade', 'store', 'checkout', 'idle'] }),
+    visit({ names: ['open', 'trade', 'store'] }),
+    visit({ names: ['open', 'trade'] }),
+    visit({ names: ['open'] }),
+    visit({ names: ['open', 'leave'] }),
+  ]);
+  const at = (name) => b.ladder.find((r) => r.name === name).count;
+  assert.equal(at('checkout'), 1, 'not also counted as a trader');
+  assert.equal(at('store'), 1);
+  assert.equal(at('trade'), 1);
+  assert.equal(at('open'), 2);
+  assert.equal(b.ladder.reduce((n, r) => n + r.count, 0), 5, 'everybody lands on exactly one rung');
+  assert.equal(b.bounced, 2, 'arriving and leaving is not a visit that did anything');
+});
+
+test('durations read as durations', () => {
+  assert.equal(duration(0), '0s');
+  assert.equal(duration(45_000), '45s');
+  assert.equal(duration(90_000), '1m 30s');
+  assert.equal(duration(3_661_000), '1h 1m');
+  assert.equal(duration(-5), '0s', 'a clock that went backwards is not a negative visit');
+});
+
+test('a visit is only reported from the real site', () => {
+  assert.equal(isLiveHost('browsermarket.online'), true);
+  assert.equal(isLiveHost('browsermarket-kn8t.vercel.app'), true);
+  // A dev server has no /api/track, so a flush there is a console 404, and
+  // the ones that landed would count my own reloads as players.
+  assert.equal(isLiveHost('localhost'), false);
+  assert.equal(isLiveHost('127.0.0.1'), false);
+  assert.equal(isLiveHost('[::1]'), false);
+  assert.equal(isLiveHost('192.168.1.14'), false);
+  assert.equal(isLiveHost('10.0.0.3'), false);
+  assert.equal(isLiveHost('172.16.4.2'), false);
+  assert.equal(isLiveHost('desk.local'), false);
+  assert.equal(isLiveHost(''), false, 'file:// and the test harness are not the site');
+  // Inside the private ranges by the first octet only, which these are not.
+  assert.equal(isLiveHost('172.15.0.1'), true);
+  assert.equal(isLiveHost('172.32.0.1'), true);
 });
