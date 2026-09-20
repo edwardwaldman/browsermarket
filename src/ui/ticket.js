@@ -216,10 +216,13 @@ export class Ticket {
       r.sideToggle, r.typeToggle, r.marginField, r.limitField,
       r.quickWrap, r.brackets, r.trailField, r.levField, r.preview,
       el('div', {}, [r.action, r.actionNote]),
-      r.posWrap,
     ]);
 
-    this.root.append(r.sheetHead, r.tabs, r.notice, r.orderPane, r.optionsPane, r.statsWrap);
+    // An open position sits above the order form rather than under it. It is
+    // live money moving, and it used to be the one thing on this panel you had
+    // to scroll past a preview and a buy button to see. With nothing open the
+    // whole block hides, so an empty desk still opens straight onto the form.
+    this.root.append(r.sheetHead, r.tabs, r.notice, r.posWrap, r.orderPane, r.optionsPane, r.statsWrap);
     this.applyLayout();
     this.renderLeverage();
     this.renderExpiries();
@@ -231,7 +234,7 @@ export class Ticket {
     const actionBlock = r.action.parentElement;
     if (!actionBlock) return;
     if (settings.get('buyNearTop')) r.orderPane.insertBefore(actionBlock, r.marginField);
-    else r.orderPane.insertBefore(actionBlock, r.posWrap);
+    else r.orderPane.append(actionBlock);
   }
 
   setMode(mode) {
@@ -577,13 +580,13 @@ export class Ticket {
     const sym = this.getSymbol();
     const list = this.account.positions.filter((p) => p.sym === sym);
     const node = this.refs.positions;
+    // Nothing open, or looking at the options chain, and the block is gone
+    // entirely rather than sitting at the top saying so.
+    this.refs.posWrap.hidden = !list.length || this.mode !== 'ORDER';
     const key = list.map((p) => `${p.id}:${p.qty.toFixed(4)}`).join('|');
     if (node.__key !== key) {
       node.__key = key;
       clear(node);
-      if (!list.length) {
-        node.append(el('div', { class: 'ccard-sub', text: 'No position in this name yet.' }));
-      }
       for (const p of list) {
         const pnlNode = el('div', { class: 'poscard-pnl' });
         node.append(el('div', { class: 'poscard' }, [

@@ -16,7 +16,7 @@ import { allItems } from '../../src/engine/store.js';
 import { userIdFromToken, json } from './_shared.js';
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
-const FALLBACK_ORIGIN = 'https://browsermarket-kn8t.vercel.app';
+const FALLBACK_ORIGIN = 'https://browsermarket.online';
 
 async function handler(request) {
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);

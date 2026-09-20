@@ -398,8 +398,10 @@ function buildUi() {
 
   $('#btn-theme').addEventListener('click', () => {
     const next = settings.cycleTheme();
-    ui.toasts.push({ tone: 'info', icon: 'theme', text: `Theme: ${next}` });
+    syncThemeIcon();
+    ui.toasts.push({ tone: 'info', icon: THEME_ICONS[next] || 'sun', text: `Theme: ${next}` });
   });
+  syncThemeIcon();
 
   $('#explorer-close')?.addEventListener('click', closeSymbolPicker);
 
@@ -817,6 +819,21 @@ function render(full = false) {
 }
 
 /**
+ * The theme button shows the mode it is in, not one fixed glyph. A half filled
+ * circle names neither light nor dark, which left the only way to know what
+ * the button would do being to press it.
+ */
+const THEME_ICONS = { dark: 'moon', light: 'sun', system: 'auto' };
+
+function syncThemeIcon() {
+  const btn = $('#btn-theme');
+  if (!btn) return;
+  const mode = settings.get('theme');
+  clear(btn).append(iconNode(THEME_ICONS[mode] || 'sun', { size: '1.25em' }));
+  btn.title = `Theme: ${mode}. Click to change.`;
+}
+
+/**
  * The owner route appears only once the profile says so. It is a convenience,
  * not the gate: the gate is the row level security policy on every write the
  * panel makes.
@@ -951,7 +968,18 @@ function renderChart(full = false) {
   ui.chart.alerts = game.alerts.for(symbol);
   const lines = game.account.positions
     .filter((p) => p.sym === symbol)
-    .map((p) => ({ price: p.avg, color: '#c3d2e6', label: `AVG ENTRY ${fmtPrice(p.avg)}` }));
+    .map((p) => {
+      const { pnl } = game.account.positionValue(game.market, p);
+      return {
+        price: p.avg,
+        color: '#c3d2e6',
+        label: `AVG ENTRY ${fmtPrice(p.avg)}`,
+        badge: signed(pnl),
+        // Which way, not which colour: the chart picks the actual ink from the
+        // candle palette, so the colourblind setting reaches this too.
+        badgeUp: pnl >= 0,
+      };
+    });
   for (const p of game.account.positions.filter((x) => x.sym === symbol && x.leverage > 1)) {
     lines.push({ price: game.account.liqPrice(p), color: '#ff4d6a', label: `LIQ ${fmtPrice(game.account.liqPrice(p))}`, dash: [2, 4] });
   }

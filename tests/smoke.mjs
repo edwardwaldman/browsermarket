@@ -580,7 +580,7 @@ check('a losing close opens the revert prompt with a running ring, not the corne
   game.limiter.hits.clear();
   game.account.cash = Math.max(game.account.cash, 20000);
   game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
-  const pos = game.account.positions.at(-1);
+  const pos = game.account.positions.findLast((x) => x.sym === 'OBBY');
   game.market.get('OBBY').price *= 0.5;      // force the close into a loss
   game.closePosition(pos.id, 1);
   await new Promise((r) => setTimeout(r, 300));
@@ -602,7 +602,7 @@ check('a losing close opens the revert prompt with a running ring, not the corne
 check('the ring counts down and the offer expires on its own', await page.evaluate(async () => {
   game.limiter.hits.clear();
   game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
-  const pos = game.account.positions.at(-1);
+  const pos = game.account.positions.findLast((x) => x.sym === 'OBBY');
   game.market.get('OBBY').price *= 0.5;
   game.closePosition(pos.id, 1);
   await new Promise((r) => setTimeout(r, 300));
@@ -620,7 +620,7 @@ check('the ring counts down and the offer expires on its own', await page.evalua
 check('tapping REVERT hands off to the payment flow, not a silent rewind', await page.evaluate(async () => {
   game.limiter.hits.clear();
   game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
-  const pos = game.account.positions.at(-1);
+  const pos = game.account.positions.findLast((x) => x.sym === 'OBBY');
   game.market.get('OBBY').price *= 0.5;
   game.closePosition(pos.id, 1);
   await new Promise((r) => setTimeout(r, 300));
@@ -641,7 +641,7 @@ check('tapping REVERT hands off to the payment flow, not a silent rewind', await
 check('tapping KEEP IT dismisses the offer and opens nothing', await page.evaluate(async () => {
   game.limiter.hits.clear();
   game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
-  const pos = game.account.positions.at(-1);
+  const pos = game.account.positions.findLast((x) => x.sym === 'OBBY');
   game.market.get('OBBY').price *= 0.5;
   game.closePosition(pos.id, 1);
   await new Promise((r) => setTimeout(r, 300));
@@ -654,7 +654,7 @@ check('tapping KEEP IT dismisses the offer and opens nothing', await page.evalua
 check('a winning close still offers the quiet corner undo bar, not the popup', await page.evaluate(async () => {
   game.limiter.hits.clear();
   game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
-  const pos = game.account.positions.at(-1);
+  const pos = game.account.positions.findLast((x) => x.sym === 'OBBY');
   game.market.get('OBBY').price *= 1.5;      // force the close into profit
   game.closePosition(pos.id, 1);
   await new Promise((r) => setTimeout(r, 300));
@@ -681,7 +681,7 @@ check('a wiped-out desk never shows the revert prompt on top of it', await page.
 check('the rewind modal leads with the revert every player gets on the house', await page.evaluate(async () => {
   game.limiter.hits.clear();
   game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
-  const pos = game.account.positions.at(-1);
+  const pos = game.account.positions.findLast((x) => x.sym === 'OBBY');
   game.market.get('OBBY').price *= 0.5;
   game.closePosition(pos.id, 1);
   await new Promise((r) => setTimeout(r, 300));
@@ -705,7 +705,7 @@ check('the rewind modal leads with the revert every player gets on the house', a
 check('the rewind modal offers a one-time free trial alongside the ad', await page.evaluate(async () => {
   game.limiter.hits.clear();
   game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
-  const pos = game.account.positions.at(-1);
+  const pos = game.account.positions.findLast((x) => x.sym === 'OBBY');
   game.market.get('OBBY').price *= 0.5;      // force the close into a loss
   game.closePosition(pos.id, 1);
   await new Promise((r) => setTimeout(r, 300));
@@ -735,7 +735,7 @@ check('the rewind modal offers a one-time free trial alongside the ad', await pa
 check('the trial offer never comes back once it has been claimed', await page.evaluate(async () => {
   game.limiter.hits.clear();
   game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
-  const pos = game.account.positions.at(-1);
+  const pos = game.account.positions.findLast((x) => x.sym === 'OBBY');
   game.market.get('OBBY').price *= 0.5;
   game.closePosition(pos.id, 1);
   await new Promise((r) => setTimeout(r, 300));
@@ -751,7 +751,7 @@ check('the trial offer never comes back once it has been claimed', await page.ev
 check('the undo restores the position and the cash', await page.evaluate(async () => {
   game.limiter.hits.clear();
   game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1500, leverage: 1 });
-  const pos = game.account.positions.at(-1);
+  const pos = game.account.positions.findLast((x) => x.sym === 'OBBY');
   const cashBefore = game.account.cash;
   const qty = pos.qty;
   game.closePosition(pos.id, 1);
@@ -1480,7 +1480,19 @@ check('the account modal shows the signed-in state', await page.evaluate(async (
   document.querySelector('[data-modal="account"]').click();
   await new Promise((r) => setTimeout(r, 250));
   const t = document.querySelector('.modal-body').textContent;
-  return t.includes('player@example.com') && t.includes('SIGN OUT');
+  return t.includes('player@example.com') && t.includes('Sign out')
+    && t.includes('EMAIL') && t.includes('NEW PASSWORD')
+    && t.includes('DANGER ZONE');
+}));
+
+check('the account modal leads with one filled button and one red one', await page.evaluate(() => {
+  const body = document.querySelector('.modal-body');
+  const solid = [...body.querySelectorAll('.bigrow.solid')];
+  const danger = [...body.querySelectorAll('.bigrow.danger')];
+  // Exactly one primary action on the screen, and the destructive one is the
+  // only thing wearing red.
+  return solid.length === 1 && /change password/i.test(solid[0].textContent)
+    && danger.length === 1 && /delete/i.test(danger[0].textContent);
 }));
 
 await page.keyboard.press('Escape');
@@ -1491,8 +1503,8 @@ check('settings shows the account and the way out of marketing', await page.eval
   await new Promise((r) => setTimeout(r, 300));
   const t = document.querySelector('.modal-body').textContent;
   return t.includes('ACCOUNT') && t.includes('player@example.com')
-    && t.includes('PRODUCT EMAIL') && t.includes('SIGN OUT')
-    && t.includes('DELETE MY CLOUD SAVE');
+    && t.includes('PRODUCT EMAIL') && t.includes('Sign out')
+    && t.includes('Delete my cloud save');
 }));
 
 await page.keyboard.press('Escape');
@@ -1743,11 +1755,23 @@ check('badges and the global leaderboard are gone, not just hidden', await page.
   return gone && game.board === undefined;
 }));
 
-check('the desk renders at three quarters by default', await page.evaluate(() => {
+// 140% is the point of the exercise, but only a screen wide enough to spend
+// it gets it. Each step is checked at a width that should land on it.
+await page.setViewportSize({ width: 1900, height: 900 });
+await page.waitForTimeout(200);
+check('a wide monitor renders the desk at 140%', await page.evaluate(() => {
   const zoom = Number(getComputedStyle(document.querySelector('.app')).zoom);
   window.__zoom = String(zoom);
-  return Math.abs(zoom - 0.75) < 0.001;
+  return Math.abs(zoom - 1.4) < 0.001;
 }), await page.evaluate(() => window.__zoom));
+
+await page.setViewportSize({ width: 1600, height: 900 });
+await page.waitForTimeout(200);
+check('a narrower desktop steps the zoom down instead', await page.evaluate(() => {
+  const zoom = Number(getComputedStyle(document.querySelector('.app')).zoom);
+  window.__zoom2 = String(zoom);
+  return Math.abs(zoom - 1.15) < 0.001;
+}), await page.evaluate(() => window.__zoom2));
 
 check('the toolbar has room around its buttons', await page.evaluate(() => {
   const strip = document.querySelector('.toolstrip');

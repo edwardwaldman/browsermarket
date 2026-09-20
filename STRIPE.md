@@ -48,7 +48,7 @@ so rather than failing silently.
 3. **The webhook**, in the Stripe Dashboard -> Developers -> Webhooks -> Add
    endpoint:
 
-   - URL: `https://<your-deployment>/api/stripe/webhook`
+   - URL: `https://browsermarket.online/api/stripe/webhook`
    - Event: `checkout.session.completed`
 
    Stripe shows the signing secret once the endpoint is created. That is
