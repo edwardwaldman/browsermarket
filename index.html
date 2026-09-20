@@ -22,6 +22,13 @@
 <meta property="og:type" content="website" />
 <meta property="og:image" content="assets/social.png" />
 <meta name="twitter:card" content="summary_large_image" />
+
+<!-- Google AdSense. Static rather than injected so the site review crawler
+     finds it without having to run our JavaScript first. The rewarded
+     placements the game actually uses are driven from src/engine/googleads.js,
+     which reuses this same script rather than adding a second copy. -->
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1314370629903244"
+        crossorigin="anonymous"></script>
 </head>
 <body>
 <div id="app" class="app">
@@ -185,11 +192,10 @@
        /api/stripe/webhook. See STRIPE.md. Left false, checkout still opens
        and still refuses every purchase, same as it always has. */
     stripeEnabled: false,
-    /* Your AdSense publisher id, e.g. 'ca-pub-1234567890123456', once you have
-       set up rewarded video ads for this site. See ADS.md. Left blank, every
-       rewarded placement stays on the built-in placeholder, which still
-       grants the reward after its countdown. */
-    googleAdsClientId: '',
+    /* The AdSense publisher id. The script itself is a static tag in <head>
+       above; this is what turns the game's rewarded placements over to it
+       instead of the built-in placeholder. Blank puts them back. See ADS.md. */
+    googleAdsClientId: 'ca-pub-1314370629903244',
   }, window.BROWSERMARKET_CONFIG || {});
 </script>
 <script type="module" src="src/main.js"></script>

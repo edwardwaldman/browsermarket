@@ -12,6 +12,13 @@
 <title>Terms of Service | Browser Stock Exchange</title>
 <meta name="description" content="The terms that govern use of Browser Stock Exchange, a free market simulation game." />
 <link rel="stylesheet" href="legal.css" />
+
+<!-- Google AdSense. Static rather than injected so the site review crawler
+     finds it without having to run our JavaScript first. The rewarded
+     placements the game actually uses are driven from src/engine/googleads.js,
+     which reuses this same script rather than adding a second copy. -->
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1314370629903244"
+        crossorigin="anonymous"></script>
 </head>
 <body>
 <div class="wrap">
@@ -136,7 +143,7 @@
 <h2 id="payments">8. Payments, pricing and taxes</h2>
 <ul>
   <li>Prices are shown before you confirm a purchase, in the currency stated at checkout.</li>
-  <li>Payments are handled by our payment provider, <strong>[PAYMENT PROVIDER]</strong>. We do not receive or store your full card number. Their terms apply to the payment itself.</li>
+  <li>Payments are handled by our payment provider, <strong>Stripe</strong>. We do not receive or store your full card number. Their terms apply to the payment itself.</li>
   <li>A purchase is complete, and the Virtual Item is granted, only when the payment provider confirms the payment. A failed or reversed payment grants nothing.</li>
   <li>Prices may include or exclude VAT, sales tax or other taxes depending on where you are; the checkout page states which. You are responsible for any tax that is your legal obligation.</li>
   <li>We may change prices at any time. A change never affects a purchase already completed.</li>

@@ -12,18 +12,41 @@ up **Google's Ad Placement API for games** - `adBreak()` / `adConfig()` -
 which is the actual rewarded-video product for an HTML5 game like this one.
 See <https://developers.google.com/ad-placement>.
 
-## Set this up
+## It is set up
 
-1. **An AdSense account**, approved for your site.
-2. **Enable Ad Placement for games** for this site in the AdSense dashboard
-   and get your publisher id, of the form `ca-pub-1234567890123456`.
-3. In `index.html`, set `googleAdsClientId` in the `BROWSERMARKET_CONFIG`
-   block to that id. Deploy.
+The publisher id is **`ca-pub-1314370629903244`** and everything that needs
+it already has it:
 
-That is the whole setup. `src/main.js` loads the AdSense script and swaps
-`game.ads.provider` for `createGoogleAdsProvider()`
-(`src/engine/googleads.js`) whenever that id is present; left blank, every
-placement keeps running the built-in placeholder, unchanged.
+| What | Where |
+| --- | --- |
+| The AdSense script | A static tag in `<head>` on every page: `index.html`, `owner.html`, and both pages under `legal/` |
+| `ads.txt` | At the site root, served as `text/plain` (pinned in `vercel.json`, because Google refuses it served as anything else) |
+| The rewarded placements | `googleAdsClientId` in the `BROWSERMARKET_CONFIG` block in `index.html` |
+| The disclosure Google requires | `legal/privacy.html`, section 7 |
+
+The script tag is static rather than injected so the site review crawler
+finds it without running our JavaScript first. `loadGoogleAdsScript` notices
+a tag that is already there and wires up `adBreak`/`adConfig` against it
+rather than adding a second copy.
+
+Verification in the AdSense dashboard can use either the **Ads.txt snippet**
+or the **AdSense code snippet** method. Both are in place, so pick whichever
+and press Verify.
+
+### What is still yours to finish
+
+The legal pages carry the operator's own identity in square brackets, which
+cannot be guessed from the code: legal entity name, company number,
+registered address, governing jurisdiction and venue, and the privacy,
+support and security contact addresses. A review can be failed on a policy
+that still has brackets in it, so fill those before requesting one.
+
+### Turning it off
+
+Blank `googleAdsClientId` and every rewarded placement goes back to the
+built-in placeholder, which still grants the reward after its countdown. The
+static script tag is separate: remove it from the four pages to stop
+AdSense loading at all.
 
 ## How it fits together
 
