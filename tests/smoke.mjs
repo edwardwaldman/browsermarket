@@ -1039,45 +1039,34 @@ check('the whole card is drawn, not clipped', await page.evaluate(() => {
   const w = wrap.getBoundingClientRect();
   const c = card.getBoundingClientRect();
   window.__rowFit = `card ${Math.round(c.height)}px inside band ${Math.round(w.height)}px`;
-  return c.height >= 100 && w.height >= c.height - 1
+  // The floor is only there to prove something was drawn. The check that
+  // matters is the containment below: the band is at least as tall as the
+  // card and the card sits inside it, whatever height the card ends up.
+  return c.height >= 60 && w.height >= c.height - 1
     && c.top >= w.top - 1 && c.bottom <= w.bottom + 1;
 }), await page.evaluate(() => window.__rowFit));
 
 check('everything is on the card without opening anything', await page.evaluate(() => {
   const t = document.querySelector('.mpos').textContent;
   return /[A-Z]{3,6}/.test(t) && /(LONG|SHORT)/.test(t) && /\$/.test(t) && /%/.test(t)
-    && /CLOSE 50%/.test(t) && /CLOSE ALL/.test(t) && /FLIP/.test(t)
-    // No accordion left to get in the way of closing a losing trade.
+    && /CLOSE 50%/.test(t) && /CLOSE ALL/.test(t)
+    // No accordion left to get in the way of closing a losing trade, and no
+    // flip either: it is a desk control now, and it was what made this card
+    // tall enough to push the order form off a phone screen.
+    && !document.querySelector('.mflip')
     && !document.querySelector('.mpos-more') && !document.querySelector('.mpos-caret');
 }));
 
-check('the flip is shown to everybody and faded until it is paid for', await page.evaluate(() => {
-  const btn = document.querySelector('.mflip');
-  if (!btn) return false;
-  // Full width, like the two buttons above it, rather than a stub off to one side.
-  const card = document.querySelector('.mpos').getBoundingClientRect();
-  if (btn.getBoundingClientRect().width < card.width - 30) return false;
-  const faded = Number(getComputedStyle(btn).opacity) < 0.7;
-  return btn.classList.contains('is-locked') && faded
-    && /FLIP/.test(btn.textContent) && /ad/i.test(btn.textContent);
-}));
-
-check('a flip armed from the desk turns the card on', await page.evaluate(async () => {
+check('a flip armed from the desk still shows on the card, as a mark not a button', await page.evaluate(async () => {
   game.grantFlip(1);
   const p = game.account.positions[0];
   game.armFlip(p.id, true);
   ui.mobile.update();
   await new Promise((r) => setTimeout(r, 200));
-  const btn = document.querySelector('.mflip');
-  return btn.classList.contains('is-armed') && /FLIP ARMED/.test(btn.textContent)
-    && !btn.classList.contains('is-locked');
-}));
-
-check('tapping an armed flip cancels it', await page.evaluate(async () => {
-  document.querySelector('.mflip').click();
-  await new Promise((r) => setTimeout(r, 250));
-  return !game.account.positions[0].flip
-    && !document.querySelector('.mflip').classList.contains('is-armed');
+  const tagged = Boolean(document.querySelector('.mpos-tag'));
+  game.armFlip(p.id, false);
+  ui.mobile.update();
+  return tagged && !document.querySelector('.mflip');
 }));
 
 check('the order actually carries the bracket', await page.evaluate(async () => {

@@ -373,21 +373,29 @@ export class Chart {
   /**
    * Position, liquidation and resting-order lines.
    *
-   * The line you have money on is drawn bigger than the rest. A limit sitting
+   * The line you have money on is drawn heavier than the rest. A limit sitting
    * where you might trade and a position you are actually in are not the same
    * news, and at one weight with an 11px label they read as the same news.
+   *
+   * How much heavier depends on how much chart there is. The emphasis was
+   * sized against a desktop plot, and the same boxes on a phone covered half
+   * the candles they were meant to annotate, so a small plot gets the plain
+   * weight and the short form of the label instead.
    */
   drawLines(ctx, geo, yOf) {
     const { width, padL, padR } = geo;
+    const plotW = width - padL - padR;
+    const roomy = plotW >= 520 && geo.height >= 280;
+
     for (const l of this.lines) {
       const y = Math.round(yOf(l.price)) + 0.5;
       if (!Number.isFinite(y)) continue;
 
-      const strong = Boolean(l.strong);
-      const h = strong ? 21 : 19;          // label box height
+      const strong = Boolean(l.strong) && roomy;
+      const h = strong ? 21 : 18;          // label box height
       const half = h / 2;
-      const font = strong ? '600 12.5px ui-monospace, monospace' : '11.5px ui-monospace, monospace';
-      const pad = strong ? 8 : 7;
+      const font = strong ? '600 12.5px ui-monospace, monospace' : '11px ui-monospace, monospace';
+      const pad = strong ? 8 : 6;
 
       ctx.save();
       ctx.strokeStyle = l.color || chrome().entry;
@@ -399,9 +407,10 @@ export class Chart {
       ctx.stroke();
       ctx.restore();
 
-      if (l.label) {
+      const text = roomy ? l.label : (l.shortLabel || l.label);
+      if (text) {
         ctx.font = font;
-        const w = ctx.measureText(l.label).width + pad * 2;
+        const w = ctx.measureText(text).width + pad * 2;
         const x = width - padR - w - 6;
         ctx.fillStyle = chrome().panel;
         ctx.fillRect(x, y - half, w, h);
@@ -412,7 +421,7 @@ export class Chart {
         ctx.fillStyle = l.color || chrome().entry;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
-        ctx.fillText(l.label, x + pad, y);
+        ctx.fillText(text, x + pad, y);
 
         // The live P&L rides on the entry line itself, immediately left of the
         // label. What an open trade is doing right now is the number you want

@@ -517,58 +517,6 @@ export class MobileTrade {
     this.measure();
   }
 
-  /**
-   * THE FLIP.
-   *
-   * Stop and reverse: if the position goes far enough against you, the desk
-   * closes it and opens the same money the other way. Shown to everybody and
-   * faded until it is paid for, because a control nobody can see is a control
-   * nobody buys, and one that appears out of nowhere after a purchase is a
-   * surprise rather than an offer.
-   *
-   * Tapping it locked opens the ad rather than a wall: the price of the first
-   * one is attention, not money.
-   */
-  flipButton(p) {
-    const gate = this.game.canFlip();
-    const armed = Boolean(p.flip);
-    const btn = el('button', {
-      class: cls('mflip', armed && 'is-armed', !gate.ok && !armed && 'is-locked'),
-      title: armed ? 'Cancel the flip' : 'Turn this around if it goes against you',
-    }, [
-      el('span', { class: 'mflip-word', text: armed ? 'FLIP ARMED' : 'FLIP' }),
-      el('span', {
-        class: 'mflip-note',
-        text: armed
-          ? `reverses at ${fmtPrice(p.flip)}`
-          : (gate.ok ? gate.reason : 'watch an ad'),
-      }),
-    ]);
-
-    btn.onclick = async () => {
-      if (armed) { this.game.armFlip(p.id, false); this.update(); return; }
-      const res = this.game.armFlip(p.id, true);
-      if (res.ok) {
-        this.toast?.({ tone: 'good', icon: 'undo', text: `${p.sym} flips at ${fmtPrice(res.level)}` });
-        this.update();
-        return;
-      }
-      if (!res.locked) { this.toast?.({ tone: 'bad', icon: 'warning', text: res.reason }); return; }
-      // Locked: the ad is the way in, so open it rather than saying no.
-      const ad = await this.onWatchAd?.('FLIP');
-      if (!ad?.ok) {
-        this.toast?.({ tone: 'bad', icon: 'warning', text: ad?.reason || 'No reward, nothing armed' });
-        return;
-      }
-      this.game.grantFlip(1);
-      const after = this.game.armFlip(p.id, true);
-      if (after.ok) {
-        this.toast?.({ tone: 'good', icon: 'undo', text: `${p.sym} flips at ${fmtPrice(after.level)}` });
-      }
-      this.update();
-    };
-    return btn;
-  }
 
   renderPositions() {
     const node = this.refs.positions;
@@ -609,11 +557,15 @@ export class MobileTrade {
             pnlNode,
           ]),
           el('div', { class: 'mpos-sub', text: `${fmtQty(p.qty)} @ ${fmtPrice(p.avg)}` }),
+          // Two buttons, both about closing. Flip was a third here and it is
+          // gone from the phone: it is the one action on this card that is not
+          // urgent, it was the one that made the card tall enough to push the
+          // order form off the screen, and it is still on the desk where there
+          // is room to explain what it does.
           el('div', { class: 'mpos-actions' }, [
             el('button', { text: 'CLOSE 50%', onclick: () => { this.game.closePosition(p.id, 0.5); this.update(); } }),
             el('button', { class: 'red', text: 'CLOSE ALL', onclick: () => { this.game.closePosition(p.id, 1); this.update(); } }),
           ]),
-          this.flipButton(p),
         ]));
         p.__mPnl = pnlNode;
       }
