@@ -1477,6 +1477,69 @@ test('the store survives a save round trip', async () => {
   assert.equal(reloaded.vipPoints, store.vipPoints);
 });
 
+test('every player gets one revert on the house, and only one', () => {
+  const store = new Store(devGrantProvider, memoryStorage());
+  assert.equal(store.freeRevert, true, 'it is there before anything has been bought');
+  assert.equal(store.dailyRewinds(), 0, 'and it is not a daily one');
+
+  assert.equal(store.takeFreeRevert(), true);
+  assert.equal(store.freeRevert, false);
+  assert.equal(store.takeFreeRevert(), false, 'on the house means once, not once a visit');
+});
+
+test('a save written before the free revert existed still grants it', () => {
+  const storage = memoryStorage();
+  storage.setItem('browsermarket.store.v1', JSON.stringify({ owned: [], rewinds: 2, vipPoints: 0 }));
+  const store = new Store(devGrantProvider, storage);
+  assert.equal(store.freeRevert, true, 'players already here are not skipped');
+
+  store.takeFreeRevert();
+  assert.equal(new Store(devGrantProvider, storage).freeRevert, false, 'and once spent it stays spent');
+});
+
+test('the rewind trial lifts the daily count and cannot be claimed twice', () => {
+  const store = new Store(devGrantProvider, memoryStorage());
+  assert.equal(store.dailyRewinds(), 0, 'nothing free without a pass, standing or the trial');
+  assert.equal(store.trialActive(), false);
+
+  assert.equal(store.startTrial(), true);
+  assert.equal(store.trialActive(), true);
+  assert.equal(store.dailyRewinds(), 3, 'the same rate Pro Desk gets');
+
+  assert.equal(store.startTrial(), false, 'a trial that restarts every day is the perk, not a trial');
+  assert.ok(store.trialUntil > Date.now(), 'still has most of its 24 hours left');
+});
+
+test('a Beginner pass or VIP standing still works once the trial has lapsed', () => {
+  const store = new Store(devGrantProvider, memoryStorage());
+  store.startTrial();
+  store.trialUntil = Date.now() - 1;       // lapsed, as if claimed yesterday
+  assert.equal(store.trialActive(), false);
+  assert.equal(store.dailyRewinds(), 0);
+
+  store.grant(findItem('BEGINNER'));
+  assert.equal(store.dailyRewinds(), 1, 'a lapsed trial must not shadow a real pass');
+});
+
+test('an active trial and Pro Desk agree on the rate rather than stacking', () => {
+  const store = new Store(devGrantProvider, memoryStorage());
+  store.startTrial();
+  store.grant(findItem('PRO_DESK'));
+  assert.equal(store.dailyRewinds(), 3, 'both grant the same three, not six');
+});
+
+test('the trial survives a save round trip and stays spent', async () => {
+  const storage = memoryStorage();
+  const store = new Store(devGrantProvider, storage);
+  store.startTrial();
+  const until = store.trialUntil;
+
+  const reloaded = new Store(devGrantProvider, storage);
+  assert.equal(reloaded.trialUntil, until);
+  assert.equal(reloaded.trialActive(), true);
+  assert.equal(reloaded.startTrial(), false, 'reloading must not refund a second claim');
+});
+
 // ── undoing a trade ──────────────────────────────────────────────────────
 test('a rewind puts the account back exactly as it stood', () => {
   const g = new Game({ trader: 't', seed: 11 });
