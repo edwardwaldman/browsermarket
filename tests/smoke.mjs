@@ -1755,23 +1755,17 @@ check('badges and the global leaderboard are gone, not just hidden', await page.
   return gone && game.board === undefined;
 }));
 
-// 140% is the point of the exercise, but only a screen wide enough to spend
-// it gets it. Each step is checked at a width that should land on it.
-await page.setViewportSize({ width: 1900, height: 900 });
-await page.waitForTimeout(200);
-check('a wide monitor renders the desk at 140%', await page.evaluate(() => {
-  const zoom = Number(getComputedStyle(document.querySelector('.app')).zoom);
-  window.__zoom = String(zoom);
-  return Math.abs(zoom - 1.4) < 0.001;
-}), await page.evaluate(() => window.__zoom));
-
-await page.setViewportSize({ width: 1600, height: 900 });
-await page.waitForTimeout(200);
-check('a narrower desktop steps the zoom down instead', await page.evaluate(() => {
-  const zoom = Number(getComputedStyle(document.querySelector('.app')).zoom);
-  window.__zoom2 = String(zoom);
-  return Math.abs(zoom - 1.15) < 0.001;
-}), await page.evaluate(() => window.__zoom2));
+// One zoom, whatever the screen. A wide monitor and a laptop get the same
+// number, so both are checked against it rather than against a ladder.
+for (const width of [1900, 1600]) {
+  await page.setViewportSize({ width, height: 900 });
+  await page.waitForTimeout(200);
+  check(`the desk renders at 94% on a ${width}px screen`, await page.evaluate(() => {
+    const zoom = Number(getComputedStyle(document.querySelector('.app')).zoom);
+    window.__zoom = String(zoom);
+    return Math.abs(zoom - 0.94) < 0.001;
+  }), await page.evaluate(() => window.__zoom));
+}
 
 check('the toolbar has room around its buttons', await page.evaluate(() => {
   const strip = document.querySelector('.toolstrip');

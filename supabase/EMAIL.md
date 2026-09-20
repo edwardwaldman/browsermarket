@@ -75,3 +75,51 @@ look like the game. Route B also removes the last thing that cared about the
 Site URL, which is what was sending confirmation links to `localhost`.
 
 They are mutually exclusive. The hook, once enabled, is what sends.
+
+## This project's own sending domain
+
+Browsermarket sends from **`alerts.browsermarket.online`**, its own subdomain,
+separate from anything else in the same Resend account. Two domains in one
+Resend account are already independent of each other: a domain is verified on
+its own DNS, and a From address is only accepted if its own domain is
+verified. Nothing about adding this one touches another.
+
+The one thing they do share is the API key, and a key can send from any
+verified domain on the account. If you want them unable to send as each other
+even by accident, give each project its own key (Resend, API Keys, create one
+per project) and set each project's own secret to its own key.
+
+### Finishing the domain
+
+Resend shows a set of DNS records the moment the domain is added, and the
+domain sits at **Pending** until they resolve. They go in at whoever holds the
+DNS for `browsermarket.online`.
+
+1. Resend, Domains, `alerts.browsermarket.online`, copy the records it lists.
+   There are normally three kinds: an MX and a TXT for the sending subdomain,
+   and a TXT holding the DKIM public key.
+2. Add each one at the registrar exactly as shown. Two things catch people:
+   - The **Host/Name** is the part before your domain. If Resend shows
+     `send.alerts.browsermarket.online` the host is `send.alerts`, not the
+     whole thing. Pasting the full name creates
+     `send.alerts.browsermarket.online.browsermarket.online`, which resolves
+     to nothing.
+   - The DKIM TXT value is long and must arrive unbroken, with no added
+     quotes or line breaks.
+3. Back in Resend, press Verify. DNS usually lands in minutes and is allowed
+   up to 72 hours.
+
+### Then point the game at it
+
+Once it reads Verified:
+
+```sh
+supabase secrets set MAIL_FROM="BSE <no-reply@alerts.browsermarket.online>"
+```
+
+That is the whole change. `functions/send-email/` already reads `MAIL_FROM`,
+so nothing is redeployed and no code moves.
+
+Until the domain verifies, Resend will only deliver to the address that owns
+the Resend account, whatever From address is set. A sign-up code that never
+arrives for anybody else is that restriction, not a bug in the game.

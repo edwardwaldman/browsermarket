@@ -2425,6 +2425,31 @@ function signedIn(routes) {
   return auth;
 }
 
+test('a level is something an owner can grant, and junk still is not', async () => {
+  const auth = signedIn({ '/rest/v1/grants': { body: [{ id: 7 }] } });
+  const ok = await auth.grant({ userId: 'u2', kind: 'level', amount: 20 });
+  assert.equal(ok.ok, true);
+  assert.equal(auth.fetch.calls.at(-1).body.kind, 'level');
+
+  const bad = await auth.grant({ userId: 'u2', kind: 'prestige', amount: 3 });
+  assert.equal(bad.ok, false, 'the list is still a list');
+});
+
+test('raising to a level costs exactly the XP that level costs', () => {
+  // What claimGrants does with a level grant, in the one place the maths
+  // lives: hand over the difference and let addXp walk the levels between,
+  // so each one still pays out and still opens what it opens.
+  const p = new Progression();
+  assert.equal(p.level, 1);
+  p.addXp(totalXpForLevel(14) - p.xp, {});
+  assert.equal(p.level, 14);
+
+  // Already past it, so there is nothing owed and nothing happens. addXp only
+  // counts up; a level cannot be taken back without taking its unlocks too.
+  const owed = totalXpForLevel(9) - p.xp;
+  assert.ok(owed < 0, 'a target below where they are is not a debt');
+});
+
 test('a new address is asked for, not swapped on the spot', async () => {
   const auth = signedIn({ '/auth/v1/user': { body: { id: 'u1' } } });
   const res = await auth.changeEmail('new@example.com');

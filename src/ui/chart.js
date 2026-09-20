@@ -370,32 +370,49 @@ export class Chart {
     }
   }
 
+  /**
+   * Position, liquidation and resting-order lines.
+   *
+   * The line you have money on is drawn bigger than the rest. A limit sitting
+   * where you might trade and a position you are actually in are not the same
+   * news, and at one weight with an 11px label they read as the same news.
+   */
   drawLines(ctx, geo, yOf) {
     const { width, padL, padR } = geo;
     for (const l of this.lines) {
       const y = Math.round(yOf(l.price)) + 0.5;
       if (!Number.isFinite(y)) continue;
+
+      const strong = Boolean(l.strong);
+      const h = strong ? 26 : 19;          // label box height
+      const half = h / 2;
+      const font = strong ? '600 14px ui-monospace, monospace' : '11.5px ui-monospace, monospace';
+      const pad = strong ? 11 : 7;
+
       ctx.save();
       ctx.strokeStyle = l.color || chrome().entry;
-      ctx.setLineDash(l.dash || [5, 4]);
-      ctx.lineWidth = 1;
+      ctx.setLineDash(l.dash || (strong ? [7, 5] : [5, 4]));
+      ctx.lineWidth = strong ? 2 : 1;
       ctx.beginPath();
       ctx.moveTo(padL, y);
       ctx.lineTo(width - padR, y);
       ctx.stroke();
       ctx.restore();
+
       if (l.label) {
-        ctx.font = '11.5px ui-monospace, monospace';
-        const w = ctx.measureText(l.label).width + 14;
+        ctx.font = font;
+        const w = ctx.measureText(l.label).width + pad * 2;
         const x = width - padR - w - 6;
         ctx.fillStyle = chrome().panel;
-        ctx.fillRect(x, y - 10, w, 19);
+        ctx.fillRect(x, y - half, w, h);
         ctx.strokeStyle = l.color || chrome().entry;
         ctx.setLineDash([]);
-        ctx.strokeRect(x, y - 10, w, 19);
+        ctx.lineWidth = strong ? 1.5 : 1;
+        ctx.strokeRect(x, y - half, w, h);
         ctx.fillStyle = l.color || chrome().entry;
         ctx.textAlign = 'left';
-        ctx.fillText(l.label, x + 7, y + 4);
+        ctx.textBaseline = 'middle';
+        ctx.fillText(l.label, x + pad, y);
 
         // The live P&L rides on the entry line itself, immediately left of the
         // label. What an open trade is doing right now is the number you want
@@ -403,13 +420,15 @@ export class Chart {
         // down the ticket.
         if (l.badge) {
           const pal = palette();
-          const bw = ctx.measureText(l.badge).width + 14;
-          const bx = x - bw - 4;
+          ctx.font = strong ? '700 14px ui-monospace, monospace' : font;
+          const bw = ctx.measureText(l.badge).width + pad * 2;
+          const bx = x - bw - 5;
           ctx.fillStyle = l.badgeUp ? pal.up : pal.down;
-          ctx.fillRect(bx, y - 10, bw, 19);
+          ctx.fillRect(bx, y - half, bw, h);
           ctx.fillStyle = '#04120a';
-          ctx.fillText(l.badge, bx + 7, y + 4);
+          ctx.fillText(l.badge, bx + pad, y);
         }
+        ctx.textBaseline = 'alphabetic';
       }
     }
   }

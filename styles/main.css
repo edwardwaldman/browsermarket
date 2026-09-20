@@ -121,23 +121,20 @@ input { background: none; border: none; outline: none; }
  * computes the full screen and then renders at 80% of it, which left a fifth
  * of the screen empty below the status bar at every scale under 100%.
  */
-/* The desk renders at 140% on a monitor with the width to spend on it. It used
-   to render at three quarters everywhere, which fit more on screen at the cost
-   of every label being a size nobody wants to read a number off.
+/* The desk renders a hair under full size. It went to 140% for a while, which
+   was too big: the way that reads on a real monitor is the browser's own zoom
+   pulled down to about two thirds to get back to here, so here is where it
+   sits by default instead.
  *
- * 140% is not a size every screen can afford. The desk is three columns wide
- * and the chart toolbar is one row that scrolls rather than wrapping, so on a
- * narrower screen that zoom does not shrink the layout, it hides the right
- * hand end of it. The zoom steps down with the viewport instead, which keeps
- * the whole toolbar reachable on a laptop and still hands a wide monitor the
- * full 140%.
+ * One number rather than a ladder of them. 140% needed steps because the desk
+ * is three columns wide and the chart toolbar is one row that scrolls rather
+ * than wrapping, so on a narrower screen that zoom hid the right hand end of
+ * the toolbar instead of shrinking it. At this scale there is nothing to step
+ * around.
  *
- * --ui-scale is still the player's own setting on top of whichever step
- * applies, and still means what it says: pick 120% and you get a fifth more
- * than the default for your screen. */
-:root { --zoom: calc(var(--ui-scale) * 0.95); }
-@media (min-width: 1500px) { :root { --zoom: calc(var(--ui-scale) * 1.15); } }
-@media (min-width: 1800px) { :root { --zoom: calc(var(--ui-scale) * 1.4); } }
+ * --ui-scale is still the player's own setting on top, and still means what
+ * it says: pick 120% and you get a fifth more than this. */
+:root { --zoom: calc(var(--ui-scale) * 0.94); }
 
 .app {
   zoom: var(--zoom);
