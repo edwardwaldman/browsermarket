@@ -11,7 +11,7 @@ import { Modals } from './ui/modals.js';
 import { MobileTrade } from './ui/mobile.js';
 import { ResearchPage } from './ui/pages.js';
 import { Toasts, Celebration, floatXp } from './ui/toast.js';
-import { settings } from './engine/settings.js';
+import { settings, SHORTCUT_LEGEND } from './engine/settings.js';
 import { Auth } from './engine/auth.js';
 import { AuthBox } from './ui/authbox.js';
 import {
@@ -396,6 +396,17 @@ function buildUi() {
     openMobileMenu();
   });
 
+  const legend = $('#keylegend');
+  if (legend) {
+    for (const [key, what] of SHORTCUT_LEGEND) {
+      legend.append(el('span', { class: 'keylegend-pair' }, [
+        el('kbd', { text: key }),
+        el('span', { text: what }),
+      ]));
+    }
+    legend.onclick = () => ui.modals.open('shortcuts');
+  }
+
   $('#btn-theme').addEventListener('click', () => {
     const next = settings.cycleTheme();
     syncThemeIcon();
@@ -670,6 +681,22 @@ function onKey(e) {
   }
   if (e.key.toLowerCase() === 'a') { armAlert(); return; }
   if (e.key.toLowerCase() === 't') { ui.modals.open('timemachine'); return; }
+  if (e.key.toLowerCase() === 'h') { ui.modals.open('help'); return; }
+
+  // The chart is the thing on this screen you actually move around in, so the
+  // arrows move it: left and right along the tape, up and down through how
+  // much of it fits. Shift-right is the way back to the live edge, which is
+  // otherwise a button in the corner of the chart.
+  if (e.key.startsWith('Arrow')) {
+    e.preventDefault();
+    const step = e.shiftKey ? 20 : 4;
+    if (e.key === 'ArrowLeft') ui.chart.pan(step);
+    else if (e.key === 'ArrowRight') { if (e.shiftKey) ui.chart.goLive(); else ui.chart.pan(-step); }
+    else if (e.key === 'ArrowUp') ui.chart.zoom(-8);
+    else if (e.key === 'ArrowDown') ui.chart.zoom(8);
+    if (ui.liveBtn) ui.liveBtn.hidden = ui.chart.isLive;
+    return;
+  }
   if (map[e.key.toLowerCase()]) {
     ui.ticket.setSide(map[e.key.toLowerCase()]);
   } else if (e.key === 'Enter') {
@@ -823,7 +850,7 @@ function render(full = false) {
  * circle names neither light nor dark, which left the only way to know what
  * the button would do being to press it.
  */
-const THEME_ICONS = { dark: 'moon', light: 'sun', system: 'auto' };
+const THEME_ICONS = { dark: 'moon', oled: 'moon', light: 'sun', system: 'auto' };
 
 function syncThemeIcon() {
   const btn = $('#btn-theme');
@@ -893,7 +920,7 @@ function renderStatus() {
   const boost = prog.boostActive(market.tick);
   $('#status-tip').textContent = boost
     ? `${boost.sym} ${boost.mult}X XP | ${boost.until - market.tick}m left`
-    : (game.dailyPick ? `DAILY PICK | ${game.dailyPick.sym}` : 'SPACE pauses | B long | S short | ENTER submits');
+    : (game.dailyPick ? `DAILY PICK | ${game.dailyPick.sym}` : '');
 }
 
 function renderAssetHead() {

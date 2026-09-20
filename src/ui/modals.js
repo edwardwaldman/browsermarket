@@ -1,6 +1,7 @@
 // Every overlay reachable from the top bar and the explorer chips.
 
 import { el, clear, esc, cls } from '../util/dom.js';
+import { TOPICS as SUPPORT_TOPICS, MAX_MESSAGE as SUPPORT_MAX } from '../engine/support.js';
 import {
   money, moneyShort, price as fmtPrice, pct, signed, num, compact, clockTime,
 } from '../util/format.js';
@@ -725,6 +726,113 @@ export class Modals {
     body.append(html(`<div class="rowlist">${SHORTCUTS.map(([key, what]) => `
       <div class="listrow"><span class="pill" style="min-width:64px;text-align:center">${esc(key)}</span>
       <span class="grow">${esc(what)}</span></div>`).join('')}</div>`));
+  }
+
+  // --- help and support ---------------------------------------------------
+
+  /**
+   * HOW THIS WORKS, AND A WAY TO ASK.
+   *
+   * The guide first, because most of what people write in asks something the
+   * screen could have answered. The form is underneath it rather than above
+   * it for the same reason, and it is short: an address to reply to, what it
+   * is about, and the actual question.
+   */
+  view_help(body) {
+    body.append(html(`<div class="ccard-sub">
+      Every market, company and price in this game is invented. Nothing here is
+      financial advice and no real money is ever at stake in a trade.
+    </div>`));
+
+    body.append(el('h4', { text: 'THE SHORT VERSION' }));
+    body.append(html(`<div class="rowlist">${HELP_STEPS.map(([n, what]) => `
+      <div class="listrow">
+        <span class="pill" style="min-width:26px;text-align:center">${esc(n)}</span>
+        <span class="grow">${esc(what)}</span>
+      </div>`).join('')}</div>`));
+
+    body.append(el('h4', { text: 'WORTH KNOWING' }));
+    body.append(html(`<div class="rowlist">${HELP_NOTES.map(([title, what]) => `
+      <div class="listrow" style="align-items:flex-start">
+        <span class="grow">
+          <div>${esc(title)}</div>
+          <div class="ccard-sub" style="margin-top:3px">${esc(what)}</div>
+        </span>
+      </div>`).join('')}</div>`));
+
+    body.append(el('button', {
+      class: 'bigrow plain', text: 'Show me the keyboard shortcuts',
+      onclick: () => this.open('shortcuts'),
+    }));
+
+    // --- ask a human ------------------------------------------------------
+    body.append(el('hr', { class: 'acct-hr' }));
+    body.append(el('div', { class: 'acct-label', text: 'ASK US SOMETHING' }));
+    body.append(el('div', {
+      class: 'acct-note',
+      text: 'Goes straight to a person, not a queue. Say what you expected and '
+        + 'what happened instead and the answer comes back a lot faster.',
+    }));
+
+    const email = el('input', {
+      class: 'auth-input', type: 'email', inputmode: 'email', spellcheck: 'false',
+      autocomplete: 'email', placeholder: 'Where should we reply?',
+      value: this.auth?.email || '',
+    });
+    const topic = el('select', { class: 'own-select help-topic' }, Object.entries(SUPPORT_TOPICS)
+      .map(([id, label]) => el('option', { value: id, text: label })));
+    const message = el('textarea', {
+      class: 'help-message', rows: '5', maxlength: String(SUPPORT_MAX),
+      placeholder: 'What can we help with?',
+    });
+    // Hidden from a person, offered to anything that fills every field it
+    // finds. The server refuses anything that puts something in it.
+    const trap = el('input', {
+      class: 'help-trap', tabindex: '-1', autocomplete: 'off', 'aria-hidden': 'true',
+    });
+
+    const note = el('div', { class: 'auth-note' });
+    const send = el('button', { class: 'bigrow solid', text: 'Send' });
+    send.onclick = async () => {
+      note.className = 'auth-note';
+      send.disabled = true;
+      send.textContent = 'Sending…';
+      let res;
+      try {
+        res = await fetch('/api/support', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            email: email.value.trim(),
+            topic: topic.value,
+            message: message.value.trim(),
+            trap: trap.value,
+          }),
+        });
+      } catch {
+        send.disabled = false;
+        send.textContent = 'Send';
+        note.textContent = 'Could not reach the server. Check your connection.';
+        return;
+      }
+      const data = await res.json().catch(() => null);
+      send.disabled = false;
+      send.textContent = 'Send';
+      if (!res.ok || !data?.sent) {
+        note.textContent = data?.error || 'That did not send. Try again shortly.';
+        return;
+      }
+      note.className = 'auth-note good';
+      note.textContent = 'Sent. We reply to the address above.';
+      message.value = '';
+    };
+
+    body.append(
+      el('div', { class: 'acct-label', text: 'YOUR EMAIL' }), email,
+      el('div', { class: 'acct-label', text: 'WHAT IS IT ABOUT' }), topic,
+      el('div', { class: 'acct-label', text: 'YOUR MESSAGE' }), message,
+      trap, note, send,
+    );
   }
 
   // --- time machine -------------------------------------------------------
@@ -1715,10 +1823,26 @@ export class Modals {
         Watch the feed for an <b>IPO FILED</b> headline.</div>`));
     }
     if (market.ipoHistory.length) {
-      body.append(html(`<h4>RECENT LISTINGS</h4><div class="rowlist">${market.ipoHistory.map((h) => `
-        <div class="listrow"><b>${esc(h.sym)}</b><span class="grow muted">${esc(h.name)}</span>
+      // A listing that has already happened is a name you can go and trade,
+      // so the row goes there rather than just reporting what it did.
+      const listed = html(`<h4>RECENT LISTINGS</h4><div class="rowlist">${market.ipoHistory.map((h) => `
+        <div class="listrow" data-sym="${esc(h.sym)}" style="cursor:pointer">
+        <b>${esc(h.sym)}</b><span class="grow muted">${esc(h.name)}</span>
         <span class="muted">offer ${money(h.offer)}</span>
-        <b class="${h.pop >= 0 ? 'up' : 'down'}">${pct(h.pop * 100)}</b></div>`).join('')}</div>`));
+        <b class="${h.pop >= 0 ? 'up' : 'down'}">${pct(h.pop * 100)}</b></div>`).join('')}</div>`);
+      listed.addEventListener('click', (e) => {
+        const row = e.target.closest('[data-sym]');
+        if (!row) return;
+        // Only if it actually made it to the tape. A listing that was pulled
+        // still shows here and has nothing to open.
+        if (!market.get(row.dataset.sym)) {
+          this.toast?.({ tone: 'bad', icon: 'warning', text: `${row.dataset.sym} is not trading` });
+          return;
+        }
+        this.onSelect?.(row.dataset.sym);
+        this.close();
+      });
+      body.append(listed);
     }
   }
 }
@@ -1750,6 +1874,24 @@ export const REWARDS = [
   },
 ];
 
+const HELP_STEPS = [
+  ['1', 'Pick a name in the market explorer down the left, or search for one.'],
+  ['2', 'On the order ticket, choose LONG if you think it goes up, SHORT if down.'],
+  ['3', 'Type a margin amount, or tap 10% / 25% / 50% / MAX to size it for you.'],
+  ['4', 'Leverage multiplies both the gain and the loss. 1X is the honest place to start.'],
+  ['5', 'Press BUY or SHORT. Your position, and what it is doing, appears above the form.'],
+  ['6', 'Close it from that position card, or set a take profit and stop loss to close it for you.'],
+];
+
+const HELP_NOTES = [
+  ['Nothing here is real', 'Every company and price is invented. Desk capital is simulated and cannot be cashed out.'],
+  ['The market runs while you are away', 'Come back and the time you missed plays out properly: orders fill, brackets fire, dividends pay.'],
+  ['A stop loss is the tool that saves accounts', 'It is two fields on the ticket, and it works at every level. So does take profit.'],
+  ['You can undo a trade', 'Within four game hours of making it. There is a free one on the house, and passes give a daily one.'],
+  ['Levels open desks, not leverage', 'Every leverage tier is available from the first trade. Levels unlock shorts, limits, futures, options and the rest.'],
+  ['Your desk follows your account', 'Signed in, it syncs to every device. Signed out, it lives in this browser only.'],
+];
+
 const TITLES = {
   portfolio: 'PORTFOLIO VALUE', ledger: 'CASH LEDGER', level: 'LEVEL & UNLOCKS',
   missions: 'MISSIONS', collection: 'COLLECTION INDEX',
@@ -1759,7 +1901,7 @@ const TITLES = {
   settings: 'SETTINGS', alerts: 'ALERTS', scanner: 'MARKET SCANNER',
   sectors: 'SECTORS', fundhq: 'FUND HQ', index: 'INDEX DESK', launchpad: 'IPO LAUNCHPAD',
   builder: 'INDICATOR BUILDER', store: 'STORE', rewind: 'UNDO A TRADE', account: 'ACCOUNT',
-  owner: 'OWNER PANEL',
+  owner: 'OWNER PANEL', help: 'HELP & SUPPORT',
 };
 
 function stat(label, value, tone = '') {

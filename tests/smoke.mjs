@@ -128,18 +128,79 @@ check('accent is themeable', await page.evaluate(() => {
 }));
 await page.keyboard.press('Escape');
 
-// light / dark mode
+// dark -> oled -> light -> system, and round again
+await page.click('#btn-theme');
+await page.waitForTimeout(250);
+check('theme switches to oled', await page.evaluate(
+  () => document.documentElement.dataset.theme === 'oled'));
+check('oled paints a true black, not the dark theme near-black', await page.evaluate(
+  () => getComputedStyle(document.body).backgroundColor === 'rgb(0, 0, 0)'));
+
 await page.click('#btn-theme');
 await page.waitForTimeout(250);
 check('theme switches to light', await page.evaluate(
   () => document.documentElement.dataset.theme === 'light'));
 check('light surfaces apply', await page.evaluate(
   () => getComputedStyle(document.body).backgroundColor === 'rgb(238, 241, 246)'));
+
 await page.click('#btn-theme');
 await page.click('#btn-theme');
 await page.waitForTimeout(250);
 check('theme cycles back to dark', await page.evaluate(
   () => document.documentElement.dataset.theme === 'dark'));
+
+check('the theme button shows the mode it is in, not one fixed glyph', await page.evaluate(async () => {
+  const { settings } = await import('/src/engine/settings.js');
+  const drawn = () => document.querySelector('#btn-theme .ico-svg path')?.getAttribute('d') ?? '';
+  const inDark = drawn();
+  document.querySelector('#btn-theme').click();   // to oled
+  document.querySelector('#btn-theme').click();   // to light
+  await new Promise((r) => setTimeout(r, 120));
+  const inLight = drawn();
+  document.querySelector('#btn-theme').click();
+  document.querySelector('#btn-theme').click();   // back to dark
+  await new Promise((r) => setTimeout(r, 120));
+  return Boolean(inDark) && Boolean(inLight) && inDark !== inLight
+    && settings.get('theme') === 'dark';
+}));
+
+check('the help panel explains the game and offers a way to ask', await page.evaluate(async () => {
+  document.querySelector('[data-modal="help"]').click();
+  await new Promise((r) => setTimeout(r, 250));
+  const body = document.querySelector('.modal-body');
+  const t = body.textContent;
+  const hasGuide = /market explorer/i.test(t) && /stop loss/i.test(t);
+  const form = Boolean(body.querySelector('.help-message') && body.querySelector('.help-topic'));
+  // The honeypot has to be in the DOM and out of sight, or it catches nobody
+  // and annoys everybody.
+  const trap = body.querySelector('.help-trap');
+  const hidden = trap && trap.getBoundingClientRect().left < 0;
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  return hasGuide && form && Boolean(hidden);
+}));
+
+check('the H key opens help, and the corner legend says so', await page.evaluate(async () => {
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'h' }));
+  await new Promise((r) => setTimeout(r, 250));
+  const opened = document.querySelector('.modal-title')?.textContent === 'HELP & SUPPORT';
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  const legend = document.querySelector('#keylegend');
+  return opened && Boolean(legend) && /h/i.test(legend.textContent) && legend.children.length >= 4;
+}));
+
+check('the arrows scroll and zoom the chart, and shift-right returns to live', await page.evaluate(async () => {
+  ui.chart.goLive();
+  const bars0 = ui.chart.barCount;
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+  const scrolledBack = ui.chart.offset > 0;
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }));
+  const zoomedIn = ui.chart.barCount < bars0;
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true }));
+  const backLive = ui.chart.isLive;
+  ui.chart.barCount = bars0;
+  ui.chart.render();
+  return scrolledBack && zoomedIn && backLive;
+}));
 
 // every corner is square
 check('no rounded corners', await page.evaluate(() => [...document.querySelectorAll('*')]
