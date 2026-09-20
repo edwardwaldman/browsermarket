@@ -126,6 +126,7 @@ function renderPanel() {
     el('option', { value: 'cash', text: 'Cash' }),
     el('option', { value: 'rewinds', text: 'Rewinds' }),
     el('option', { value: 'vip', text: 'VIP points' }),
+    el('option', { value: 'level', text: 'Level' }),
     el('option', { value: 'pass', text: 'Pass' }),
   ]);
   const passPick = el('select', { class: 'own-select' },
@@ -136,10 +137,19 @@ function renderPanel() {
 
   const passField = field('WHICH PASS', passPick);
   const amountField = field('HOW MUCH', amount);
+  const amountLabel = amountField.querySelector('span');
   passField.hidden = true;
+  const AMOUNT_LABELS = {
+    cash: 'HOW MUCH', rewinds: 'HOW MANY', vip: 'HOW MANY POINTS', level: 'RAISE TO LEVEL',
+  };
   kind.onchange = () => {
     passField.hidden = kind.value !== 'pass';
     amountField.hidden = kind.value === 'pass';
+    amountLabel.textContent = AMOUNT_LABELS[kind.value] || 'HOW MUCH';
+    // A level is a small whole number and cash is not, so the box does not
+    // sit there holding 100000 when it has just been asked for a level.
+    if (kind.value === 'level' && Number(amount.value) > 60) amount.value = '20';
+    if (kind.value === 'cash' && Number(amount.value) < 100) amount.value = '100000';
   };
 
   const send = el('button', { class: 'bigrow', text: '▶ SEND GRANT' });
@@ -150,7 +160,7 @@ function renderPanel() {
     const res = await auth.grant({
       userId: target.value.trim(),
       kind: kind.value,
-      amount: kind.value === 'pass' ? null : Number(String(amount.value).replace(/[^0-9.]/g, '')) || 0,
+      amount: kind.value === 'pass' ? null : amountFor(kind.value, amount.value),
       item: kind.value === 'pass' ? passPick.value : null,
       note: note.value.trim() || null,
     });
@@ -236,4 +246,11 @@ function readableGrantError(reason) {
     return 'That is not something that can be granted.';
   }
   return s;
+}
+
+/** What the amount box means, per kind. Levels are whole and capped. */
+function amountFor(kind, raw) {
+  const n = Number(String(raw).replace(/[^0-9.]/g, '')) || 0;
+  if (kind === 'level') return Math.min(60, Math.max(1, Math.round(n)));
+  return n;
 }

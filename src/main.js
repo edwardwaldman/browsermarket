@@ -1,7 +1,7 @@
 // Boot, wiring and the render loop.
 
 import { Game, MS_PER_TICK, SAVE_KEY } from './engine/game.js';
-import { UNLOCKS } from './engine/progression.js';
+import { UNLOCKS, totalXpForLevel } from './engine/progression.js';
 import { REGIMES, TF, TF_ORDER } from './engine/market.js';
 import { Chart, INDICATORS } from './ui/chart.js';
 import { Explorer } from './ui/explorer.js';
@@ -974,6 +974,9 @@ function renderChart(full = false) {
         price: p.avg,
         color: '#c3d2e6',
         label: `AVG ENTRY ${fmtPrice(p.avg)}`,
+        // The line with money on it, drawn heavier than a resting order or a
+        // liquidation level so the three do not read as one kind of thing.
+        strong: true,
         badge: signed(pnl),
         // Which way, not which colour: the chart picks the actual ink from the
         // candle palette, so the colourblind setting reaches this too.
@@ -1263,6 +1266,17 @@ async function claimGrants() {
       game.store.write();
       game.account.vipDiscount = game.store.vipFeeDiscount();
       ui.toasts.push({ tone: 'good', icon: 'star', text: `${Math.round(amount)} VIP points granted` });
+    } else if (g.kind === 'level' && amount > 0) {
+      // Raised by handing over the XP the level costs, so the levels in
+      // between still pay out and still open what they open. A target at or
+      // below where they already are does nothing: addXp only counts up, and
+      // taking a level back would take its unlocks with it.
+      const target = Math.round(amount);
+      const owed = totalXpForLevel(target) - game.prog.xp;
+      if (owed > 0) {
+        game.prog.addXp(owed, game);
+        ui.toasts.push({ tone: 'good', icon: 'star', text: `Raised to level ${game.prog.level}` });
+      }
     } else if (g.kind === 'pass' && g.item) {
       const item = findStoreItem(g.item);
       if (item) {

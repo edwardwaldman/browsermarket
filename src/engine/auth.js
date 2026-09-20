@@ -735,7 +735,7 @@ export class Auth {
   async grant({ userId, kind, amount = null, item = null, note = null }) {
     if (!this.signedIn) return { ok: false, reason: 'Not signed in' };
     if (!userId) return { ok: false, reason: 'Pick an account first' };
-    if (!['cash', 'rewinds', 'pass', 'vip'].includes(kind)) {
+    if (!['cash', 'rewinds', 'pass', 'vip', 'level'].includes(kind)) {
       return { ok: false, reason: 'That is not something that can be granted' };
     }
     try {
