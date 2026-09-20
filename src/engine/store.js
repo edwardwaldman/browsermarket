@@ -179,6 +179,8 @@ export class Store {
     this.vipPoints = 0;
     this.spend = 0;           // lifetime, in whole cents to avoid float drift
     this.receipts = [];
+    this.trialUntil = 0;      // epoch ms the one-time rewind trial runs out; 0 = never claimed
+    this.freeRevert = true;   // the one on the house, once, for everyone
     this.read();
   }
 
@@ -190,6 +192,10 @@ export class Store {
       this.vipPoints = Number(raw.vipPoints) || 0;
       this.spend = Number(raw.spend) || 0;
       this.receipts = Array.isArray(raw.receipts) ? raw.receipts.slice(-50) : [];
+      this.trialUntil = Number(raw.trialUntil) || 0;
+      // Absent in every save written before this existed, so the default has
+      // to be the generous one: players already here get their free one too.
+      this.freeRevert = raw.freeRevert !== false;
     } catch { /* private mode, or a corrupt entry */ }
   }
 
@@ -204,6 +210,8 @@ export class Store {
       vipPoints: this.vipPoints,
       spend: this.spend,
       receipts: this.receipts.slice(-50),
+      trialUntil: this.trialUntil,
+      freeRevert: this.freeRevert,
     };
   }
 
@@ -214,6 +222,8 @@ export class Store {
     this.vipPoints = Number(raw.vipPoints) || this.vipPoints;
     this.spend = Number(raw.spend) || this.spend;
     this.receipts = Array.isArray(raw.receipts) ? raw.receipts : this.receipts;
+    this.trialUntil = Number(raw.trialUntil) || this.trialUntil;
+    if (raw.freeRevert === false) this.freeRevert = false;
   }
 
   has(id) { return this.owned.includes(id); }
@@ -222,9 +232,47 @@ export class Store {
 
   get vip() { return vipLevelFor(this.vipPoints); }
 
-  /** Free rewinds a day, from passes and VIP standing. */
+  /** Whether the one-time rewind trial is still running. */
+  trialActive() { return Date.now() < this.trialUntil; }
+
+  /**
+   * Spend the revert every player gets on the house. It sits outside the daily
+   * count on purpose: the daily count is what a pass buys, and this one is
+   * there so the first trade a player regrets can actually be undone rather
+   * than only advertised at.
+   */
+  takeFreeRevert() {
+    if (!this.freeRevert) return false;
+    this.freeRevert = false;
+    this.write();
+    return true;
+  }
+
+  /**
+   * A one-time, one-day taste of Pro Desk's rewind rate, offered right at the
+   * moment a losing close makes wanting it obvious. `trialUntil` stays set
+   * once claimed even after it lapses, so there is nothing left to re-claim -
+   * a trial that can be restarted every day is not a trial, it is the perk.
+   */
+  startTrial() {
+    if (this.trialUntil) return false;
+    this.trialUntil = Date.now() + 24 * 60 * 60 * 1000;
+    this.write();
+    return true;
+  }
+
+  /**
+   * Free rewinds a day, from passes, VIP standing, or the trial above.
+   *
+   * The trial is checked by wall-clock time, not by which calendar day it is,
+   * while the count it feeds is spent by calendar day (see freeRewindsLeft in
+   * game.js). Claim it late enough and a calendar-day rollover mid-trial can
+   * hand back a second helping of three before the 24 hours are up - a real
+   * edge, but a harmless one in a single-player game with no real currency,
+   * and not worth the complexity of a second accounting system to close it.
+   */
   dailyRewinds() {
-    if (this.has('PRO_DESK')) return 3;
+    if (this.has('PRO_DESK') || this.trialActive()) return 3;
     if (this.has('BEGINNER')) return 1;
     return this.vip >= 4 ? 1 : 0;
   }

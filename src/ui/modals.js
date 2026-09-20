@@ -1244,10 +1244,12 @@ export class Modals {
   /**
    * UNDO A TRADE.
    *
-   * Three ways to pay for it, cheapest first: a free daily one from a pass or
-   * VIP standing, a rewarded placement, or a charge bought in the store. The
-   * window is deliberately short, so this undoes the trade you just regretted
-   * rather than the afternoon.
+   * Ways to pay for it, cheapest first: the one every player gets on the
+   * house, a free daily one from a pass or VIP standing, a charge already
+   * bought, a rewarded placement, or - once, ever - a one-day trial of Pro
+   * Desk's rewind rate. Buying charges outright is the last resort, not the
+   * first. The window to use any of this is deliberately short, so it undoes
+   * the trade you just regretted rather than the afternoon.
    */
   view_rewind(body) {
     const { game } = this;
@@ -1263,7 +1265,7 @@ export class Modals {
 
     body.append(el('div', { class: 'cardgrid', style: { marginTop: '12px' } }, [
       html(stat('LAST TRADE', can.ok ? esc(can.label.toUpperCase()) : 'NONE IN RANGE')),
-      html(stat('FREE TODAY', String(free))),
+      html(stat('FREE NOW', String(free + (store.freeRevert ? 1 : 0)))),
       html(stat('CHARGES', String(store.rewinds))),
     ]));
 
@@ -1280,6 +1282,13 @@ export class Modals {
       this.refresh?.();
       this.close();
     };
+
+    if (store.freeRevert) {
+      body.append(el('button', {
+        class: 'bigrow', text: '⟲ USE YOUR FREE REVERT | ON THE HOUSE',
+        onclick: () => run(() => (store.takeFreeRevert() ? null : { ok: false, reason: 'Already used' })),
+      }));
+    }
 
     if (free > 0) {
       body.append(el('button', {
@@ -1308,6 +1317,26 @@ export class Modals {
       },
     });
     body.append(adBtn);
+
+    // The other way to pay for this one: a taste of what Pro Desk gets every
+    // day, offered right when wanting it is obvious. One-time, so it is gone
+    // from this list the moment it has been claimed once, spent or not.
+    if (!store.trialUntil) {
+      body.append(el('button', {
+        class: 'bigrow purple', text: '✦ GET 3 REVERTS FREE FOR A DAY',
+        onclick: () => {
+          store.startTrial();
+          this.toast?.({
+            tone: 'good', icon: 'gem',
+            text: '3 free reverts a day, unlocked for the next 24 hours',
+          });
+          // Re-render this same view rather than closing it: the trade this
+          // was opened for is still waiting on an answer, and it now has one.
+          clear(body);
+          this.view_rewind(body);
+        },
+      }));
+    }
 
     body.append(el('button', {
       class: 'bigrow plain', text: '▣ BUY REWIND CHARGES',

@@ -621,6 +621,76 @@ check('a wiped-out desk never shows the revert prompt on top of it', await page.
   return stayedHidden;
 }));
 
+check('the rewind modal leads with the revert every player gets on the house', await page.evaluate(async () => {
+  game.limiter.hits.clear();
+  game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
+  const pos = game.account.positions.at(-1);
+  game.market.get('OBBY').price *= 0.5;
+  game.closePosition(pos.id, 1);
+  await new Promise((r) => setTimeout(r, 300));
+
+  document.querySelector('.revert-go').click();
+  await new Promise((r) => setTimeout(r, 250));
+
+  const rows = [...document.querySelectorAll('#modal-root .bigrow')];
+  // Free before anything that costs money, or the offer is decoration.
+  const first = /USE YOUR FREE REVERT \| ON THE HOUSE/.test(rows[0]?.textContent ?? '');
+  const card = [...document.querySelectorAll('#modal-root .ccard')]
+    .find((s) => /FREE NOW/.test(s.textContent));
+  // The headline count has to include the free one, or it reads as a zero
+  // sitting above a button offering something for nothing.
+  const counted = Number(card?.textContent.replace(/\D/g, '')) === game.freeRewindsLeft() + 1;
+
+  document.querySelector('#modal-root .modal-close')?.click();
+  return first && counted && game.store.freeRevert === true;
+}));
+
+check('the rewind modal offers a one-time free trial alongside the ad', await page.evaluate(async () => {
+  game.limiter.hits.clear();
+  game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
+  const pos = game.account.positions.at(-1);
+  game.market.get('OBBY').price *= 0.5;      // force the close into a loss
+  game.closePosition(pos.id, 1);
+  await new Promise((r) => setTimeout(r, 300));
+
+  document.querySelector('.revert-go').click();      // REVERT hands off to this modal
+  await new Promise((r) => setTimeout(r, 250));
+
+  const findOffer = () => [...document.querySelectorAll('#modal-root .bigrow')]
+    .find((b) => /GET 3 REVERTS FREE FOR A DAY/.test(b.textContent));
+  const offeredBefore = Boolean(findOffer());
+
+  findOffer()?.click();
+  await new Promise((r) => setTimeout(r, 150));
+
+  const goneAfter = !findOffer();
+  const freeRewindShown = [...document.querySelectorAll('#modal-root .bigrow')]
+    .some((b) => /USE A FREE REWIND \| 3 LEFT TODAY/.test(b.textContent));
+  const toasted = [...document.querySelectorAll('#toasts .toast')]
+    .some((t) => /24 hours/.test(t.textContent));
+
+  document.querySelector('#modal-root .modal-close')?.click();
+
+  return offeredBefore && goneAfter && freeRewindShown && toasted
+    && game.store.trialActive() && game.store.dailyRewinds() === 3;
+}));
+
+check('the trial offer never comes back once it has been claimed', await page.evaluate(async () => {
+  game.limiter.hits.clear();
+  game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1000, leverage: 1 });
+  const pos = game.account.positions.at(-1);
+  game.market.get('OBBY').price *= 0.5;
+  game.closePosition(pos.id, 1);
+  await new Promise((r) => setTimeout(r, 300));
+
+  document.querySelector('.revert-go').click();
+  await new Promise((r) => setTimeout(r, 250));
+  const stillGone = ![...document.querySelectorAll('#modal-root .bigrow')]
+    .some((b) => /GET 3 REVERTS FREE FOR A DAY/.test(b.textContent));
+  document.querySelector('#modal-root .modal-close')?.click();
+  return stillGone;
+}));
+
 check('the undo restores the position and the cash', await page.evaluate(async () => {
   game.limiter.hits.clear();
   game.openPosition({ sym: 'OBBY', side: 'LONG', margin: 1500, leverage: 1 });
