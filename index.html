@@ -177,6 +177,17 @@
        behind row level security keyed on the signed-in user. */
     supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZGJodWFycWJqeG11bXRzZWF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzNDUwNzYsImV4cCI6MjEwNDkyMTA3Nn0.lr5x1x32EHvK2rQgdZYma-gxLCAKlVkiExYyHGVb9Tg',
     signupAfterMs: 60000,
+    /* Flip to true once STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET and
+       SUPABASE_SERVICE_ROLE_KEY are set as Vercel project environment
+       variables and the Stripe webhook is pointed at
+       /api/stripe/webhook. See STRIPE.md. Left false, checkout still opens
+       and still refuses every purchase, same as it always has. */
+    stripeEnabled: false,
+    /* Your AdSense publisher id, e.g. 'ca-pub-1234567890123456', once you have
+       set up rewarded video ads for this site. See ADS.md. Left blank, every
+       rewarded placement stays on the built-in placeholder, which still
+       grants the reward after its countdown. */
+    googleAdsClientId: '',
   }, window.BROWSERMARKET_CONFIG || {});
 </script>
 <script type="module" src="src/main.js"></script>

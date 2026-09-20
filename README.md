@@ -21,8 +21,8 @@ npm start          # serves on http://localhost:8080
 Or just open `index.html` directly. It is plain ES modules and static assets.
 
 ```bash
-npm test           # 92 engine tests, zero dependencies
-npm run test:ui    # 63-check browser smoke test (needs Playwright, see tests/smoke.mjs)
+npm test           # 200+ engine tests, zero dependencies
+npm run test:ui    # 200+-check browser smoke test (needs Playwright, see tests/smoke.mjs)
 ```
 
 ## What's in it
@@ -92,6 +92,8 @@ is opened by watching a rewarded placement instead. `src/engine/ads.js` holds
 the gate: daily caps and a cooldown per placement, and a `provider` that is the
 single integration point for a real ad SDK. The built-in provider is an honest
 placeholder that says so on screen; a skipped view grants nothing.
+`src/engine/googleads.js` has a real provider for Google's rewarded-video
+product, off until you set an id. See [ADS.md](ADS.md).
 
 **Algo desks.** Six strategies you buy, fund and upgrade: momentum, mean
 reversion, market making, index arbitrage, news sentiment and yield harvesting.
@@ -139,9 +141,9 @@ rewind charges. Everything sold is in-game and cannot be cashed out.
 Nothing is granted until a checkout provider reports that money moved. The
 provider that ships refuses every checkout on purpose, so an unconfigured build
 shows the whole store and sells nothing rather than handing out paid goods to
-anyone who opens the console. Wire a real processor by setting
-`game.store.provider` to something with a `checkout(item)` that resolves
-`{ completed: true }`. See `src/engine/store.js`.
+anyone who opens the console. `src/engine/stripe.js` has a real provider
+backed by Stripe Checkout, off until you set it up server side. See
+[STRIPE.md](STRIPE.md).
 
 **Undoing a trade.** A snapshot of the account is taken before anything that
 changes a position, and a rewind restores it. It expires after four game hours,
@@ -204,7 +206,10 @@ turnover: a $1,000 order barely moves the tape, a $5,000,000 order pays about
 index.html              the terminal shell
 styles/main.css         the whole visual system
 legal/                  terms of service and privacy policy
-supabase/migrations/    the schema accounts and cloud saves need
+supabase/migrations/    the schema accounts, cloud saves and grants need
+api/stripe/             Checkout Session creation and the payment webhook
+STRIPE.md               setting up real payments
+ADS.md                  setting up real rewarded video
 src/
   data/instruments.js   the tradable universe
   engine/
@@ -215,7 +220,9 @@ src/
     settings.js         preferences, themes, palettes and accents
     ratelimit.js        sliding-window limits on player actions
     ads.js              rewarded-placement gating for every unlock
+    googleads.js        the real rewarded-video provider, see ADS.md
     store.js            the storefront, VIP standing and checkout
+    stripe.js           the real checkout provider, see STRIPE.md
     auth.js             accounts, sign-in codes and cloud saves
     options.js          Black-Scholes, the chain, expiry settlement
     indicators.js       SMA, EMA, RSI, MACD, Bollinger, VWAP, crossovers

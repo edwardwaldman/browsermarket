@@ -513,6 +513,63 @@ check('owning the ad pass skips the wait', await page.evaluate(async () => {
   return res.ok && res.skipped === true && Date.now() - started < 1000;
 }));
 
+check('with no ad network connected, the placeholder still draws its own card', await page.evaluate(async () => {
+  // An earlier check bought NO_ADS, which makes every placement skip the
+  // wait entirely - the very shortcut this test needs to get past to reach
+  // the placeholder UI at all.
+  const hadNoAds = game.store.owned.includes('NO_ADS');
+  game.store.owned = game.store.owned.filter((id) => id !== 'NO_ADS');
+  game.ads.provider = (await import('/src/engine/ads.js')).placeholderProvider;
+  game.ads.lastShownAt = 0;
+  const playing = ui.ads.play('BOT_SLOT');
+  await new Promise((r) => setTimeout(r, 150));
+  const shown = !document.querySelector('#ad-root').hidden && Boolean(document.querySelector('.ad-slot'));
+  document.querySelector('.ad-skip')?.click();
+  await playing;
+  if (hadNoAds) game.store.owned.push('NO_ADS');
+  return shown;
+}));
+
+check('a connected ad network draws its own screen, not the placeholder card', await page.evaluate(async () => {
+  const hadNoAds = game.store.owned.includes('NO_ADS');
+  game.store.owned = game.store.owned.filter((id) => id !== 'NO_ADS');
+  const { createGoogleAdsProvider } = await import('/src/engine/googleads.js');
+  game.ads.provider = createGoogleAdsProvider();
+  game.ads.lastShownAt = 0;
+  // Stand in for the real adsbygoogle script: call straight through to
+  // adViewed, the way a completed rewarded view would.
+  window.adBreak = (o) => o.adViewed();
+  const res = await ui.ads.play('SIM_WEEK');
+  const nothingDrawn = document.querySelector('#ad-root').hidden && !document.querySelector('.ad-slot');
+  delete window.adBreak;
+  game.ads.provider = (await import('/src/engine/ads.js')).placeholderProvider;
+  if (hadNoAds) game.store.owned.push('NO_ADS');
+  return res.ok === true && nothingDrawn;
+}));
+
+check('the Stripe provider refuses a checkout when nobody is signed in', await page.evaluate(async () => {
+  const { createStripeProvider } = await import('/src/engine/stripe.js');
+  const provider = createStripeProvider({ getAccessToken: () => null, navigate: () => { throw new Error('must not navigate'); } });
+  const res = await provider.checkout({ id: 'BEGINNER' });
+  return res.completed === false && /sign in/i.test(res.reason);
+}));
+
+check('the Stripe provider redirects to the URL its own endpoint returns', await page.evaluate(async () => {
+  const { createStripeProvider } = await import('/src/engine/stripe.js');
+  const realFetch = window.fetch;
+  let sentAuth = null;
+  window.fetch = async (url, opts) => {
+    sentAuth = opts.headers.authorization;
+    return new Response(JSON.stringify({ url: 'https://checkout.stripe.com/pay/cs_test_123' }), { status: 200 });
+  };
+  let navigatedTo = null;
+  const provider = createStripeProvider({ getAccessToken: () => 'token-abc', navigate: (url) => { navigatedTo = url; } });
+  provider.checkout({ id: 'BEGINNER' }); // never settles by design; not awaited
+  await new Promise((r) => setTimeout(r, 50));
+  window.fetch = realFetch;
+  return navigatedTo === 'https://checkout.stripe.com/pay/cs_test_123' && sentAuth === 'Bearer token-abc';
+}));
+
 await page.keyboard.press('Escape');
 await page.waitForTimeout(150);
 

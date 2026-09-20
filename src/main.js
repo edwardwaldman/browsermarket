@@ -14,8 +14,13 @@ import { Toasts, Celebration, floatXp } from './ui/toast.js';
 import { settings } from './engine/settings.js';
 import { Auth } from './engine/auth.js';
 import { AuthBox } from './ui/authbox.js';
-import { SUPABASE, accountsConfigured, SIGNUP_AFTER_MS, DEFAULT_SYMBOL } from './config.js';
+import {
+  SUPABASE, accountsConfigured, SIGNUP_AFTER_MS, DEFAULT_SYMBOL,
+  STRIPE_ENABLED, GOOGLE_ADS_CLIENT_ID,
+} from './config.js';
 import { findItem as findStoreItem } from './engine/store.js';
+import { createStripeProvider } from './engine/stripe.js';
+import { loadGoogleAdsScript, createGoogleAdsProvider } from './engine/googleads.js';
 import { IndicatorLibrary } from './engine/custom.js';
 import { AdOverlay } from './ui/adgate.js';
 import { icon as iconNode, iconMarkup } from './ui/icons.js';
@@ -179,6 +184,7 @@ function startGame(g, resumed = false) {
   setInterval(() => { game.save(); markCloudDirty(); pushCloudSave(); }, 10000);
   startSignupGate();
   resumeAccount();
+  finishCheckoutReturn();
   window.addEventListener('beforeunload', () => game.save());
   document.addEventListener('visibilitychange', () => {
     if (game.wiped) return;
@@ -305,6 +311,18 @@ function buildUi() {
   ui.modals.previewCandles = () => game.market.get(symbol)?.candles(timeframe) ?? [];
 
   ui.auth = new Auth({ url: SUPABASE.url, anonKey: SUPABASE.anonKey });
+
+  // Real payments and a real ad network, wired in only once each is actually
+  // set up server side (see STRIPE.md and ADS.md). Left unconfigured, the
+  // store keeps refusing every purchase and every rewarded placement keeps
+  // running the built-in placeholder, exactly as it always has.
+  if (STRIPE_ENABLED) {
+    game.store.provider = createStripeProvider({ getAccessToken: () => ui.auth.freshToken() });
+  }
+  if (GOOGLE_ADS_CLIENT_ID) {
+    loadGoogleAdsScript(GOOGLE_ADS_CLIENT_ID);
+    game.ads.provider = createGoogleAdsProvider();
+  }
   ui.authBox = new AuthBox({
     root: $('#auth-root'),
     auth: ui.auth,
@@ -1192,15 +1210,18 @@ function isOwner() {
 }
 
 /**
- * CLAIMING WHAT AN OWNER HANDED OUT.
+ * CLAIMING WHAT AN OWNER HANDED OUT, OR WHAT A STRIPE PURCHASE EARNED.
  *
  * Grants are rows, not writes into somebody's save, so they are applied here
  * on load and marked claimed. Applying first and claiming second means the
  * worst case is a grant applied twice after a crash between the two, which is
  * a player being given something twice rather than losing it.
+ *
+ * Returns how many were claimed, so a caller waiting on a specific one (see
+ * finishCheckoutReturn below) knows whether this pass found it.
  */
 async function claimGrants() {
-  if (!ui.auth?.signedIn) return;
+  if (!ui.auth?.signedIn) return 0;
   const pending = await ui.auth.pendingGrants();
   for (const g of pending) {
     const amount = Number(g.amount) || 0;
@@ -1224,6 +1245,44 @@ async function claimGrants() {
     await ui.auth.claimGrant(g.id);
   }
   if (pending.length) { game.save(); render(true); }
+  return pending.length;
+}
+
+/**
+ * BACK FROM STRIPE.
+ *
+ * The purchase itself is fulfilled by the webhook, which lands the item as a
+ * grant this same claim path already knows how to pick up (see claimGrants
+ * above). The redirect back here can beat that webhook by a second or two,
+ * so this polls briefly rather than checking once and reporting failure.
+ */
+async function finishCheckoutReturn() {
+  const params = new URLSearchParams(location.search);
+  const outcome = params.get('checkout');
+  if (!outcome) return;
+  const itemId = params.get('item');
+  history.replaceState(null, '', location.pathname + location.hash);
+  if (outcome !== 'success') return;
+
+  if (!ui.auth?.signedIn) {
+    ui.toasts.push({
+      tone: 'bad', icon: 'warning',
+      text: 'Signed out before the purchase could be applied. Sign back in to claim it.',
+    });
+    return;
+  }
+
+  const item = itemId ? findStoreItem(itemId) : null;
+  ui.toasts.push({ tone: 'info', icon: 'receipt', text: `Payment received. Unlocking ${item?.name || 'your purchase'}...` });
+
+  for (let i = 0; i < 6; i++) {
+    if (await claimGrants() > 0) return;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  ui.toasts.push({
+    tone: 'bad', icon: 'warning',
+    text: 'Payment received, but it has not shown up yet. It will land the next time you open the game.',
+  });
 }
 
 function syncQuickTrade() {
