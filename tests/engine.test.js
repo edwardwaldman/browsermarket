@@ -26,6 +26,7 @@ import {
   unconfiguredProvider, devGrantProvider,
 } from '../src/engine/store.js';
 import { money, moneyShort, pct, clockTime, gameDate } from '../src/util/format.js';
+import { verifyStripeSignature } from '../api/stripe/_verify.js';
 
 // ── rng ──────────────────────────────────────────────────────────────────
 test('rng is deterministic for a given seed', () => {
@@ -2460,4 +2461,51 @@ test('neither change is offered to somebody who is not signed in', async () => {
   assert.equal((await auth.changeEmail('new@example.com')).ok, false);
   assert.equal((await auth.changePassword('a', 'newpassword1')).ok, false);
   assert.equal(auth.fetch.calls.length, 0);
+});
+
+// ── the stripe webhook's signature check ────────────────────────────────
+// Signs a payload exactly the way Stripe does, so these tests exercise the
+// real verification code against a header no different from one the
+// endpoint actually receives, rather than against a hand-picked fixture.
+async function signStripeHeader(payload, secret, timestamp = Math.floor(Date.now() / 1000)) {
+  const key = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${timestamp}.${payload}`));
+  const hex = [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `t=${timestamp},v1=${hex}`;
+}
+
+test('a correctly signed Stripe payload verifies', async () => {
+  const secret = 'whsec_test';
+  const payload = JSON.stringify({ id: 'evt_1', type: 'checkout.session.completed' });
+  const header = await signStripeHeader(payload, secret);
+  assert.equal(await verifyStripeSignature(payload, header, secret), true);
+});
+
+test('the wrong secret, a tampered body, or a missing header all fail closed', async () => {
+  const secret = 'whsec_test';
+  const payload = JSON.stringify({ id: 'evt_1' });
+  const header = await signStripeHeader(payload, secret);
+
+  assert.equal(await verifyStripeSignature(payload, header, 'whsec_other'), false);
+  assert.equal(await verifyStripeSignature(`${payload} `, header, secret), false, 'a single extra byte still fails');
+  assert.equal(await verifyStripeSignature(payload, '', secret), false);
+  assert.equal(await verifyStripeSignature('', header, secret), false);
+});
+
+test('a stale timestamp is refused even with a correct signature', async () => {
+  const secret = 'whsec_test';
+  const payload = JSON.stringify({ id: 'evt_1' });
+  const old = Math.floor(Date.now() / 1000) - 10_000; // far outside the 5 minute window
+  const header = await signStripeHeader(payload, secret, old);
+  assert.equal(await verifyStripeSignature(payload, header, secret), false);
+});
+
+test('either signature survives a secret rotation, where Stripe sends two v1 values', async () => {
+  const payload = JSON.stringify({ id: 'evt_1' });
+  const t = Math.floor(Date.now() / 1000);
+  const currentSig = (await signStripeHeader(payload, 'whsec_current', t)).split(',')[1];
+  const header = `t=${t},v1=deadbeefdeadbeef,${currentSig}`;
+  assert.equal(await verifyStripeSignature(payload, header, 'whsec_current'), true);
 });

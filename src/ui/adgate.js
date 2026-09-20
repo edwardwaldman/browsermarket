@@ -29,6 +29,11 @@ export class AdOverlay {
       this.gate.lifetimeViews += 1;
       return { ok: true, placement, skipped: true };
     }
+
+    // A connected ad network draws its own full-screen unit; our placeholder
+    // card would only sit uselessly behind or in front of it.
+    if (this.gate.provider?.ownUi) return this.gate.show(id);
+
     this.controller = new AbortController();
     const counter = el('div', { class: 'ad-count', text: `${placement.seconds}` });
     const bar = el('i');
