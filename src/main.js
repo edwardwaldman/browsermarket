@@ -1001,6 +1001,9 @@ function renderChart(full = false) {
         price: p.avg,
         color: '#c3d2e6',
         label: `AVG ENTRY ${fmtPrice(p.avg)}`,
+        // On a phone there is no room to spell it out. The price is on the
+        // line it is drawn at, so the word was never carrying much anyway.
+        shortLabel: fmtPrice(p.avg),
         // The line with money on it, drawn heavier than a resting order or a
         // liquidation level so the three do not read as one kind of thing.
         strong: true,
