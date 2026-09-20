@@ -25,6 +25,9 @@ export class MobileTrade {
     this.toast = toast;
     this.openModal = openModal;
     this.posbar = posbar;
+    // Where the strip sits when the sheet is shut, so it can be put back
+    // exactly there after it has been lent to the sheet.
+    this.posbarHome = posbar ? { parent: posbar.parentNode, next: posbar.nextSibling } : null;
     this.onWatchAd = onWatchAd;
 
     this.open = false;
@@ -299,6 +302,15 @@ export class MobileTrade {
     // Let the browser see the hidden state first so the slide-up animates.
     requestAnimationFrame(() => this.sheet.classList.add('is-open'));
     document.body.classList.add('sheet-open');
+    // THE STRIP MOVES INTO THE SHEET RATHER THAN BEING POSITIONED AGAINST IT.
+    //
+    // It used to stand at a height copied from the sheet into a CSS variable,
+    // which is two ways wrong: the copy goes stale the moment the sheet grows
+    // or shrinks under it, and it is applied instantly while the sheet takes
+    // an animation to arrive, so the strip hung in the air over a gap. As a
+    // child pinned to the panel's top edge it cannot drift and cannot arrive
+    // early, because it is the same element moving.
+    if (this.posbar) this.refs.panel.append(this.posbar);
     this.update();
     this.measure();
   }
@@ -328,16 +340,13 @@ export class MobileTrade {
     this._lastHeight = total;
     const root = document.documentElement;
     if (total) {
-      // Two numbers, because they answer different questions. --sheet-h is how
-      // much of the screen is spoken for at the bottom, which is what the
-      // chart sizes against. --panel-h is the sheet alone, which is what the
-      // strip stands on: given the total it would be pushed up by its own
-      // height and float away from the thing it is sitting on.
+      // How much of the screen is spoken for at the bottom, which is what the
+      // chart sizes against and what the toasts clear. The sheet's own height
+      // used to be published beside it for the position strip to stand on;
+      // the strip is a child of the sheet now and needs no number.
       root.style.setProperty('--sheet-h', `${total}px`);
-      root.style.setProperty('--panel-h', `${h}px`);
     } else {
       root.style.removeProperty('--sheet-h');
-      root.style.removeProperty('--panel-h');
     }
     this.onLayoutChange?.(this.open);
   }
@@ -349,6 +358,9 @@ export class MobileTrade {
     document.body.classList.remove('sheet-open');
     this.showLeverage = false;
     this.showBrackets = false;
+    if (this.posbar && this.posbarHome) {
+      this.posbarHome.parent.insertBefore(this.posbar, this.posbarHome.next);
+    }
     this.measure();
     setTimeout(() => { if (!this.open) this.sheet.hidden = true; }, 200);
   }

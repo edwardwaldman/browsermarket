@@ -1432,13 +1432,12 @@ table.grid tr:hover td { background: var(--panel-2); }
     pointer-events: auto;
   }
   .mposbar[hidden] { display: none; }
-  /* Divided by the zoom the app is rendered at, because --panel-h is measured
-     in viewport pixels and spent here inside that zoom. Without it the strip
-     lands four fifths of the way up and overlaps the sheet it is meant to be
-     standing on. */
+  /* Open, the strip is a child of the sheet panel (see expand in mobile.js),
+     pinned to its top edge. No measured height, so nothing to go stale and
+     nothing to arrive before the sheet it is standing on. */
   body.sheet-open .mposbar {
-    z-index: 71;
-    bottom: calc(var(--panel-h, 40dvh) / var(--zoom));
+    position: absolute; bottom: 100%; left: 0; right: 0;
+    z-index: auto; padding: 0 8px 6px;
   }
 
   /* No cap and no scroller. Clipping the card to a fixed height is what put a
@@ -1579,7 +1578,14 @@ table.grid tr:hover td { background: var(--panel-2); }
     z-index: 80; left: 8px; right: 8px; width: auto;
     top: auto; bottom: calc(86px + env(safe-area-inset-bottom));
   }
-  body.sheet-open .toasts { top: 8px; bottom: auto; }
+  /* Not the top: the top is the header, and a fill confirmation landing on
+     the one bar carrying the menu button replaces it rather than joining it.
+     Above the sheet instead, on the same rail the position strip stands on,
+     so it is over the chart and clear of both. */
+  body.sheet-open .toasts {
+    top: auto;
+    bottom: calc(var(--sheet-h, 40dvh) / var(--zoom) + 8px);
+  }
   /* The bar runs the whole width of the phone, so a line of text starting
      after the icon reads as pushed off to one side. The icon and the words
      are centred as one group instead. */

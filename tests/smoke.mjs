@@ -1013,10 +1013,44 @@ check('an open position sits above the sheet, not inside it', await page.evaluat
   const bar = document.querySelector('.mposbar');
   const sheet = document.querySelector('.msheet');
   if (!bar || bar.hidden) return false;
-  // Its own strip, clear of the panel rather than a row scrolled to inside it.
-  return !sheet.contains(bar)
-    && bar.getBoundingClientRect().bottom <= sheet.getBoundingClientRect().top + 2;
+  // Above the panel and clear of it, which is what "not inside it" means to
+  // somebody looking at the screen. It IS a child of the panel, pinned to its
+  // top edge, because a strip positioned by a copied height drifts when the
+  // sheet changes under it and arrives before the sheet does when it opens.
+  // What it must not be is a row in the body you have to scroll to.
+  const body = sheet.querySelector('.msheet-body');
+  const b = bar.getBoundingClientRect();
+  return !body.contains(bar) && b.bottom <= sheet.getBoundingClientRect().top + 2;
 }));
+
+check('and it stays flush to the sheet all the way through the slide up', await page.evaluate(async () => {
+  const gap = () => {
+    const bar = document.querySelector('.mposbar').getBoundingClientRect();
+    const panel = document.querySelector('.msheet').getBoundingClientRect();
+    return Math.round(panel.top - bar.bottom);
+  };
+  // Collapsing resets what the sheet has unfolded, and the checks after this
+  // one are standing on that, so it is put back before handing over.
+  const hadBrackets = ui.mobile.showBrackets;
+  const hadLeverage = ui.mobile.showLeverage;
+  ui.mobile.collapse();
+  await new Promise((r) => setTimeout(r, 300));
+  ui.mobile.expand('LONG');
+  const seen = [];
+  for (let i = 0; i < 6; i++) {
+    await new Promise((r) => setTimeout(r, 40));
+    seen.push(gap());
+  }
+  await new Promise((r) => setTimeout(r, 300));
+  seen.push(gap());
+  ui.mobile.showBrackets = hadBrackets;
+  ui.mobile.showLeverage = hadLeverage;
+  ui.mobile.update();
+  await new Promise((r) => setTimeout(r, 150));
+  window.__gaps = seen.join(',');
+  // No frame where the strip hangs in the air over a sheet still on its way.
+  return seen.every((g) => Math.abs(g) <= 2);
+}), await page.evaluate(() => window.__gaps));
 
 check('the strip is not there at all when nothing is open', await page.evaluate(async () => {
   const held = game.account.positions.slice();
