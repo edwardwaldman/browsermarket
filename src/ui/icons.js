@@ -37,6 +37,8 @@ const PATHS = {
   bot: 'M5 9h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2zM12 5v4M12 3a1 1 0 1 0 0 2 1 1 0 0 0 0-2zM8.5 14h.01M15.5 14h.01M1 13v3M23 13v3',
   signOut: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
   theme: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 2v20a10 10 0 0 0 0-20z',
+  sun: 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4',
+  auto: 'M3 4h18v12H3zM8 20h8M12 16v4M9 12l3-6 3 6M10 10.5h4',
   trophy: 'M8 21h8M12 17v4M7 4h10v6a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3',
   moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z',
   flame: 'M12 22a7 7 0 0 0 7-7c0-5-4-6-4-11 0 0-4 2-4 7 0-1-1-3-3-3 1 3-3 4-3 7a7 7 0 0 0 7 7z',
@@ -44,7 +46,7 @@ const PATHS = {
   doc: 'M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7zM14 2v5h5M9 13h6M9 17h6',
   fastForward: 'M3 19V5l9 7zM13 19V5l9 7z',
   tools: 'M14.7 6.3a4 4 0 0 0 5.1 5.1L21 13l-8 8-4-4 8-8zM7 13l-4 4 4 4 3-3',
-  medal: 'M12 16a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM8.2 5.5 5 1h14l-3.2 4.5M12 10.5l.9 1.8 2 .3-1.5 1.4.4 2-1.8-1-1.8 1 .4-2L9 12.6l2-.3z',
+  medal: 'M12 21a6 6 0 1 0 0-12 6 6 0 0 0 0 12zM8.5 9.3 5.5 3h13l-3 6.3',
   tickets: 'M2 8.5a2 2 0 0 0 0 5V17a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5a2 2 0 0 1 0-5V5a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1zM19 7h2a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H8',
   store: 'M3 9h18l-1.5 11a1 1 0 0 1-1 1H5.5a1 1 0 0 1-1-1zM3 9l1.6-5.3A1 1 0 0 1 5.5 3h13a1 1 0 0 1 .9.7L21 9M9 13a3 3 0 0 0 6 0',
   person: 'M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM3.5 21a8.5 8.5 0 0 1 17 0',
@@ -87,7 +89,7 @@ const PATHS = {
 };
 
 /** Shapes that only read correctly with the stroke filled in. */
-const FILLED = new Set(['star', 'flame', 'moon', 'fastForward', 'sparkle', 'medal', 'gem', 'party', 'pause', 'heart', 'crystal']);
+const FILLED = new Set(['star', 'flame', 'moon', 'fastForward', 'sparkle', 'gem', 'party', 'pause', 'heart', 'crystal']);
 
 export const ICON_NAMES = Object.keys(PATHS);
 

@@ -372,78 +372,113 @@ export class Modals {
   /**
    * Changing the address and the password, for somebody already signed in.
    *
-   * Both start folded. They are the two rows on this screen that can lock
-   * somebody out of their own desk, so neither is a field sitting open next to
-   * a marketing toggle waiting to be typed in by accident.
+   * Laid out open rather than folded behind two buttons: these are the things
+   * somebody opened this screen to do, and a form you have to find first reads
+   * as a form that is not there. Each field carries its own labelled section
+   * and its own button, so nothing here can be submitted by the button that
+   * belongs to the section below it.
    */
   credentialRows(body, auth) {
-    const fold = (title, desc, build) => {
-      const panel = el('div', { class: 'credpanel', hidden: true });
-      const open = el('button', { class: 'bigrow plain', text: title });
-      open.onclick = () => {
-        panel.hidden = !panel.hidden;
-        if (!panel.hidden && !panel.childElementCount) build(panel);
-        panel.querySelector('input')?.focus();
-      };
-      body.append(el('div', { class: 'ccard-sub', text: desc }), open, panel);
+    // --- the address ------------------------------------------------------
+    body.append(el('div', { class: 'acct-label', text: 'EMAIL' }));
+    const email = el('input', {
+      class: 'auth-input', type: 'email', inputmode: 'email',
+      placeholder: 'New email address', spellcheck: 'false', autocomplete: 'email',
+    });
+    const emailNote = el('div', { class: 'auth-note' });
+    const emailGo = el('button', { class: 'bigrow plain', text: 'Change email' });
+    emailGo.onclick = async () => {
+      emailNote.className = 'auth-note';
+      emailGo.disabled = true;
+      const res = await auth.changeEmail(email.value.trim());
+      emailGo.disabled = false;
+      if (!res.ok) { emailNote.textContent = res.reason; return; }
+      // Not done, only started: the old address still signs in until the new
+      // one is confirmed, and saying otherwise would lock somebody out in
+      // their own head.
+      emailNote.className = 'auth-note good';
+      emailNote.textContent = `Confirm it from the mail we sent to ${res.pending}. `
+        + 'Until you do, sign in with your old address.';
+      email.value = '';
+    };
+    body.append(
+      email,
+      el('div', { class: 'acct-note' }, [
+        el('span', { text: 'Signed in as ' }),
+        el('b', { text: auth.email || '' }),
+        el('span', {
+          text: '. Changing it sends a confirmation to the new address, and it '
+            + 'only switches once you have opened that.',
+        }),
+      ]),
+      emailNote,
+      emailGo,
+    );
+
+    body.append(el('hr', { class: 'acct-hr' }));
+
+    // --- the password -----------------------------------------------------
+    const current = el('input', {
+      class: 'auth-input', type: 'password', placeholder: 'Current password',
+      autocomplete: 'current-password',
+    });
+    const next = el('input', {
+      class: 'auth-input', type: 'password', placeholder: 'New password',
+      autocomplete: 'new-password',
+    });
+    const again = el('input', {
+      class: 'auth-input', type: 'password', placeholder: 'New password again',
+      autocomplete: 'new-password',
+    });
+    const passNote = el('div', { class: 'auth-note' });
+    const passGo = el('button', { class: 'bigrow solid', text: 'Change password' });
+    passGo.onclick = async () => {
+      passNote.className = 'auth-note';
+      if (next.value !== again.value) {
+        passNote.textContent = 'The two new passwords do not match.';
+        return;
+      }
+      passGo.disabled = true;
+      const res = await auth.changePassword(current.value, next.value);
+      passGo.disabled = false;
+      if (!res.ok) { passNote.textContent = res.reason; return; }
+      passNote.className = 'auth-note good';
+      passNote.textContent = 'Password changed.';
+      for (const f of [current, next, again]) f.value = '';
     };
 
-    fold('CHANGE MY EMAIL', 'The address you sign in with.', (panel) => {
-      const field = el('input', {
-        class: 'auth-input', type: 'email', inputmode: 'email',
-        placeholder: 'New email address', spellcheck: 'false', autocomplete: 'email',
-      });
-      const note = el('div', { class: 'auth-note' });
-      const go = el('button', { class: 'bigrow', text: 'SEND THE CONFIRMATION' });
-      go.onclick = async () => {
-        note.className = 'auth-note';
-        go.disabled = true;
-        const res = await auth.changeEmail(field.value.trim());
-        go.disabled = false;
-        if (!res.ok) { note.textContent = res.reason; return; }
-        // Not done, only started: the old address still signs in until the new
-        // one is confirmed, and saying otherwise would lock somebody out in
-        // their own head.
-        note.className = 'auth-note good';
-        note.textContent = `Confirm it from the mail we sent to ${res.pending}. `
-          + 'Until you do, sign in with your old address.';
-        field.value = '';
-      };
-      panel.append(field, note, go);
-    });
+    const forgot = el('button', { class: 'bigrow plain', text: "I don't have my current password" });
+    forgot.onclick = async () => {
+      forgot.disabled = true;
+      const res = await auth.sendReset(auth.email);
+      forgot.disabled = false;
+      passNote.className = cls('auth-note', res.ok && 'good');
+      passNote.textContent = res.ok
+        ? `Reset code sent to ${auth.email}. Use it on the sign-in screen to set a new one.`
+        : res.reason;
+    };
 
-    fold('CHANGE MY PASSWORD', 'Asks for your current one first.', (panel) => {
-      const current = el('input', {
-        class: 'auth-input', type: 'password', placeholder: 'Current password',
-        autocomplete: 'current-password',
-      });
-      const next = el('input', {
-        class: 'auth-input', type: 'password', placeholder: 'New password',
-        autocomplete: 'new-password',
-      });
-      const again = el('input', {
-        class: 'auth-input', type: 'password', placeholder: 'New password again',
-        autocomplete: 'new-password',
-      });
-      const note = el('div', { class: 'auth-note' });
-      const go = el('button', { class: 'bigrow', text: 'CHANGE IT' });
-      go.onclick = async () => {
-        note.className = 'auth-note';
-        if (next.value !== again.value) { note.textContent = 'The two new passwords do not match.'; return; }
-        go.disabled = true;
-        const res = await auth.changePassword(current.value, next.value);
-        go.disabled = false;
-        if (!res.ok) { note.textContent = res.reason; return; }
-        note.className = 'auth-note good';
-        note.textContent = 'Password changed.';
-        for (const f of [current, next, again]) f.value = '';
-      };
-      panel.append(
-        current, next, again,
-        el('div', { class: 'auth-fine', text: `Passwords need ${MIN_PASSWORD} characters or more.` }),
-        note, go,
-      );
-    });
+    body.append(
+      el('div', { class: 'acct-label', text: 'CURRENT PASSWORD' }),
+      current,
+      el('div', { class: 'acct-label', text: 'NEW PASSWORD' }),
+      next,
+      again,
+      el('div', {
+        class: 'acct-note',
+        text: `At least ${MIN_PASSWORD} characters. A passphrase works, and beats a `
+          + 'short one with a symbol bolted on the end.',
+      }),
+      passNote,
+      passGo,
+      forgot,
+      el('div', {
+        class: 'acct-note',
+        text: 'Sends a one-time code to the address above, so you can set a new '
+          + 'password without the old one. Useful if you signed in with Google '
+          + 'and never typed one here.',
+      }),
+    );
   }
 
   /** A toggle plus a percentage, with presets, for one bracket target. */
@@ -959,8 +994,8 @@ export class Modals {
     }
 
     const marketingOn = Boolean(auth.profile?.marketing_opt_in);
-    body.append(html(`<div class="ccard-sub">Signed in as <b>${esc(auth.email || '')}</b>.
-      Your desk syncs to this account automatically.</div>`));
+    body.append(html(`<div class="acct-note" style="margin-top:0">Your desk syncs to
+      this account automatically, on every device you play on.</div>`));
 
     body.append(el('div', { class: 'setrow' }, [
       el('div', { class: 'setrow-body' }, [
@@ -984,29 +1019,38 @@ export class Modals {
 
     this.credentialRows(body, auth);
 
+    body.append(el('hr', { class: 'acct-hr' }));
+    body.append(el('button', {
+      class: 'bigrow plain', text: 'Sign out',
+      onclick: () => this.onSignOut?.(),
+    }));
+
     body.append(el('div', { class: 'legal-links' }, [
       el('a', { class: 'auth-link', href: LEGAL.termsUrl, target: '_blank', rel: 'noopener', text: 'Terms of Service' }),
       el('a', { class: 'auth-link', href: LEGAL.privacyUrl, target: '_blank', rel: 'noopener', text: 'Privacy Policy' }),
     ]));
 
-    body.append(el('button', {
-      class: 'bigrow plain', text: '↪ SIGN OUT',
-      onclick: () => this.onSignOut?.(),
+    body.append(el('hr', { class: 'acct-hr' }));
+    body.append(el('div', { class: 'acct-label danger', text: 'DANGER ZONE' }));
+    body.append(el('div', {
+      class: 'acct-note',
+      text: 'Deletes the copy of your desk on the server. This device keeps its '
+        + 'own save, so the game itself carries on. It cannot be undone.',
     }));
 
     const del = el('button', {
-      class: 'bigrow plain', text: 'DELETE MY CLOUD SAVE',
+      class: 'bigrow danger', text: 'Delete my cloud save',
       onclick: async () => {
         if (!del.dataset.armed) {
           del.dataset.armed = '1';
-          del.textContent = 'PRESS AGAIN TO DELETE THE CLOUD COPY';
+          del.textContent = 'Press again to delete it';
           return;
         }
         del.disabled = true;
         const res = await auth.deleteAccountData();
         del.disabled = false;
         delete del.dataset.armed;
-        del.textContent = 'DELETE MY CLOUD SAVE';
+        del.textContent = 'Delete my cloud save';
         this.toast?.(res.ok
           ? { tone: 'good', icon: 'check', text: 'Cloud save deleted. This device keeps its own copy.' }
           : { tone: 'bad', icon: 'warning', text: res.reason });

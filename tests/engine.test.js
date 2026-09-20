@@ -2202,6 +2202,37 @@ test('a desk with money left is not', () => {
   assert.equal(seen.length, 0);
 });
 
+test('a wipeout answered once stays answered across a reload', () => {
+  const g = brokeGame(0.01);
+  g.checkWipeout();
+  assert.equal(g.wipedOut, true);
+
+  // The latch only ever lived in memory, so every reload re-armed the wall and
+  // the next day roll threw it back up at somebody who had already dealt with
+  // it. It rides in the save now.
+  const back = Game.fromJSON(JSON.parse(JSON.stringify(g.toJSON())));
+  assert.equal(back.wipedOut, true, 'still answered');
+
+  const seen = [];
+  back.on((e) => { if (e.type === 'wipeout') seen.push(e); });
+  back.checkWipeout();
+  assert.equal(seen.length, 0, 'and asking again raises nothing');
+});
+
+test('money back on a wiped desk arms the wall again', () => {
+  const g = brokeGame(0.01);
+  g.checkWipeout();
+  g.account.cash = 5000;         // a grant, or a pack bought from the store
+  g.checkWipeout();
+  assert.equal(g.wipedOut, false, 'a desk with money is not a wiped desk');
+
+  g.account.cash = 0;
+  const seen = [];
+  g.on((e) => { if (e.type === 'wipeout') seen.push(e); });
+  g.checkWipeout();
+  assert.equal(seen.length, 1, 'and losing it again is worth saying once more');
+});
+
 test('a desk with a position still open is not wiped out, it is just down', () => {
   // Something left to sell is something left to trade, however little cash is
   // sitting beside it.

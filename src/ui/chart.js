@@ -387,13 +387,29 @@ export class Chart {
       if (l.label) {
         ctx.font = '11.5px ui-monospace, monospace';
         const w = ctx.measureText(l.label).width + 14;
+        const x = width - padR - w - 6;
         ctx.fillStyle = chrome().panel;
-        ctx.fillRect(width - padR - w - 6, y - 10, w, 19);
+        ctx.fillRect(x, y - 10, w, 19);
         ctx.strokeStyle = l.color || chrome().entry;
-        ctx.strokeRect(width - padR - w - 6, y - 10, w, 19);
+        ctx.setLineDash([]);
+        ctx.strokeRect(x, y - 10, w, 19);
         ctx.fillStyle = l.color || chrome().entry;
         ctx.textAlign = 'left';
-        ctx.fillText(l.label, width - padR - w + 1, y + 4);
+        ctx.fillText(l.label, x + 7, y + 4);
+
+        // The live P&L rides on the entry line itself, immediately left of the
+        // label. What an open trade is doing right now is the number you want
+        // without looking for it, and it used to live only in a panel further
+        // down the ticket.
+        if (l.badge) {
+          const pal = palette();
+          const bw = ctx.measureText(l.badge).width + 14;
+          const bx = x - bw - 4;
+          ctx.fillStyle = l.badgeUp ? pal.up : pal.down;
+          ctx.fillRect(bx, y - 10, bw, 19);
+          ctx.fillStyle = '#04120a';
+          ctx.fillText(l.badge, bx + 7, y + 4);
+        }
       }
     }
   }

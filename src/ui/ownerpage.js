@@ -159,7 +159,7 @@ function renderPanel() {
     msg.className = `own-msg ${res.ok ? 'good' : 'bad'}`;
     msg.textContent = res.ok
       ? 'Granted. It lands on their account the next time they load the game.'
-      : res.reason;
+      : readableGrantError(res.reason);
   };
 
   body.append(card('GRANT TO AN ACCOUNT', [
@@ -212,4 +212,28 @@ function renderPanel() {
   body.append(card('SESSION', el('button', {
     class: cls('bigrow', 'plain'), text: 'SIGN OUT', onclick: signOut,
   })));
+}
+
+/**
+ * Postgres names the constraint that refused a row, which is exactly the
+ * wrong end of the problem to hand somebody: "amount_sane" says a rule was
+ * broken without saying which rule or what to do instead.
+ */
+function readableGrantError(reason) {
+  const s = String(reason || '');
+  if (/amount_sane/.test(s)) {
+    return 'That amount is outside what a grant can carry. The ceiling is '
+      + '1,000,000,000,000,000 and it cannot be negative.';
+  }
+  if (/note_len/.test(s)) return 'That note is too long. Keep it under 200 characters.';
+  if (/violates foreign key|grants_user_id/.test(s)) {
+    return 'No account has that ID. Copy it from the list of players above.';
+  }
+  if (/invalid input syntax for type uuid/.test(s)) {
+    return 'That is not an account ID. Copy one from the list of players above.';
+  }
+  if (/grants_kind_check|violates check constraint "grants_kind/.test(s)) {
+    return 'That is not something that can be granted.';
+  }
+  return s;
 }

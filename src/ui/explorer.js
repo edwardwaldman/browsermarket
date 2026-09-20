@@ -74,7 +74,9 @@ export class Explorer {
     clear(this.tabsNode);
     for (const c of ASSET_CLASSES) {
       this.tabsNode.append(el('button', {
-        class: cls('classtab', c.id === this.assetClass && 'is-active'),
+        // Volatile is the one worth finding on purpose, so it is the one
+        // that is not the same grey as the six tabs around it.
+        class: cls('classtab', c.id === 'VOLATILE' && 'is-hot', c.id === this.assetClass && 'is-active'),
         // Only the watchlist tab carries a mark, and it is the drawn one.
         text: c.label.replace(/^\u2605\s*/, ''),
         onclick: () => { this.assetClass = c.id; this.renderTabs(); this.renderList(true); },

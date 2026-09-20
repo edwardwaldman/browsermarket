@@ -4,8 +4,8 @@
   --panel: #0a0f18;
   --panel-2: #0c121d;
   --panel-3: #111a29;
-  --line: #18222f;
-  --line-2: #22304a;
+  --line: #1e2a3c;
+  --line-2: #2f4363;
   --text: #dde6f4;
   --dim: #8b9ab0;
   --dim-2: #78879d;
@@ -36,6 +36,17 @@
   --sunken: #070c14;
   --accent: #4c8dff;
   --accent-ink: #8ec5ff;
+
+  /* UNSELECTED CONTROLS.
+     A button drawn on its card's own background, edged in the same line
+     colour as the card, reads as a label rather than as something you press.
+     Every control that is not currently chosen sits on this surface instead,
+     one clear step above whatever it sits on, with a border bright enough to
+     find and a label brighter than the description text beside it. */
+  --ctl: #1b2941;
+  --ctl-hover: #263754;
+  --ctl-line: #3a4f72;
+  --ctl-text: #c6d2e4;
 }
 
 /* Light surfaces. Gains and losses are set separately by the palette so the
@@ -45,8 +56,8 @@
   --panel: #ffffff;
   --panel-2: #f6f8fb;
   --panel-3: #eaeff7;
-  --line: #d7dee9;
-  --line-2: #bcc7d8;
+  --line: #cdd6e3;
+  --line-2: #a9b6ca;
   --text: #17202e;
   --dim: #515e73;
   --dim-2: #5c6878;
@@ -66,6 +77,10 @@
   --sunken: #f2f5fa;
   --accent: #1d63d8;
   --accent-ink: #1550b8;
+  --ctl: #e3e9f4;
+  --ctl-hover: #d4dcec;
+  --ctl-line: #93a4c0;
+  --ctl-text: #2b3648;
 }
 
 * { box-sizing: border-box; }
@@ -106,10 +121,23 @@ input { background: none; border: none; outline: none; }
  * computes the full screen and then renders at 80% of it, which left a fifth
  * of the screen empty below the status bar at every scale under 100%.
  */
-/* The desk renders at three quarters, which is what zooming the browser out to
-   75% was doing by hand. --ui-scale is still the player's own setting and
-   still means what it says: pick 120% there and you get 0.9. */
-:root { --zoom: calc(var(--ui-scale) * 0.75); }
+/* The desk renders at 140% on a monitor with the width to spend on it. It used
+   to render at three quarters everywhere, which fit more on screen at the cost
+   of every label being a size nobody wants to read a number off.
+ *
+ * 140% is not a size every screen can afford. The desk is three columns wide
+ * and the chart toolbar is one row that scrolls rather than wrapping, so on a
+ * narrower screen that zoom does not shrink the layout, it hides the right
+ * hand end of it. The zoom steps down with the viewport instead, which keeps
+ * the whole toolbar reachable on a laptop and still hands a wide monitor the
+ * full 140%.
+ *
+ * --ui-scale is still the player's own setting on top of whichever step
+ * applies, and still means what it says: pick 120% and you get a fifth more
+ * than the default for your screen. */
+:root { --zoom: calc(var(--ui-scale) * 0.95); }
+@media (min-width: 1500px) { :root { --zoom: calc(var(--ui-scale) * 1.15); } }
+@media (min-width: 1800px) { :root { --zoom: calc(var(--ui-scale) * 1.4); } }
 
 .app {
   zoom: var(--zoom);
@@ -198,7 +226,7 @@ input { background: none; border: none; outline: none; }
 .toolstrip { display: flex; align-items: center; gap: 9px; }
 .tool {
   position: relative; width: 40px; height: 40px; border-radius: 0;
-  background: var(--panel-2); border: 1px solid var(--line); font-size: 15.6px; color: var(--dim);
+  background: var(--ctl); border: 1px solid var(--ctl-line); font-size: 15.6px; color: var(--ctl-text);
   display: inline-flex; align-items: center; justify-content: center;
 }
 .tool .ico-svg { width: 19px; height: 19px; }
@@ -274,6 +302,11 @@ input { background: none; border: none; outline: none; }
 .classtab { font-size: 12px; letter-spacing: .8px; color: var(--dim-2); padding: 4px 0; }
 .classtab:hover { color: var(--text); }
 .classtab.is-active { color: var(--accent-ink); border-bottom: 2px solid var(--accent); }
+/* Gold, because this is the list somebody comes looking for rather than
+   scrolls past. Selected still wins: the underline says where you are. */
+.classtab.is-hot { color: var(--amber); font-weight: 700; }
+.classtab.is-hot:hover { filter: brightness(1.15); }
+.classtab.is-hot.is-active { color: var(--amber); border-bottom-color: var(--amber); }
 
 .assetlist { overflow-y: auto; overflow-x: hidden; }
 .assetrow {
@@ -483,24 +516,27 @@ table.grid tr:hover td { background: var(--panel-2); }
 .ticket-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
 .ticket-tab {
   font-size: 12px; letter-spacing: 1px; padding: 6px; border-radius: 0;
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--dim);
+  background: var(--ctl); border: 1px solid var(--ctl-line); color: var(--ctl-text);
 }
+.ticket-tab:hover { background: var(--ctl-hover); border-color: var(--accent); }
 .ticket-tab.is-active { background: var(--raise); border-color: var(--accent); color: var(--accent-ink); }
 .ticket-tab.locked { color: var(--dim-2); }
 
 .sidetoggle { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
 .sidebtn {
   padding: 9px; border-radius: 0; font-size: 14px; letter-spacing: 1px; font-weight: 600;
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--dim);
+  background: var(--ctl); border: 1px solid var(--ctl-line); color: var(--ctl-text);
 }
+.sidebtn:hover { background: var(--ctl-hover); }
 .sidebtn.long.is-active { background: var(--up-soft); border-color: var(--up); color: var(--up); }
 .sidebtn.short.is-active { background: var(--down-soft); border-color: var(--down); color: var(--down); }
 
 .typetoggle { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
 .typebtn {
   padding: 6px; border-radius: 0; font-size: 12.5px; letter-spacing: 1px;
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--dim);
+  background: var(--ctl); border: 1px solid var(--ctl-line); color: var(--ctl-text);
 }
+.typebtn:hover { background: var(--ctl-hover); border-color: var(--accent); }
 .typebtn.is-active { background: var(--raise); border-color: var(--accent); color: var(--accent-ink); }
 
 .field label { display: block; font-size: 11px; letter-spacing: 1.2px; color: var(--dim-2); margin-bottom: 4px; }
@@ -514,8 +550,8 @@ table.grid tr:hover td { background: var(--panel-2); }
 
 .quickrow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
 .quick {
-  padding: 8px 4px; font-size: 12px; border-radius: 0; background: var(--panel-2);
-  border: 1px solid var(--line); color: var(--dim);
+  padding: 8px 4px; font-size: 12px; border-radius: 0; background: var(--ctl);
+  border: 1px solid var(--ctl-line); color: var(--ctl-text);
 }
 .quick:hover, .quick.is-active { background: var(--raise); color: var(--accent-ink); border-color: var(--accent); }
 .quickwrap { display: flex; align-items: stretch; gap: 4px; }
@@ -527,15 +563,16 @@ table.grid tr:hover td { background: var(--panel-2); }
 }
 .quick-edit {
   flex: none; padding: 0 8px; font-size: 10px; letter-spacing: 1px; border-radius: 0;
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--dim-2);
+  background: var(--ctl); border: 1px solid var(--ctl-line); color: var(--ctl-text);
 }
 .quick-edit:hover, .quick-edit.is-on { color: var(--accent-ink); border-color: var(--accent); }
 
 .levrow { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
 .lev {
-  padding: 8px 3px; font-size: 12px; border-radius: 0; background: var(--panel-2);
-  border: 1px solid var(--line); color: var(--dim); text-align: center;
+  padding: 8px 3px; font-size: 12px; border-radius: 0; background: var(--ctl);
+  border: 1px solid var(--ctl-line); color: var(--ctl-text); text-align: center;
 }
+.lev:hover { background: var(--ctl-hover); border-color: var(--accent); }
 .lev.is-active { background: rgba(76,141,255,.18); border-color: var(--blue); color: var(--accent-ink); }
 .lev.locked { color: var(--dim-2); }
 
@@ -673,7 +710,7 @@ table.grid tr:hover td { background: var(--panel-2); }
   border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 2;
 }
 .modal-title { font-size: 15px; letter-spacing: 1.2px; }
-.modal-close { margin-left: auto; font-size: 18px; color: var(--dim); }
+.modal-close { margin-left: auto; font-size: 18px; color: var(--text); }
 .modal-close:hover { color: #fff; }
 .modal-body { padding: 14px 16px; }
 .modal-body h4 { font-size: 12px; letter-spacing: 1.1px; color: var(--dim-2); margin: 14px 0 8px; font-weight: 400; }
@@ -688,9 +725,9 @@ table.grid tr:hover td { background: var(--panel-2); }
 
 .btn {
   padding: 8px 14px; border-radius: 0; font-size: 13px; letter-spacing: 1px;
-  background: var(--raise); border: 1px solid var(--line-2); color: var(--text);
+  background: var(--ctl); border: 1px solid var(--ctl-line); color: var(--text);
 }
-.btn:hover { background: var(--raise-2); }
+.btn:hover { background: var(--ctl-hover); border-color: var(--accent); }
 .btn-primary { background: linear-gradient(180deg, #2ee08a, #14b86a); color: #04130b; border: none; font-weight: 700; }
 .btn-blue { background: var(--accent); color: #fff; border: none; }
 .btn-red { background: rgba(255,77,106,.16); border-color: rgba(255,77,106,.35); color: var(--red); }
@@ -714,7 +751,7 @@ table.grid tr:hover td { background: var(--panel-2); }
 
 .pill {
   font-size: 11px; letter-spacing: 1px; padding: 2px 7px; border-radius: 0;
-  border: 1px solid var(--line-2); color: var(--dim);
+  border: 1px solid var(--ctl-line); color: var(--ctl-text);
 }
 .pill.on { color: var(--green); border-color: rgba(22,217,125,.4); background: rgba(22,217,125,.08); }
 
@@ -894,15 +931,17 @@ table.grid tr:hover td { background: var(--panel-2); }
 .switch {
   flex: 0 0 auto; width: 62px; padding: 7px 0; border-radius: 0; text-align: center;
   font-size: 12px; letter-spacing: 1.2px; font-weight: 600;
-  background: var(--panel-3); color: var(--dim-2); border: 1px solid var(--line);
+  background: var(--ctl); color: var(--ctl-text); border: 1px solid var(--ctl-line);
 }
-.switch.on { background: var(--accent); color: #fff; border-color: transparent; }
+.switch:hover { background: var(--ctl-hover); border-color: var(--accent); }
+.switch.on { background: var(--accent); color: #fff; border-color: var(--accent); }
 .scalerow { display: flex; gap: 5px; flex-wrap: wrap; }
 .scalebtn {
   padding: 6px 12px; border-radius: 0; font-size: 12.5px;
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--dim);
+  background: var(--ctl); border: 1px solid var(--ctl-line); color: var(--ctl-text);
 }
-.scalebtn.is-active { background: var(--accent); color: #fff; border-color: transparent; }
+.scalebtn:hover { background: var(--ctl-hover); border-color: var(--accent); }
+.scalebtn.is-active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .bigrow {
   display: block; width: 100%; padding: 12px; border-radius: 0; margin-top: 6px;
   font-size: 13.5px; letter-spacing: 1.2px; text-align: center;
@@ -910,7 +949,19 @@ table.grid tr:hover td { background: var(--panel-2); }
 }
 .bigrow:hover { background: rgba(76,141,255,.22); }
 .bigrow.purple { background: rgba(168,85,247,.14); border-color: rgba(168,85,247,.4); color: var(--purple); }
-.bigrow.plain { background: var(--panel-2); border-color: var(--line); color: var(--dim); }
+.bigrow.plain { background: var(--ctl); border-color: var(--ctl-line); color: var(--ctl-text); }
+.bigrow.plain:hover { background: var(--ctl-hover); border-color: var(--accent); }
+/* The one action a screen is built around, filled rather than outlined, so
+   there is never a question about which of two buttons is the main one. */
+.bigrow.solid {
+  background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700;
+}
+.bigrow.solid:hover { filter: brightness(1.1); background: var(--accent); }
+.bigrow.danger {
+  background: transparent; border-color: var(--down); color: var(--down); font-weight: 600;
+}
+.bigrow.danger:hover { background: var(--down-soft); }
+.bigrow:disabled { opacity: .5; cursor: not-allowed; }
 
 /* ── time machine & rewards ──────────────────────────────────────────── */
 .tmrow {
@@ -926,7 +977,7 @@ table.grid tr:hover td { background: var(--panel-2); }
   background: var(--accent); color: #fff;
 }
 .tmbtn.free { background: linear-gradient(180deg, #2ee08a, #14b86a); color: #04130b; }
-.tmbtn:disabled { background: var(--panel-3); color: var(--dim-2); cursor: not-allowed; }
+.tmbtn:disabled { background: var(--ctl); border: 1px solid var(--ctl-line); color: var(--dim); cursor: not-allowed; }
 
 /* ── alerts ──────────────────────────────────────────────────────────── */
 .alertbell { font-size: 12px; color: var(--amber); margin-left: 3px; }
@@ -940,10 +991,10 @@ table.grid tr:hover td { background: var(--panel-2); }
 .subnav { display: flex; gap: 5px; flex-wrap: wrap; padding: 10px 12px; }
 .subtab {
   position: relative; padding: 9px 18px; border-radius: 0; font-size: 12.5px; letter-spacing: 1.1px;
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--dim); flex: 1;
+  background: var(--ctl); border: 1px solid var(--ctl-line); color: var(--ctl-text); flex: 1;
 }
-.subtab:hover { color: var(--text); }
-.subtab.is-active { background: var(--accent); color: #fff; border-color: transparent; }
+.subtab:hover { background: var(--ctl-hover); color: var(--text); border-color: var(--accent); }
+.subtab.is-active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .pagehead { padding: 12px 14px 2px; }
 .pagehead-title { font-size: 12px; letter-spacing: 1.2px; color: var(--dim); }
 .pagehead-sub { font-size: 12.5px; color: var(--dim-2); margin-top: 4px; }
@@ -1033,7 +1084,7 @@ table.grid tr:hover td { background: var(--panel-2); }
 .ad-bar i { display: block; height: 100%; width: 0%; background: var(--accent); transition: width 1s linear; }
 .ad-skip {
   width: 100%; padding: 10px; font-size: 11px; letter-spacing: 1.2px;
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--dim);
+  background: var(--ctl); border: 1px solid var(--ctl-line); color: var(--ctl-text);
 }
 .ad-skip:hover { color: var(--text); }
 .adpill {
@@ -1132,8 +1183,8 @@ table.grid tr:hover td { background: var(--panel-2); }
 .mobile-menu {
   display: none; align-items: center; justify-content: center;
   padding: 6px 10px; font-size: 11.5px; letter-spacing: 1.2px; font-weight: 600;
-  color: var(--dim); background: var(--panel-2);
-  border: 1px solid var(--line-2); border-radius: 0; margin-left: auto;
+  color: var(--ctl-text); background: var(--ctl);
+  border: 1px solid var(--ctl-line); border-radius: 0; margin-left: auto;
 }
 
 /*
@@ -1530,8 +1581,8 @@ table.grid tr:hover td { background: var(--panel-2); }
 .st-body { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 12px; }
 .st-rail { display: flex; flex-direction: column; gap: 6px; }
 .st-cat {
-  padding: 12px 10px; border-radius: 0; border: 1px solid var(--line-2);
-  background: var(--panel-2); color: var(--dim); font-size: 12.5px; letter-spacing: 1px;
+  padding: 12px 10px; border-radius: 0; border: 1px solid var(--ctl-line);
+  background: var(--ctl); color: var(--ctl-text); font-size: 12.5px; letter-spacing: 1px;
   text-align: left; font-weight: 600;
 }
 .st-cat.is-active {
@@ -1563,7 +1614,7 @@ table.grid tr:hover td { background: var(--panel-2); }
 :root[data-theme="light"] .st-buy { color: #fff; }
 .st-buy:hover:not(:disabled) { filter: brightness(1.12); }
 .st-buy.is-owned, .st-buy:disabled {
-  background: var(--panel-3); border-color: var(--line-2); color: var(--dim-2);
+  background: var(--ctl); border-color: var(--ctl-line); color: var(--ctl-text);
 }
 
 .st-vip-list { display: grid; gap: 7px; }
@@ -2052,6 +2103,20 @@ button > .ico-svg { pointer-events: none; }
 .credpanel[hidden] { display: none; }
 .credpanel .auth-input { width: 100%; }
 .credpanel .bigrow { margin-top: 2px; }
+
+/* ── account settings ────────────────────────────────────────────────────
+   Labelled sections rather than one long column of controls, so the field
+   that changes your password cannot be mistaken for the one that changes
+   your address. */
+.acct-label {
+  font-size: 11px; letter-spacing: 1.4px; color: var(--dim);
+  margin: 16px 0 6px; text-transform: uppercase;
+}
+.acct-label.danger { color: var(--down); }
+.acct-note { font-size: 12.5px; color: var(--dim-2); line-height: 1.6; margin: 8px 0 10px; }
+.acct-hr { border: none; border-top: 1px solid var(--line-2); margin: 20px 0 4px; }
+.acct-note + .auth-input, .acct-label + .auth-input { margin-bottom: 8px; }
+.auth-input + .auth-input { margin-top: 8px; }
 .auth-note.good { color: var(--up); }
 
 /* ── the reveal, big enough to hit ────────────────────────────────────── */

@@ -939,6 +939,10 @@ export class Game {
       ads: this.ads.toJSON(),
       store: this.store.toJSON(),
       rewindDay: this.rewindDay,
+      // Saved, or the wall comes back on the next day roll after every
+      // reload: the latch that stops it showing twice only ever lived in
+      // memory, so a player who had already answered it got asked again.
+      wipedOut: this.wipedOut,
       rewindsUsed: this.rewindsUsed,
       flipCharges: this.flipCharges,
       alerts: this.alerts.toJSON(),
@@ -964,6 +968,7 @@ export class Game {
     game.ads.load(raw.ads);
     game.store.load(raw.store);
     game.rewindDay = raw.rewindDay ?? game.rewindDay;
+    game.wipedOut = Boolean(raw.wipedOut);
     game.rewindsUsed = raw.rewindsUsed ?? 0;
     game.flipCharges = Number(raw.flipCharges) || 0;
     game.account.vipDiscount = game.store.vipFeeDiscount();
