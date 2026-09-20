@@ -1,0 +1,3 @@
+# Authorised Digital Sellers, per iabtechlab.com/ads-txt.
+# Google is the only network allowed to sell inventory on this domain.
+google.com, pub-1314370629903244, DIRECT, f08c47fec0942fa0

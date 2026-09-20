@@ -1,7 +1,12 @@
 <!doctype html>
 <!--
   TEMPLATE, NOT LEGAL ADVICE.
-  Fill in every [SQUARE BRACKET] before publishing, and have a lawyer or a data
+  The sub-processors, the payment provider and the advertising disclosure are
+  filled in and match what this build actually uses. What is left in square
+  brackets is the operator's own legal identity: entity name, company number,
+  registered address, governing jurisdiction and the contact addresses. Those
+  cannot be guessed from the code. Fill them in before publishing, and have a
+  lawyer or a data
   protection adviser review the result. Check in particular: the controller
   details, the sub-processor list (it must match what you actually use), the
   retention periods, and whether you need an EU/UK representative.
@@ -13,6 +18,13 @@
 <title>Privacy Policy | Browser Stock Exchange</title>
 <meta name="description" content="What personal data Browser Stock Exchange collects, why, who it is shared with, and the rights you have over it." />
 <link rel="stylesheet" href="legal.css" />
+
+<!-- Google AdSense. Static rather than injected so the site review crawler
+     finds it without having to run our JavaScript first. The rewarded
+     placements the game actually uses are driven from src/engine/googleads.js,
+     which reuses this same script rather than adding a second copy. -->
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1314370629903244"
+        crossorigin="anonymous"></script>
 </head>
 <body>
 <div class="wrap">
@@ -125,8 +137,8 @@
 <p>You can clear all of it from your browser's site data settings, or from Settings inside the game.</p>
 
 <h2 id="cookies">5. Cookies and similar technologies</h2>
-<p>The Service itself does not set advertising or analytics cookies. It uses local storage, listed above, which is strictly necessary to provide a game you asked to play and to keep you signed in.</p>
-<p>If advertising is enabled on the build you are using, the ad provider may set its own cookies or identifiers. Where consent is required for those, we will ask for it separately through a consent banner before any such cookie is set, and you can change your answer at any time.</p>
+<p>We do not set analytics cookies of our own. The Service uses the local storage listed above, which is strictly necessary to provide a game you asked to play and to keep you signed in. Advertising cookies are set by Google, not by us; see section 7.</p>
+<p>Google and its partners set their own cookies and identifiers to serve and measure ads. Where consent is required for those, Google's own consent message asks for it before any such cookie is set, and you can change your answer at any time through that message.</p>
 
 <h2 id="marketing">6. Email you get from us</h2>
 <h3>6.1 Account email</h3>
@@ -144,10 +156,16 @@
 <h2 id="ads">7. Advertising</h2>
 <p>The Service may show advertising, including rewarded placements you choose to watch. Where an ad network is connected, it may process an advertising identifier, your IP address and general device information to select and measure ads. Those third parties are independent controllers for that processing and their own privacy policies apply.</p>
 <p>We do not share your email address, your account identifier or your game save with advertisers. <strong>We do not sell personal data and we do not share it for cross-context behavioural advertising as those terms are defined in US state privacy laws.</strong></p>
-<p><strong>[If you connect an ad network, name it here and link its privacy policy and opt-out.]</strong></p>
+<p><strong>Our advertising partner is Google.</strong> Third party vendors, including Google, use cookies to serve ads based on your prior visits to this and other websites. Google's use of advertising cookies enables it and its partners to serve ads to you based on your visit to this and other sites on the internet.</p>
+<ul>
+  <li>You can opt out of personalised advertising by Google at <a href="https://www.google.com/settings/ads" target="_blank" rel="noopener">Google Ads Settings</a>.</li>
+  <li>You can opt out of a third party vendor's use of cookies for personalised advertising at <a href="https://www.aboutads.info/choices/" target="_blank" rel="noopener">aboutads.info/choices</a> or, in Europe, <a href="https://www.youronlinechoices.eu/" target="_blank" rel="noopener">youronlinechoices.eu</a>.</li>
+  <li>How Google uses data from sites that use its services is described at <a href="https://policies.google.com/technologies/partner-sites" target="_blank" rel="noopener">policies.google.com/technologies/partner-sites</a>.</li>
+</ul>
+<p>Rewarded placements in this game are ads you choose to watch in exchange for something in the game. Nothing in the game is gated behind watching one that cannot also be reached another way.</p>
 
 <h2 id="payments">8. Payments</h2>
-<p>Payments are processed by <strong>[PAYMENT PROVIDER]</strong>, acting as an independent controller for the payment itself. They receive the data they need to take the payment and to meet their own legal obligations. See their privacy policy at <strong>[PAYMENT PROVIDER PRIVACY URL]</strong>.</p>
+<p>Payments are processed by <strong>Stripe</strong>, acting as an independent controller for the payment itself. Your card details are entered on Stripe's own hosted checkout page and never reach us. They receive the data they need to take the payment and to meet their own legal obligations. See <a href="https://stripe.com/privacy" target="_blank" rel="noopener">Stripe's privacy policy</a>.</p>
 <p>We keep the purchase record described in 2.3 to grant what you bought, to handle refunds and disputes, and to meet tax and accounting obligations.</p>
 
 <h2 id="sharing">9. Who we share data with</h2>
@@ -156,10 +174,10 @@
   <thead><tr><th>Who</th><th>What for</th><th>Role</th></tr></thead>
   <tbody>
     <tr><td><strong>Supabase</strong></td><td>Authentication, database, storing your save and consent record</td><td>Processor</td></tr>
-    <tr><td><strong>[HOSTING PROVIDER, e.g. Vercel]</strong></td><td>Serving the site, server logs</td><td>Processor</td></tr>
-    <tr><td><strong>[EMAIL PROVIDER]</strong></td><td>Delivering sign-in codes and, if you opted in, marketing email</td><td>Processor</td></tr>
-    <tr><td><strong>[PAYMENT PROVIDER]</strong></td><td>Taking payment</td><td>Independent controller</td></tr>
-    <tr><td><strong>[AD NETWORK, if enabled]</strong></td><td>Serving and measuring ads</td><td>Independent controller</td></tr>
+    <tr><td><strong>Vercel</strong></td><td>Serving the site, server logs</td><td>Processor</td></tr>
+    <tr><td><strong>Resend</strong></td><td>Delivering sign-in codes, support replies and, if you opted in, marketing email</td><td>Processor</td></tr>
+    <tr><td><strong>Stripe</strong></td><td>Taking payment</td><td>Independent controller</td></tr>
+    <tr><td><strong>Google AdSense</strong></td><td>Serving and measuring ads</td><td>Independent controller</td></tr>
     <tr><td>Professional advisers, auditors, insurers</td><td>Where genuinely needed</td><td>Processor or controller</td></tr>
     <tr><td>A buyer of our business</td><td>If we are sold or merge; you will be told beforehand</td><td>Controller</td></tr>
     <tr><td>Law enforcement, regulators, courts</td><td>Where we are legally required, or to establish or defend legal claims</td><td>Controller</td></tr>
@@ -168,7 +186,7 @@
 <p>Every processor is bound by a written contract that requires them to act only on our instructions and to keep the data secure.</p>
 
 <h2 id="transfers">10. Where your data goes</h2>
-<p>Our infrastructure is hosted in <strong>[REGION, e.g. the United States (us-east-1)]</strong>. If you are in the EEA or the UK, your data will be transferred outside it.</p>
+<p>Our infrastructure is hosted in <strong>the United States</strong>. If you are in the EEA or the UK, your data will be transferred outside it.</p>
 <p>Those transfers are covered by the European Commission's Standard Contractual Clauses, and the UK International Data Transfer Addendum where the UK GDPR applies, together with the additional safeguards our providers offer. You can ask us for a copy of the relevant clauses at <strong>[PRIVACY EMAIL]</strong>.</p>
 
 <h2 id="retention">11. How long we keep it</h2>

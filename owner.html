@@ -29,6 +29,13 @@
   .own-table th { color: var(--dim-2); font-weight: 400; letter-spacing: 1px; font-size: 11px; }
   .own-gate { max-width: 420px; margin: 60px auto; }
 </style>
+
+<!-- Google AdSense. Static rather than injected so the site review crawler
+     finds it without having to run our JavaScript first. The rewarded
+     placements the game actually uses are driven from src/engine/googleads.js,
+     which reuses this same script rather than adding a second copy. -->
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1314370629903244"
+        crossorigin="anonymous"></script>
 </head>
 <body>
 <div class="own-wrap" id="root">

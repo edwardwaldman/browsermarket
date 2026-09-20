@@ -27,8 +27,19 @@ const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(`PAGEERROR: ${e.message}`));
 
+// The pages carry a real AdSense tag. This suite must not depend on Google
+// being reachable, and a rewarded ad taking the screen would stand between it
+// and every control it presses. Answered with an empty script rather than
+// refused: a refusal is a failed resource, which is a console error, and this
+// suite checks for those.
+for (const host of ['googlesyndication.com', 'doubleclick.net', 'googletagservices.com']) {
+  await page.route(`**://*.${host}/**`, (route) => route.fulfill({
+    status: 200, contentType: 'application/javascript', body: '',
+  }));
+}
+
 await page.addInitScript(() => {
-  window.BROWSERMARKET_CONFIG = { signupAfterMs: 36_000_000 };
+  window.BROWSERMARKET_CONFIG = { signupAfterMs: 36_000_000, googleAdsClientId: '' };
   // The first-run pointers are tested on purpose further down. Everywhere else
   // they would be an overlay standing between this suite and the controls it
   // is trying to press, so the run starts as a returning player.
@@ -1799,6 +1810,39 @@ check('every icon the page and manifest name actually exists', await page.evalua
   window.__missing = all.filter((_, i) => !checks[i]);
   return window.__missing.length === 0 && named.length >= 2 && man.icons.length >= 3;
 }), await page.evaluate(() => (window.__missing || []).join(', ')));
+
+// ── adsense verification ─────────────────────────────────────────────────
+// The three things Google looks for. Each has failed a review on its own at
+// some point for somebody, and none of them is visible on screen, so none of
+// them is noticed breaking without a check.
+check('ads.txt is served as plain text and names the publisher', await (async () => {
+  const res = await fetch(`${URL.replace(/\/$/, '')}/ads.txt`);
+  const body = await res.text();
+  return res.ok
+    && /text\/plain/.test(res.headers.get('content-type') || '')
+    && /^google\.com,\s*pub-1314370629903244,\s*DIRECT,\s*f08c47fec0942fa0$/m.test(body);
+})());
+
+check('every page carries the AdSense tag, exactly once', await (async () => {
+  const base = URL.replace(/\/$/, '');
+  for (const path of ['/', '/owner.html', '/legal/terms.html', '/legal/privacy.html']) {
+    const html = await (await fetch(base + path)).text();
+    const hits = html.match(/adsbygoogle\.js\?client=ca-pub-1314370629903244/g) || [];
+    if (hits.length !== 1) return false;
+    // In the head, where the crawler looks, not appended to the body.
+    if (html.indexOf('adsbygoogle.js') > html.indexOf('</head>')) return false;
+  }
+  return true;
+})());
+
+check('the privacy policy makes the disclosure Google requires', await (async () => {
+  const html = await (await fetch(`${URL.replace(/\/$/, '')}/legal/privacy.html`)).text();
+  return /Third party vendors, including Google, use cookies/.test(html)
+    && /google\.com\/settings\/ads/.test(html)
+    && /policies\.google\.com\/technologies\/partner-sites/.test(html)
+    // A leftover bracket in a published policy is its own kind of failure.
+    && !/\[AD NETWORK|\[PAYMENT PROVIDER|\[HOSTING PROVIDER|\[EMAIL PROVIDER/.test(html);
+})());
 
 check('the installed app is called BSE and opens on the terminal', await page.evaluate(async () => {
   const m = await (await fetch('site.webmanifest')).json();

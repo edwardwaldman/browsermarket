@@ -12,13 +12,21 @@
  * early as the client id is known; it is a no-op the second time.
  */
 export function loadGoogleAdsScript(clientId) {
-  if (!clientId || document.querySelector('script[data-google-ads]')) return;
+  if (!clientId) return;
 
-  const script = document.createElement('script');
-  script.async = true;
-  script.dataset.googleAds = '1';
-  script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(clientId)}`;
-  document.head.appendChild(script);
+  // The pages carry the tag statically, so the site review crawler finds it
+  // without running any of this. Injecting a second copy of the same script
+  // is how you end up with two ad managers arguing over one page, so this
+  // only adds one when the page has not already got it.
+  const already = document.querySelector('script[data-google-ads], script[src*="adsbygoogle.js"]');
+  if (!already) {
+    const script = document.createElement('script');
+    script.async = true;
+    script.dataset.googleAds = '1';
+    script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(clientId)}`;
+    script.crossOrigin = 'anonymous';
+    document.head.appendChild(script);
+  }
 
   window.adsbygoogle = window.adsbygoogle || [];
   window.adBreak = window.adBreak || function adBreak(o) { window.adsbygoogle.push(o); };
