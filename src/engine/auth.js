@@ -728,6 +728,35 @@ export class Auth {
   }
 
   /**
+   * Visits, newest first, with their steps attached.
+   *
+   * One request, not one per visit: PostgREST can embed the events through
+   * the foreign key, and a hundred round trips to draw one panel is how a
+   * dashboard becomes a thing nobody opens. Owners only, enforced by policy.
+   */
+  async listVisits(limit = 150) {
+    if (!this.signedIn) return { ok: false, reason: 'Not signed in' };
+    try {
+      const rows = await this.call(
+        '/rest/v1/analytics_sessions'
+        + '?select=id,started_at,last_at,ip,country,email,user_id,mobile,referrer,'
+        + 'analytics_events(name,detail,at)'
+        + `&order=last_at.desc&limit=${limit}`,
+        { method: 'GET', auth: true },
+      );
+      const visits = (Array.isArray(rows) ? rows : []).map((v) => ({
+        ...v,
+        // Embedded rows come back in whatever order the planner liked, and a
+        // timeline out of order is not a timeline.
+        steps: (v.analytics_events || []).slice().sort((a, b) => new Date(a.at) - new Date(b.at)),
+      }));
+      return { ok: true, visits };
+    } catch (err) {
+      return { ok: false, reason: err.message };
+    }
+  }
+
+  /**
    * Hand something to an account. Never writes their save: a grant row is
    * added and their own client claims it, so a bad write cannot destroy
    * somebody's progress and there is a record of every one.

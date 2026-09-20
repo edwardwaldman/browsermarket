@@ -168,6 +168,7 @@ export class Ticket {
 
     r.action = el('button', { class: 'bigbtn', text: 'BUY', onclick: () => this.submit() });
     r.actionNote = el('div', { class: 'bigbtn-note' });
+    r.actionBlock = el('div', { class: 'ticket-dock' }, [r.action, r.actionNote]);
 
     r.positions = el('div');
     r.posWrap = el('div', {}, [el('div', { class: 'section-label', text: 'YOUR POSITIONS' }), r.positions]);
@@ -202,6 +203,7 @@ export class Ticket {
     for (const node of r.optionPreview.querySelectorAll('[data-pv]')) r[`ov_${node.dataset.pv}`] = node;
     r.optionAction = el('button', { class: 'bigbtn', text: 'BUY CALL', onclick: () => this.submitOption() });
     r.optionNote = el('div', { class: 'bigbtn-note' });
+    r.optionActionBlock = el('div', { class: 'ticket-dock is-docked', hidden: true }, [r.optionAction, r.optionNote]);
     r.optionPositions = el('div');
     r.optionsPane = el('div', { hidden: true, style: { display: 'grid', gap: '9px' } }, [
       el('div', { class: 'field' }, [el('label', { text: 'EXPIRY' }), r.expiryRow]),
@@ -209,32 +211,47 @@ export class Ticket {
       el('div', { class: 'field' }, [el('label', { text: 'STRIKE CHAIN' }), r.chain]),
       el('div', { class: 'field' }, [el('label', { text: 'CONTRACTS (100 SHARES EACH)' }), r.contractsInput]),
       r.optionPreview,
-      el('div', {}, [r.optionAction, r.optionNote]),
       el('div', {}, [el('div', { class: 'section-label', text: 'OPEN CONTRACTS' }), r.optionPositions]),
     ]);
     r.orderPane = el('div', { style: { display: 'grid', gap: '9px' } }, [
       r.sideToggle, r.typeToggle, r.marginField, r.limitField,
       r.quickWrap, r.brackets, r.trailField, r.levField, r.preview,
-      el('div', {}, [r.action, r.actionNote]),
     ]);
 
     // An open position sits above the order form rather than under it. It is
     // live money moving, and it used to be the one thing on this panel you had
     // to scroll past a preview and a buy button to see. With nothing open the
     // whole block hides, so an empty desk still opens straight onto the form.
-    this.root.append(r.sheetHead, r.tabs, r.notice, r.posWrap, r.orderPane, r.optionsPane, r.statsWrap);
+    this.root.append(
+      r.sheetHead, r.tabs, r.notice, r.posWrap, r.orderPane, r.optionsPane, r.statsWrap,
+      r.actionBlock, r.optionActionBlock,
+    );
     this.applyLayout();
     this.renderLeverage();
     this.renderExpiries();
   }
 
-  /** "Buy button near top" lifts the action above the form fields. */
+  /**
+   * NOBODY SHOULD HAVE TO SCROLL TO BUY.
+   *
+   * The form above the button grows on its own: a heads-up notice, an open
+   * position, brackets, a trailing stop, six leverage buttons and a five-line
+   * preview. On a short screen that pushed the one control this whole panel
+   * exists for under the fold. So it does not sit at the end of the form any
+   * more. It is docked to the bottom of the panel and the form scrolls behind
+   * it, which means it is on screen at every scroll position including the
+   * first one.
+   *
+   * "Buy button near top" still lifts it into the form above the margin field
+   * instead, for anyone who preferred it there.
+   */
   applyLayout() {
     const r = this.refs;
-    const actionBlock = r.action.parentElement;
-    if (!actionBlock) return;
-    if (settings.get('buyNearTop')) r.orderPane.insertBefore(actionBlock, r.marginField);
-    else r.orderPane.append(actionBlock);
+    if (!r.actionBlock) return;
+    const near = settings.get('buyNearTop');
+    if (near) r.orderPane.insertBefore(r.actionBlock, r.marginField);
+    else this.root.append(r.actionBlock, r.optionActionBlock);
+    r.actionBlock.classList.toggle('is-docked', !near);
   }
 
   setMode(mode) {
@@ -247,6 +264,10 @@ export class Ticket {
     this.refs.tabOptions.classList.toggle('is-active', mode === 'OPTIONS');
     this.refs.orderPane.hidden = mode !== 'ORDER';
     this.refs.optionsPane.hidden = mode !== 'OPTIONS';
+    // The two buy buttons share the dock, so the one for the pane that is not
+    // showing has to go with it.
+    this.refs.actionBlock.hidden = mode !== 'ORDER';
+    this.refs.optionActionBlock.hidden = mode !== 'OPTIONS';
     this.update();
   }
 

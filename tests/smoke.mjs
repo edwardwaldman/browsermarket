@@ -72,6 +72,29 @@ check('entry is near the mid', await page.evaluate(() => {
   return Math.abs(p.avg / game.market.get(p.sym).price - 1) < 0.02;
 }));
 
+// NOBODY SHOULD HAVE TO SCROLL TO BUY. With a position open the ticket
+// carries a position card, brackets, a trailing stop, leverage and a preview,
+// which is exactly when the button used to fall off the bottom. Checked at
+// the top of the scroll, and by hit-testing its own centre, because a button
+// that is on screen but underneath something else is not a button.
+check('the buy button stays on screen without scrolling the ticket', await page.evaluate(() => {
+  const ticket = document.querySelector('#ticket');
+  ticket.scrollTop = 0;
+  const btn = [...ticket.querySelectorAll('.bigbtn')].find((b) => !b.closest('[hidden]'));
+  if (!btn) return false;
+  const t = ticket.getBoundingClientRect();
+  const b = btn.getBoundingClientRect();
+  if (b.top < t.top - 1 || b.bottom > t.bottom + 1) return false;
+  const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+  return Boolean(hit && (hit === btn || btn.contains(hit)));
+}), `${await page.evaluate(() => Math.round(document.querySelector('#ticket').scrollHeight - document.querySelector('#ticket').clientHeight))}px of form behind it`);
+
+check('the buy button runs the width of the ticket', await page.evaluate(() => {
+  const ticket = document.querySelector('#ticket');
+  const btn = [...ticket.querySelectorAll('.bigbtn')].find((b) => !b.closest('[hidden]'));
+  return btn && btn.getBoundingClientRect().width / ticket.getBoundingClientRect().width > 0.85;
+}));
+
 for (const [i, tab] of ['positions', 'orders', 'flow', 'pnl', 'feed', 'history', 'news'].entries()) {
   await page.click(`#bottomtabs .tabbtn:nth-child(${i + 1})`);
   await page.waitForTimeout(250);
