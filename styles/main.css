@@ -817,6 +817,34 @@ table.grid tr:hover td { background: var(--panel-2); }
 }
 .pill.on { color: var(--green); border-color: rgba(22,217,125,.4); background: rgba(22,217,125,.08); }
 
+/* ── the keyboard editor ─────────────────────────────────────────────── */
+/* The key on the row IS the control: pressing it listens for the next key.
+   Monospaced and fixed-width so the column does not jump between SPACE and
+   B, which would make a list of forty rows look like a list of forty
+   mistakes. */
+.keybind {
+  min-width: 108px; text-align: center; white-space: nowrap;
+  font-family: var(--mono, ui-monospace, monospace); font-size: 12px; letter-spacing: 1px;
+  padding: 6px 10px; border-radius: 0;
+  background: var(--ctl); border: 1px solid var(--ctl-line); color: var(--ctl-text);
+}
+.keybind:hover { background: var(--ctl-hover); border-color: var(--accent); color: var(--accent-ink); }
+.keybind.is-listening {
+  border-color: var(--accent); color: var(--accent-ink);
+  background: var(--raise); animation: keylisten 1.1s ease-in-out infinite;
+}
+.keybind.is-off { color: var(--dim-2); border-style: dashed; }
+/* ESC is not editable, so it is not a button and does not pretend to be. */
+.keybind.is-fixed { display: inline-block; color: var(--dim-2); cursor: default; }
+.keybind-clear {
+  flex: none; width: 26px; padding: 6px 0; font-size: 11px; border-radius: 0;
+  background: var(--ctl); border: 1px solid var(--ctl-line); color: var(--dim-2);
+}
+.keybind-clear:hover { color: var(--down); border-color: var(--down); }
+@keyframes keylisten { 50% { opacity: .55; } }
+:root[data-motion="reduced"] .keybind.is-listening { animation: none; }
+.ccard-sub.bad { color: var(--down); }
+
 /* ── views ───────────────────────────────────────────────────────────── */
 .viewpage { overflow: auto; min-height: 0; }
 .pagegrid { display: grid; gap: var(--gut); grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-items: start; }

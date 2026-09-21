@@ -30,6 +30,10 @@ import { verifyStripeSignature } from '../api/stripe/_verify.js';
 import { checkSupport, TOPICS, MIN_MESSAGE, MAX_MESSAGE } from '../src/engine/support.js';
 import { funnel, byAddress, beforeSignup, duration, did, joined } from '../src/engine/insights.js';
 import { isLiveHost } from '../src/engine/analytics.js';
+import {
+  ACTIONS, ACTION_BY_ID, keyToken, keyLabel, bindings, lookup, bind, reserved, isCustomised, LEGEND,
+} from '../src/engine/keys.js';
+import { cleanBinds } from '../src/engine/settings.js';
 
 // ── rng ──────────────────────────────────────────────────────────────────
 test('rng is deterministic for a given seed', () => {
@@ -2730,4 +2734,110 @@ test('a visit is only reported from the real site', () => {
   // Inside the private ranges by the first octet only, which these are not.
   assert.equal(isLiveHost('172.15.0.1'), true);
   assert.equal(isLiveHost('172.32.0.1'), true);
+});
+
+// ── keyboard ──────────────────────────────────────────────────────────────
+
+const press = (key, over = {}) => ({ key, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...over });
+
+test('no two actions ship on the same key', () => {
+  const seen = new Map();
+  for (const a of ACTIONS) {
+    assert.ok(!seen.has(a.key), `${a.id} and ${seen.get(a.key)} both default to ${a.key}`);
+    seen.set(a.key, a.id);
+  }
+});
+
+test('every action has an id, a group and a label', () => {
+  for (const a of ACTIONS) {
+    assert.ok(a.id && a.group && a.label, `${a.id} is missing something`);
+    assert.equal(a.key, a.key.toLowerCase(), `${a.id} stores its key in mixed case`);
+  }
+  // The legend is written as ids, so a rename that misses it would leave a
+  // corner of the desk pointing at nothing.
+  for (const [id] of LEGEND) assert.ok(ACTION_BY_ID.has(id), `the legend names ${id}, which does not exist`);
+});
+
+test('a keypress becomes one comparable token', () => {
+  assert.equal(keyToken(press('b')), 'b');
+  assert.equal(keyToken(press('B', { shiftKey: true })), 'b', 'shift is already in the letter');
+  assert.equal(keyToken(press(' ')), 'space');
+  assert.equal(keyToken(press('Enter')), 'enter');
+  assert.equal(keyToken(press('ArrowRight')), 'arrowright');
+  assert.equal(keyToken(press('ArrowRight', { shiftKey: true })), 'shift+arrowright',
+    'an arrow does not change shape under shift, so it has to say so');
+  assert.equal(keyToken(press('?')), '?');
+  assert.equal(keyToken(press('Shift', { shiftKey: true })), '', 'a bare modifier is not a binding');
+  assert.equal(keyToken(press('r', { ctrlKey: true })), 'ctrl+r');
+});
+
+test('keys read as keys', () => {
+  assert.equal(keyLabel('space'), 'SPACE');
+  assert.equal(keyLabel('shift+arrowright'), 'SHIFT + →');
+  assert.equal(keyLabel('b'), 'B');
+  assert.equal(keyLabel(null), 'NONE');
+});
+
+test('the defaults come through untouched, and overrides sit on top', () => {
+  const plain = bindings({});
+  assert.equal(plain.pause, 'space');
+  const moved = bindings({ pause: 'q' });
+  assert.equal(moved.pause, 'q');
+  assert.equal(moved.long, 'b', 'moving one key does not move the others');
+  // An action deliberately left unbound is not the same as one nobody touched.
+  assert.equal(bindings({ pause: null }).pause, null);
+});
+
+test('binding a key takes it off whoever had it', () => {
+  // B is long by default. Giving it to short has to leave long without a key,
+  // or one press would do two things and nothing on screen would say why.
+  const { overrides, stolenFrom } = bind({}, 'short', 'b');
+  assert.equal(stolenFrom, 'long');
+  const after = bindings(overrides);
+  assert.equal(after.short, 'b');
+  assert.equal(after.long, null);
+  assert.equal(lookup(overrides).get('b'), 'short');
+});
+
+test('putting a key back on its default forgets the override', () => {
+  const moved = bind({}, 'pause', 'q').overrides;
+  assert.equal(moved.pause, 'q');
+  const back = bind(moved, 'pause', 'space').overrides;
+  assert.ok(!('pause' in back), 'back on the default is stored as no opinion at all');
+  assert.equal(isCustomised(back), false);
+  assert.equal(isCustomised(moved), true);
+});
+
+test('an unbound action is simply absent from the lookup', () => {
+  const off = bind({}, 'pause', null).overrides;
+  assert.equal(bindings(off).pause, null);
+  assert.equal(lookup(off).has('space'), false);
+});
+
+test('the lookup never lets one key mean two things', () => {
+  // A save written by an older build could hold a duplicate. The map has to
+  // survive it rather than firing both.
+  const map = lookup({ short: 'b' });
+  assert.equal(map.get('b'), 'long', 'the first action in the list keeps it');
+  assert.equal([...map.values()].filter((v) => v === 'short').length, 0);
+});
+
+test('the browser keeps the keys it needs', () => {
+  assert.equal(reserved('escape'), true);
+  assert.equal(reserved('tab'), true);
+  assert.equal(reserved('ctrl+r'), true);
+  assert.equal(reserved('meta+q'), true);
+  assert.equal(reserved('b'), false);
+  assert.equal(reserved(''), false);
+});
+
+test('a keymap from another build cannot poison this one', () => {
+  assert.deepEqual(cleanBinds(null), {});
+  assert.deepEqual(cleanBinds('nonsense'), {});
+  assert.deepEqual(cleanBinds(['b']), {});
+  assert.deepEqual(cleanBinds({ pause: 'q' }), { pause: 'q' });
+  assert.deepEqual(cleanBinds({ pause: null }), { pause: null }, 'deliberately unbound survives');
+  assert.deepEqual(cleanBinds({ notAnAction: 'q' }), {}, 'an action that no longer exists is dropped');
+  assert.deepEqual(cleanBinds({ pause: 42 }), {}, 'a key that was never a key is dropped');
+  assert.deepEqual(cleanBinds({ pause: 'x'.repeat(50) }), {});
 });

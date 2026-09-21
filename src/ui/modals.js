@@ -15,7 +15,10 @@ import {
   cashFor, vipPointsFor, vipProgress, unconfiguredProvider, devGrantProvider,
 } from '../engine/store.js';
 import { SECTORS } from '../data/instruments.js';
-import { settings, TOGGLES, UI_SCALES, SHORTCUTS, THEMES, ACCENTS, CANDLE_PALETTES, GRID_DENSITY, TARGET_PRESETS } from '../engine/settings.js';
+import { settings, TOGGLES, UI_SCALES, THEMES, ACCENTS, CANDLE_PALETTES, GRID_DENSITY, TARGET_PRESETS } from '../engine/settings.js';
+import {
+  ACTIONS, ACTION_BY_ID, GROUPS, ESCAPE, keyToken, keyLabel, bindings, bind, reserved, isCustomised,
+} from '../engine/keys.js';
 import {
   SOURCES, OPERATIONS, BANDS, PLOTS, SWATCHES, MIN_PERIOD, MAX_PERIOD, MAX_SAVED,
   FUNC_HELP, blankDef, describeDef, validateFormula, computeCustom,
@@ -36,14 +39,27 @@ export class Modals {
   }
 
   close() {
+    this.teardown();
     this.root.hidden = true;
     this.current = null;
     clear(this.root);
   }
 
+  /**
+   * A view that took something outside its own markup, such as a document
+   * listener, hands back the way to undo it. Run whenever the view goes,
+   * which includes being replaced by another one.
+   */
+  teardown() {
+    const fn = this.onCloseView;
+    this.onCloseView = null;
+    fn?.();
+  }
+
   open(id) {
     const build = this[`view_${id}`];
     if (!build) return;
+    this.teardown();
     this.current = id;
     this.root.hidden = false;
     clear(this.root);
@@ -296,9 +312,11 @@ export class Modals {
       onclick: () => this.open('customize'),
     }));
     body.append(el('button', {
-      class: 'bigrow', text: '⌨ VIEW KEYBOARD SHORTCUTS',
+      class: 'bigrow', text: '⌨ KEYBOARD SHORTCUTS',
       onclick: () => this.open('shortcuts'),
     }));
+    body.append(el('div', { class: 'ccard-sub', style: { marginTop: '-4px', marginBottom: '8px' }, text:
+      'Every panel, the chart and the ticket have a key. Change any of them in there.' }));
     body.append(el('button', {
       class: 'bigrow purple', text: '↺ REPLAY TUTORIAL',
       onclick: () => { this.close(); this.onReplayTutorial?.(); },
@@ -722,10 +740,125 @@ export class Modals {
     body.append(wrap);
   }
 
+  /**
+   * THE KEYBOARD, AND THE ABILITY TO REARRANGE IT.
+   *
+   * Every row is the binding itself, not a picture of one: press the key on
+   * the right and the next key you hit becomes that action's key. A list you
+   * can only read is the version of this screen that makes somebody with a
+   * different keyboard layout give up, because half of these letters are
+   * somewhere else on theirs.
+   *
+   * One capture at a time, and the capture takes the keyboard while it is
+   * open, so binding the settings panel to a key does not open the settings
+   * panel on the way past.
+   */
   view_shortcuts(body) {
-    body.append(html(`<div class="rowlist">${SHORTCUTS.map(([key, what]) => `
-      <div class="listrow"><span class="pill" style="min-width:64px;text-align:center">${esc(key)}</span>
-      <span class="grow">${esc(what)}</span></div>`).join('')}</div>`));
+    let capturing = null;   // { id, node } while waiting for a key
+
+    const note = el('div', { class: 'ccard-sub' , text:
+      'Click a key to change it. The next key you press becomes that shortcut. '
+      + 'ESC while listening cancels, and always closes whatever is open.' });
+    body.append(note);
+
+    const say = (text, bad = false) => {
+      note.textContent = text;
+      note.classList.toggle('bad', bad);
+    };
+
+    const rows = new Map();   // action id -> its key button
+
+    const paint = () => {
+      const bound = bindings(settings.get('keybinds'));
+      for (const [id, node] of rows) {
+        const listening = capturing?.id === id;
+        node.className = cls('keybind', listening && 'is-listening', !bound[id] && !listening && 'is-off');
+        node.textContent = listening ? 'PRESS A KEY' : keyLabel(bound[id]);
+      }
+      resetBtn.hidden = !isCustomised(settings.get('keybinds'));
+    };
+
+    const stopCapture = () => {
+      if (!capturing) return;
+      capturing = null;
+      document.removeEventListener('keydown', onCapture, true);
+      paint();
+    };
+
+    const onCapture = (e) => {
+      // Capture phase, so this key belongs to the editor and not to the desk
+      // behind it.
+      e.preventDefault();
+      e.stopPropagation();
+      const token = keyToken(e);
+      if (!token) return;                       // a bare modifier, still waiting
+      const { id } = capturing;
+      if (token === ESCAPE) { stopCapture(); say('Left as it was.'); return; }
+      if (reserved(token)) {
+        stopCapture();
+        say(`${keyLabel(token)} belongs to the browser, so it cannot be used here.`, true);
+        return;
+      }
+      const { overrides, stolenFrom } = bind(settings.get('keybinds'), id, token);
+      settings.set('keybinds', overrides);
+      stopCapture();
+      const label = ACTION_BY_ID.get(id)?.label ?? id;
+      say(stolenFrom
+        ? `${keyLabel(token)} is now ${label.toLowerCase()}, and ${(ACTION_BY_ID.get(stolenFrom)?.label ?? stolenFrom).toLowerCase()} has no key.`
+        : `${keyLabel(token)} is now ${label.toLowerCase()}.`);
+    };
+
+    const startCapture = (id) => {
+      stopCapture();
+      capturing = { id };
+      say('Listening. Press the key you want.');
+      document.addEventListener('keydown', onCapture, true);
+      paint();
+    };
+
+    const resetBtn = el('button', {
+      class: 'bigrow plain', text: '↺ RESET EVERY KEY TO ITS DEFAULT',
+      onclick: () => {
+        stopCapture();
+        settings.set('keybinds', {});
+        say('Back to the defaults.');
+        paint();
+      },
+    });
+
+    for (const group of GROUPS) {
+      body.append(html(`<h4>${esc(group)}</h4>`));
+      const list = el('div', { class: 'rowlist' });
+      for (const action of ACTIONS.filter((a) => a.group === group)) {
+        const keyBtn = el('button', { class: 'keybind', onclick: () => startCapture(action.id) });
+        rows.set(action.id, keyBtn);
+        list.append(el('div', { class: 'listrow' }, [
+          el('span', { class: 'grow', text: action.label }),
+          keyBtn,
+          el('button', {
+            class: 'keybind-clear', title: 'Remove this key', text: '✕',
+            onclick: () => {
+              stopCapture();
+              settings.set('keybinds', bind(settings.get('keybinds'), action.id, null).overrides);
+              say(`${action.label} has no key now.`);
+              paint();
+            },
+          }),
+        ]));
+      }
+      body.append(list);
+    }
+
+    body.append(html(`<div class="rowlist" style="margin-top:10px">
+      <div class="listrow"><span class="grow">Close whatever is open</span>
+      <span class="keybind is-fixed">ESC</span></div>
+    </div>`));
+    body.append(resetBtn);
+    paint();
+
+    // A panel that walks away mid-capture would leave a listener on the
+    // document eating every keypress on the desk.
+    this.onCloseView = stopCapture;
   }
 
   // --- help and support ---------------------------------------------------

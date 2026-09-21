@@ -1,6 +1,8 @@
 // Player preferences. Persisted separately from the save so they survive a
 // reset, and read synchronously by every panel that needs them.
 
+import { ACTION_BY_ID } from './keys.js';
+
 const KEY = 'browsermarket.settings.v1';
 
 export const THEMES = ['dark', 'oled', 'light', 'system'];
@@ -43,6 +45,9 @@ export const DEFAULTS = {
      never appear over a desk somebody already knows how to use. */
   coachDone: false,
   dockHeight: 240,
+  /* Only what has been moved off the defaults in keys.js. Storing the whole
+     map would freeze this save file against every key added later. */
+  keybinds: {},
   autoTakeProfit: false,
   takeProfitPct: 10,
   autoStopLoss: false,
@@ -63,34 +68,6 @@ export const TOGGLES = [
 ];
 
 export const UI_SCALES = [80, 90, 100, 110, 120];
-
-export const SHORTCUTS = [
-  ['SPACE', 'Pause or resume the market'],
-  ['B / S', 'Switch the ticket to long or short'],
-  ['ENTER', 'Submit the order ticket'],
-  ['1 - 6', 'Jump between chart timeframes'],
-  ['← / →', 'Scroll the chart back and forward'],
-  ['↑ / ↓', 'Zoom the chart in and out'],
-  ['SHIFT + →', 'Jump back to the live edge'],
-  ['A', 'Arm a price alert on the chart'],
-  ['T', 'Open the time machine'],
-  ['H', 'Help and support'],
-  ['ESC', 'Close overlays'],
-];
-
-/**
- * The handful worth keeping on screen. The full list lives behind a modal
- * nobody opens twice, and a shortcut nobody can see is a shortcut nobody
- * uses, so the short version sits in the corner of the desk.
- */
-export const SHORTCUT_LEGEND = [
-  ['SPACE', 'pause'],
-  ['B / S', 'side'],
-  ['↵', 'submit'],
-  ['← →', 'scroll'],
-  ['↑ ↓', 'zoom'],
-  ['H', 'help'],
-];
 
 // Gains / losses. "Blue / orange" is the colourblind-safe pair: it stays
 // distinguishable under every common deficiency, where red-green does not.
@@ -197,7 +174,26 @@ function migrate(values) {
   if (!ACCENTS[values.accent]) values.accent = 'blue';
   if (!(values.chartGrid in GRID_DENSITY)) values.chartGrid = 'normal';
   values.sizePresets = cleanPresets(values.sizePresets);
+  values.keybinds = cleanBinds(values.keybinds);
   return values;
+}
+
+/**
+ * A stored keymap is whatever was in the browser, which on a save carried
+ * between builds can be an action that no longer exists or a value that was
+ * never a key. Anything unrecognised is dropped rather than repaired, which
+ * puts that one action back on its default instead of leaving a key that
+ * cannot be pressed.
+ */
+export function cleanBinds(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [id, token] of Object.entries(raw)) {
+    if (!ACTION_BY_ID.has(id)) continue;
+    if (token === null) { out[id] = null; continue; }
+    if (typeof token === 'string' && token && token.length <= 24) out[id] = token;
+  }
+  return out;
 }
 
 /**
