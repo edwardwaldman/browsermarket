@@ -11,7 +11,8 @@ import { Modals } from './ui/modals.js';
 import { MobileTrade } from './ui/mobile.js';
 import { ResearchPage } from './ui/pages.js';
 import { Toasts, Celebration, floatXp } from './ui/toast.js';
-import { settings, SHORTCUT_LEGEND } from './engine/settings.js';
+import { settings } from './engine/settings.js';
+import { LEGEND, ESCAPE, ACTION_BY_ID, keyToken, keyLabel, bindings, lookup } from './engine/keys.js';
 import { Auth } from './engine/auth.js';
 import { AuthBox } from './ui/authbox.js';
 import {
@@ -218,6 +219,7 @@ function onSettingChange(id) {
   if (['candlePalette', 'theme', 'accent', 'chartGrid', '*'].includes(id)) ui.chart?.render();
   if (id === 'dockHeight') return; // dragging repaints already
   if (id === 'buyNearTop') ui.ticket?.applyLayout();
+  if (id === 'keybinds' || id === '*') invalidateKeys();
   render(true);
 }
 
@@ -415,16 +417,9 @@ function buildUi() {
     openMobileMenu();
   });
 
+  paintLegend();
   const legend = $('#keylegend');
-  if (legend) {
-    for (const [key, what] of SHORTCUT_LEGEND) {
-      legend.append(el('span', { class: 'keylegend-pair' }, [
-        el('kbd', { text: key }),
-        el('span', { text: what }),
-      ]));
-    }
-    legend.onclick = () => ui.modals.open('shortcuts');
-  }
+  if (legend) legend.onclick = () => ui.modals.open('shortcuts');
 
   $('#btn-theme').addEventListener('click', () => {
     const next = settings.cycleTheme();
@@ -685,50 +680,169 @@ function wireDockResize() {
   });
 }
 
+/**
+ * Everything the keyboard reaches, which is everything.
+ *
+ * The map is read from settings rather than written into this function, so a
+ * rebound key changes what happens here and what the legend says at the same
+ * time. Cached because this runs on every keypress and rebuilding a Map to
+ * answer one of them is work for nothing; `invalidateKeys` throws it away
+ * when the editor changes something.
+ */
+let keyMap = null;
+
+function invalidateKeys() {
+  keyMap = null;
+  paintLegend();
+}
+
+function keys() {
+  if (!keyMap) keyMap = lookup(settings.get('keybinds'));
+  return keyMap;
+}
+
+/** The corner legend, drawn from the live bindings. */
+function paintLegend() {
+  const legend = $('#keylegend');
+  if (!legend) return;
+  const bound = bindings(settings.get('keybinds'));
+  clear(legend);
+  for (const [id, what] of LEGEND) {
+    if (!bound[id]) continue;
+    legend.append(el('span', { class: 'keylegend-pair' }, [
+      el('kbd', { text: keyLabel(bound[id]) }),
+      el('span', { text: what }),
+    ]));
+  }
+}
+
 function onKey(e) {
   // The target is not always an Element - a synthetic event can be dispatched
   // straight at `document`, which has no matches().
   const target = e.target;
-  if (target instanceof Element && target.matches('input, textarea')) return;
-  const map = { b: 'LONG', s: 'SHORT' };
-  const tfKeys = TF_ORDER;
-  if (/^[1-6]$/.test(e.key)) {
-    timeframe = tfKeys[Number(e.key) - 1];
-    buildChartTools();
-    renderChart(true);
-    return;
-  }
-  if (e.key.toLowerCase() === 'a') { armAlert(); return; }
-  if (e.key.toLowerCase() === 't') { ui.modals.open('timemachine'); return; }
-  if (e.key.toLowerCase() === 'h') { ui.modals.open('help'); return; }
+  if (target instanceof Element && target.matches('input, textarea, select')) return;
+  // Copy, paste, reload and the rest belong to the browser. A game that eats
+  // ctrl+R has taken something away that it cannot give back.
+  if (e.ctrlKey || e.metaKey) return;
 
-  // The chart is the thing on this screen you actually move around in, so the
-  // arrows move it: left and right along the tape, up and down through how
-  // much of it fits. Shift-right is the way back to the live edge, which is
-  // otherwise a button in the corner of the chart.
-  if (e.key.startsWith('Arrow')) {
-    e.preventDefault();
-    const step = e.shiftKey ? 20 : 4;
-    if (e.key === 'ArrowLeft') ui.chart.pan(step);
-    else if (e.key === 'ArrowRight') { if (e.shiftKey) ui.chart.goLive(); else ui.chart.pan(-step); }
-    else if (e.key === 'ArrowUp') ui.chart.zoom(-8);
-    else if (e.key === 'ArrowDown') ui.chart.zoom(8);
-    if (ui.liveBtn) ui.liveBtn.hidden = ui.chart.isLive;
-    return;
-  }
-  if (map[e.key.toLowerCase()]) {
-    ui.ticket.setSide(map[e.key.toLowerCase()]);
-  } else if (e.key === 'Enter') {
-    ui.ticket.submit();
-  } else if (e.key === 'Escape') {
+  const token = keyToken(e);
+  if (!token) return;
+
+  // Never rebindable: every screen needs one way out.
+  if (token === ESCAPE) {
     ui.mobile.collapse();
     closeSymbolPicker();
     $('#ticket').classList.remove('mobile-open');
-  } else if (e.key === ' ') {
-    e.preventDefault();
-    if (game.running) game.stop(); else game.start();
-    ui.toasts.push({ tone: 'info', icon: 'pause', text: game.running ? 'Market running' : 'Market paused' });
+    return;
   }
+
+  const action = keys().get(token);
+  if (!action) return;
+  if (runAction(action) !== false) e.preventDefault();
+}
+
+/**
+ * What each action does. Split from the handler so that the key it is on and
+ * the thing it does are never tangled together: this switch does not know or
+ * care which key got here.
+ *
+ * Returning false means the key was not consumed, and the browser keeps it.
+ */
+function runAction(id) {
+  const tf = { tf1: 0, tf2: 1, tf3: 2, tf4: 3, tf5: 4, tf6: 5 };
+  if (id in tf) {
+    timeframe = TF_ORDER[tf[id]];
+    buildChartTools();
+    renderChart(true);
+    return true;
+  }
+
+  // Every action in the PANELS group is named after the panel it opens, so
+  // adding one there adds a key here without touching this function. The
+  // three below sit in other groups because that is where somebody looking
+  // for them would look.
+  if (ACTION_BY_ID.get(id)?.group === 'PANELS'
+    || id === 'timemachine' || id === 'rewind' || id === 'builder') {
+    ui.modals.open(id);
+    return true;
+  }
+
+  switch (id) {
+    case 'pause':
+      if (game.running) game.stop(); else game.start();
+      ui.toasts.push({ tone: 'info', icon: 'pause', text: game.running ? 'Market running' : 'Market paused' });
+      return true;
+
+    case 'long': ui.ticket.setSide('LONG'); return true;
+    case 'short': ui.ticket.setSide('SHORT'); return true;
+    case 'submit': ui.ticket.submit(); return true;
+
+    // Closes what is open in the name on screen, and nothing else. A key that
+    // could empty a whole book by itself is a key somebody hits by accident
+    // once and never forgives.
+    case 'closeAll': {
+      const open = game.account.positions.filter((p) => p.sym === symbol);
+      if (!open.length) {
+        ui.toasts.push({ tone: 'info', icon: 'info', text: `Nothing open in ${symbol}` });
+        return true;
+      }
+      for (const p of open) game.closePosition(p.id, 1);
+      ui.ticket.update();
+      return true;
+    }
+
+    // The chart is the thing on this screen you actually move around in, so
+    // the arrows move it: left and right along the tape, up and down through
+    // how much of it fits.
+    case 'panBack': ui.chart.pan(4); break;
+    case 'panBackFast': ui.chart.pan(20); break;
+    case 'panForward': ui.chart.pan(-4); break;
+    case 'zoomIn': ui.chart.zoom(-8); break;
+    case 'zoomOut': ui.chart.zoom(8); break;
+    case 'goLive': ui.chart.goLive(); break;
+
+    case 'alert': armAlert(); return true;
+    case 'view': setView(view === 'trade' ? 'research' : 'trade'); return true;
+    case 'theme':
+      settings.cycleTheme();
+      syncThemeIcon();
+      return true;
+
+    case 'search': {
+      const box = $('#search');
+      if (!box) return false;
+      // The explorer is a sheet on a phone, and focusing a box inside a
+      // hidden sheet puts the caret somewhere nobody can see.
+      $('.explorer')?.classList.add('mobile-open');
+      box.focus();
+      box.select();
+      return true;
+    }
+
+    case 'prevSymbol':
+    case 'nextSymbol': {
+      const list = ui.explorer.items();
+      if (!list.length) return true;
+      const at = list.findIndex((i) => i.sym === symbol);
+      const step = id === 'nextSymbol' ? 1 : -1;
+      // The name on screen is not always in the list on screen: an ETF while
+      // the STOCKS tab is up is nowhere in it. Then the first press steps on
+      // to the list rather than one past where it would have been.
+      // Otherwise it wraps, because a key that stops working at the end of
+      // the list with nothing on screen to say why reads as broken.
+      const next = at < 0
+        ? list[step > 0 ? 0 : list.length - 1]
+        : list[((at + step) + list.length) % list.length];
+      if (next) ui.explorer.select(next.sym);
+      return true;
+    }
+
+    default:
+      return false;
+  }
+
+  if (ui.liveBtn) ui.liveBtn.hidden = ui.chart.isLive;
+  return true;
 }
 
 function selectSymbol(sym) {

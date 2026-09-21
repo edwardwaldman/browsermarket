@@ -236,6 +236,115 @@ check('the arrows scroll and zoom the chart, and shift-right returns to live', a
   return scrolledBack && zoomedIn && backLive;
 }));
 
+// EVERY PANEL HAS A KEY. The point of a terminal is that you do not go
+// looking for an icon, so this checks the whole map rather than a sample:
+// one unbound action is one panel somebody cannot reach from the keyboard.
+check('every panel action opens its panel', await page.evaluate(async () => {
+  const { ACTIONS, bindings } = await import('/src/engine/keys.js');
+  const { settings } = await import('/src/engine/settings.js');
+  const bound = bindings(settings.get('keybinds'));
+  const missed = [];
+  for (const a of ACTIONS.filter((x) => x.group === 'PANELS')) {
+    const token = bound[a.id];
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: token === 'space' ? ' ' : token }));
+    await new Promise((r) => setTimeout(r, 90));
+    const open = document.querySelector('.modal-title')?.textContent;
+    if (!open) missed.push(a.id);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await new Promise((r) => setTimeout(r, 40));
+  }
+  window.__missedPanels = missed.join(', ');
+  return missed.length === 0;
+}), await page.evaluate(() => window.__missedPanels || ''));
+
+check('the brackets step through the explorer, and / jumps to the search box', await page.evaluate(async () => {
+  // Put the desk back where it was afterwards: the top of the list is an
+  // executive name nobody can trade yet, and leaving the terminal parked on
+  // one would fail a later check for reasons that have nothing to do with it.
+  const was = ui.explorer.selected;
+  try {
+    const first = ui.explorer.items()[0]?.sym;
+    ui.explorer.select(first);
+    await new Promise((r) => setTimeout(r, 120));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: ']' }));
+    await new Promise((r) => setTimeout(r, 120));
+    const moved = ui.explorer.selected !== first;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: '[' }));
+    await new Promise((r) => setTimeout(r, 120));
+    const back = ui.explorer.selected === first;
+    document.querySelector('#search').blur();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: '/' }));
+    const focused = document.activeElement?.id === 'search';
+    document.activeElement?.blur();
+    return moved && back && focused;
+  } finally {
+    ui.explorer.select(was);
+    document.querySelector('.explorer')?.classList.remove('mobile-open');
+  }
+}));
+
+check('a key typed into a box is text, not a shortcut', await page.evaluate(async () => {
+  const box = document.querySelector('#search');
+  box.focus();
+  const before = document.querySelector('.modal-title');
+  box.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', bubbles: true }));
+  await new Promise((r) => setTimeout(r, 150));
+  const after = document.querySelector('.modal-title');
+  box.blur();
+  return !before && !after;
+}));
+
+check('rebinding a key moves the shortcut and the legend with it', await page.evaluate(async () => {
+  const { settings } = await import('/src/engine/settings.js');
+  const { bind } = await import('/src/engine/keys.js');
+  const was = settings.get('keybinds');
+  try {
+    settings.set('keybinds', bind(was, 'help', 'j').overrides);
+    await new Promise((r) => setTimeout(r, 120));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
+    await new Promise((r) => setTimeout(r, 200));
+    const onNew = document.querySelector('.modal-title')?.textContent === 'HELP & SUPPORT';
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await new Promise((r) => setTimeout(r, 80));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'h' }));
+    await new Promise((r) => setTimeout(r, 200));
+    const oldKeyDead = !document.querySelector('.modal-title');
+    const legend = document.querySelector('#keylegend').textContent;
+    return onNew && oldKeyDead && /j/i.test(legend);
+  } finally {
+    settings.set('keybinds', was);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  }
+}));
+
+check('the editor lists every action and rebinds the one you press', await page.evaluate(async () => {
+  const { ACTIONS } = await import('/src/engine/keys.js');
+  const { settings } = await import('/src/engine/settings.js');
+  ui.modals.open('shortcuts');
+  await new Promise((r) => setTimeout(r, 200));
+  const listed = document.querySelectorAll('.modal-body .keybind:not(.is-fixed)').length;
+  const row = [...document.querySelectorAll('.modal-body .listrow')]
+    .find((r) => r.textContent.includes('Pause or resume'));
+  row.querySelector('.keybind').click();
+  await new Promise((r) => setTimeout(r, 80));
+  const listening = Boolean(document.querySelector('.keybind.is-listening'));
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'q', bubbles: true }));
+  await new Promise((r) => setTimeout(r, 150));
+  const moved = settings.get('keybinds').pause === 'q';
+  // The capture listener must not outlive the panel, or it eats the desk.
+  [...document.querySelectorAll('.bigrow')].find((b) => b.textContent.includes('RESET EVERY KEY'))?.click();
+  await new Promise((r) => setTimeout(r, 120));
+  const reset = Object.keys(settings.get('keybinds')).length === 0;
+  ui.modals.close();
+  await new Promise((r) => setTimeout(r, 120));
+  const wasRunning = game.running;
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
+  await new Promise((r) => setTimeout(r, 120));
+  const deskAnswersAgain = game.running !== wasRunning;
+  if (!game.running) game.start();
+  return listed === ACTIONS.length && listening && moved && reset && deskAnswersAgain;
+}));
+
 // every corner is square
 check('no rounded corners', await page.evaluate(() => [...document.querySelectorAll('*')]
   .every((el) => {
