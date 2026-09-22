@@ -761,6 +761,26 @@ export class Modals {
       + 'ESC while listening cancels, and always closes whatever is open.' });
     body.append(note);
 
+    // The same switch as the one in the corner of the desk, because this is
+    // the other place somebody goes looking for it.
+    const master = el('button', { class: 'switch' });
+    const paintMaster = () => {
+      const on = settings.get('keysOn');
+      master.className = cls('switch', on && 'on');
+      master.textContent = on ? 'ON' : 'OFF';
+    };
+    master.onclick = () => { settings.toggle('keysOn'); paintMaster(); };
+    paintMaster();
+    body.append(el('div', { class: 'setrow' }, [
+      el('div', { class: 'setrow-body' }, [
+        el('div', { class: 'setrow-title', text: 'KEYBOARD SHORTCUTS' }),
+        el('div', { class: 'setrow-desc', text:
+          'Off means a letter is only ever a letter. ESC still closes whatever is open. '
+          + 'The same switch sits in the bottom left of the desk.' }),
+      ]),
+      master,
+    ]));
+
     const say = (text, bad = false) => {
       note.textContent = text;
       note.classList.toggle('bad', bad);
