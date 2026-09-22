@@ -219,7 +219,7 @@ function onSettingChange(id) {
   if (['candlePalette', 'theme', 'accent', 'chartGrid', '*'].includes(id)) ui.chart?.render();
   if (id === 'dockHeight') return; // dragging repaints already
   if (id === 'buyNearTop') ui.ticket?.applyLayout();
-  if (id === 'keybinds' || id === '*') invalidateKeys();
+  if (id === 'keybinds' || id === 'keysOn' || id === '*') invalidateKeys();
   render(true);
 }
 
@@ -418,8 +418,6 @@ function buildUi() {
   });
 
   paintLegend();
-  const legend = $('#keylegend');
-  if (legend) legend.onclick = () => ui.modals.open('shortcuts');
 
   $('#btn-theme').addEventListener('click', () => {
     const next = settings.cycleTheme();
@@ -701,19 +699,57 @@ function keys() {
   return keyMap;
 }
 
-/** The corner legend, drawn from the live bindings. */
+/**
+ * The corner legend, drawn from the live bindings, with the master switch on
+ * the end of it.
+ *
+ * The switch is here rather than buried in settings because the moment you
+ * want it is the moment the keyboard is doing something you did not ask for,
+ * and at that moment the settings panel is behind a key that is misbehaving.
+ * One click, in the corner, always reachable with a mouse.
+ */
 function paintLegend() {
   const legend = $('#keylegend');
   if (!legend) return;
+  const on = settings.get('keysOn');
   const bound = bindings(settings.get('keybinds'));
   clear(legend);
+  legend.classList.toggle('is-off', !on);
+
+  legend.append(el('button', {
+    class: cls('keylegend-toggle', on && 'is-on'),
+    id: 'keys-toggle',
+    title: on
+      ? 'Keyboard shortcuts are on. Click to turn them off.'
+      : 'Keyboard shortcuts are off. Click to turn them on.',
+    onclick: () => {
+      const next = settings.toggle('keysOn');
+      ui.toasts.push({
+        tone: 'info',
+        icon: next ? 'unlock' : 'lock',
+        text: next ? 'Keyboard shortcuts on' : 'Keyboard shortcuts off. ESC still closes things.',
+      });
+    },
+  }, [
+    iconNode(on ? 'unlock' : 'lock'),
+    el('span', { text: on ? 'KEYS ON' : 'KEYS OFF' }),
+  ]));
+
+  // The pairs stay on screen while the keys are off, dimmed. Hiding them
+  // would take away the only sign of what the switch is about to give back.
+  const strip = el('button', {
+    class: 'keylegend-strip',
+    title: 'Every keyboard shortcut',
+    onclick: () => ui.modals.open('shortcuts'),
+  });
   for (const [id, what] of LEGEND) {
     if (!bound[id]) continue;
-    legend.append(el('span', { class: 'keylegend-pair' }, [
+    strip.append(el('span', { class: 'keylegend-pair' }, [
       el('kbd', { text: keyLabel(bound[id]) }),
       el('span', { text: what }),
     ]));
   }
+  legend.append(strip);
 }
 
 function onKey(e) {
@@ -728,13 +764,16 @@ function onKey(e) {
   const token = keyToken(e);
   if (!token) return;
 
-  // Never rebindable: every screen needs one way out.
+  // Never rebindable, and never switched off: every screen needs one way out,
+  // including the screen somebody turned the shortcuts off on.
   if (token === ESCAPE) {
     ui.mobile.collapse();
     closeSymbolPicker();
     $('#ticket').classList.remove('mobile-open');
     return;
   }
+
+  if (!settings.get('keysOn')) return;
 
   const action = keys().get(token);
   if (!action) return;

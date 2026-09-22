@@ -680,15 +680,38 @@ table.grid tr:hover td { background: var(--panel-2); }
    reminder. */
 .keylegend {
   display: flex; align-items: center; gap: 10px; flex: none;
-  padding: 0; background: none; border: none; color: var(--dim-2);
-  font-size: 11px; letter-spacing: .4px;
+  color: var(--dim-2); font-size: 11px; letter-spacing: .4px;
 }
-.keylegend:hover { color: var(--text); }
+.keylegend-strip {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0; background: none; border: none; color: inherit;
+  font: inherit; letter-spacing: inherit;
+}
+.keylegend-strip:hover { color: var(--text); }
 .keylegend-pair { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .keylegend kbd {
   font: inherit; padding: 1px 5px; border: 1px solid var(--ctl-line);
   background: var(--ctl); color: var(--ctl-text); border-radius: 0;
 }
+
+/* THE MASTER SWITCH, WHERE YOU ARE WHEN YOU WANT IT.
+   The moment somebody wants the shortcuts off is the moment a key has just
+   done something they did not ask for, and at that moment the settings panel
+   is behind a key that is misbehaving. So it is one click in the corner
+   instead, and it says which way it is rather than just offering to change. */
+.keylegend-toggle {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  padding: 2px 8px; border-radius: 0; font: inherit; letter-spacing: 1px;
+  background: var(--ctl); border: 1px solid var(--ctl-line); color: var(--ctl-text);
+}
+.keylegend-toggle .ico-svg { width: 12px; height: 12px; }
+.keylegend-toggle:hover { border-color: var(--accent); color: var(--accent-ink); }
+.keylegend-toggle.is-on { color: var(--up); border-color: rgba(22,217,125,.35); }
+/* Off is the loud state, because it is the one that explains why nothing is
+   happening when you press a key. */
+.keylegend.is-off .keylegend-toggle { color: var(--down); border-color: rgba(255,77,106,.4); background: var(--down-soft); }
+.keylegend.is-off .keylegend-strip { opacity: .4; }
+.keylegend.is-off .keylegend-pair kbd { text-decoration: line-through; }
 
 /* ── toasts & celebration ────────────────────────────────────────────── */
 .toasts {

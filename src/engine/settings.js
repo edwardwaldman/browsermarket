@@ -48,6 +48,10 @@ export const DEFAULTS = {
   /* Only what has been moved off the defaults in keys.js. Storing the whole
      map would freeze this save file against every key added later. */
   keybinds: {},
+  /* The master switch, thrown from the corner of the desk. Off means a
+     letter is only ever a letter, which is what somebody who types in a
+     second window and keeps landing in this one actually wants. */
+  keysOn: true,
   autoTakeProfit: false,
   takeProfitPct: 10,
   autoStopLoss: false,

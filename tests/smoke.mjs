@@ -219,7 +219,10 @@ check('the H key opens help, and the corner legend says so', await page.evaluate
   const opened = document.querySelector('.modal-title')?.textContent === 'HELP & SUPPORT';
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
   const legend = document.querySelector('#keylegend');
-  return opened && Boolean(legend) && /h/i.test(legend.textContent) && legend.children.length >= 4;
+  // Counted by pair rather than by child: the legend also carries the on/off
+  // switch now, and a count of children would pass on the switch alone.
+  const pairs = legend?.querySelectorAll('.keylegend-pair').length ?? 0;
+  return opened && Boolean(legend) && /h/i.test(legend.textContent) && pairs >= 4;
 }));
 
 check('the arrows scroll and zoom the chart, and shift-right returns to live', await page.evaluate(async () => {
@@ -314,6 +317,42 @@ check('rebinding a key moves the shortcut and the legend with it', await page.ev
   } finally {
     settings.set('keybinds', was);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  }
+}));
+
+check('the corner switch turns every shortcut off, and ESC still works', await page.evaluate(async () => {
+  const { settings } = await import('/src/engine/settings.js');
+  try {
+    const toggle = document.querySelector('#keys-toggle');
+    if (!toggle || !/ON/.test(toggle.textContent)) return false;
+    toggle.click();
+    await new Promise((r) => setTimeout(r, 150));
+    const saysOff = /OFF/.test(document.querySelector('#keys-toggle').textContent)
+      && document.querySelector('#keylegend').classList.contains('is-off');
+
+    // A bound key now does nothing at all.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'h' }));
+    await new Promise((r) => setTimeout(r, 200));
+    const silent = !document.querySelector('.modal-title');
+
+    // ESC is never switched off: the screen it would strand is the one
+    // somebody just turned the keys off on.
+    ui.modals.open('help');
+    await new Promise((r) => setTimeout(r, 200));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await new Promise((r) => setTimeout(r, 200));
+    const escStillCloses = !document.querySelector('.modal-title');
+
+    // And back on, from the same button.
+    document.querySelector('#keys-toggle').click();
+    await new Promise((r) => setTimeout(r, 150));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'h' }));
+    await new Promise((r) => setTimeout(r, 200));
+    const backOn = document.querySelector('.modal-title')?.textContent === 'HELP & SUPPORT';
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    return saysOff && silent && escStillCloses && backOn;
+  } finally {
+    settings.set('keysOn', true);
   }
 }));
 
